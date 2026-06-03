@@ -1,0 +1,171 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum SocialPostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  CANCELLED
+}
+
+enum SocialPlatform {
+  FACEBOOK
+  INSTAGRAM
+  GOOGLE_BUSINESS
+}
+
+enum PublishAttemptStatus {
+  PENDING
+  SKIPPED_DEV_PLACEHOLDER
+  SUCCEEDED
+  FAILED
+}
+
+model AdminUser {
+  id             String         @id @default(cuid())
+  email          String         @unique
+  passwordHash   String
+  displayName    String?
+  lastLoginAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  sessions       AdminSession[]
+  uploadedMedia  MediaAsset[]
+  createdPosts   SocialPost[]   @relation("CreatedPosts")
+  updatedPosts   SocialPost[]   @relation("UpdatedPosts")
+  auditLogs      AuditLog[]
+}
+
+model AdminSession {
+  id             String    @id @default(cuid())
+  tokenHash      String    @unique
+  adminUserId    String
+  expiresAt      DateTime
+  lastAccessedAt DateTime  @default(now())
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  adminUser      AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+  @@index([expiresAt])
+}
+
+model AppSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MediaAsset {
+  id                 String      @id @default(cuid())
+  originalFilename   String
+  mimeType           String
+  sizeBytes          BigInt
+  width              Int
+  height             Int
+  storagePath        String
+  createdByAdminUserId String
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  createdByAdminUser AdminUser   @relation(fields: [createdByAdminUserId], references: [id], onDelete: Restrict)
+  posts              SocialPost[]
+
+  @@index([createdByAdminUserId])
+}
+
+model SocialPost {
+  id                   String               @id @default(cuid())
+  internalTitle        String
+  caption              String               @db.Text
+  status               SocialPostStatus     @default(DRAFT)
+  scheduledAt          DateTime?
+  publishedAt          DateTime?
+  failureReason        String?              @db.Text
+  mediaAssetId         String?
+  createdByAdminUserId String
+  updatedByAdminUserId String
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  mediaAsset           MediaAsset?          @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+  createdByAdminUser   AdminUser            @relation("CreatedPosts", fields: [createdByAdminUserId], references: [id], onDelete: Restrict)
+  updatedByAdminUser   AdminUser            @relation("UpdatedPosts", fields: [updatedByAdminUserId], references: [id], onDelete: Restrict)
+  platforms            SocialPostPlatform[]
+
+  @@index([status, scheduledAt])
+  @@index([mediaAssetId])
+  @@index([createdByAdminUserId])
+  @@index([updatedByAdminUserId])
+}
+
+model SocialPostPlatform {
+  id            String               @id @default(cuid())
+  socialPostId  String
+  platform      SocialPlatform
+  status        SocialPostStatus     @default(DRAFT)
+  scheduledAt   DateTime?
+  publishedAt   DateTime?
+  externalPostId String?
+  lastError     String?              @db.Text
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  socialPost    SocialPost           @relation(fields: [socialPostId], references: [id], onDelete: Cascade)
+  publishAttempts PublishAttempt[]
+
+  @@unique([socialPostId, platform])
+  @@index([platform, status, scheduledAt])
+}
+
+model PublishAttempt {
+  id                   String               @id @default(cuid())
+  socialPostPlatformId String
+  status               PublishAttemptStatus
+  message              String?              @db.Text
+  responsePayload      Json?
+  attemptedAt          DateTime             @default(now())
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  socialPostPlatform   SocialPostPlatform   @relation(fields: [socialPostPlatformId], references: [id], onDelete: Cascade)
+
+  @@index([socialPostPlatformId, attemptedAt])
+}
+
+model AuditLog {
+  id               String    @id @default(cuid())
+  actorAdminUserId String?
+  action           String
+  targetType       String?
+  targetId         String?
+  ipAddress        String?
+  userAgent        String?
+  metadata         Json?
+  createdAt        DateTime  @default(now())
+  actorAdminUser   AdminUser? @relation(fields: [actorAdminUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorAdminUserId])
+  @@index([action, createdAt])
+}
+
+model ConnectedAccount {
+  id                String         @id @default(cuid())
+  platform          SocialPlatform
+  displayName       String
+  externalAccountId String?
+  isActive          Boolean        @default(false)
+  metadata          Json?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([platform, isActive])
+}
