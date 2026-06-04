@@ -7,6 +7,7 @@ type SubmitButtonProps = {
   className?: string;
   name?: string;
   value?: string;
+  disabled?: boolean;
 };
 
 export function SubmitButton(props: SubmitButtonProps) {
@@ -16,7 +17,7 @@ export function SubmitButton(props: SubmitButtonProps) {
     <button
       type="submit"
       className={props.className}
-      disabled={pending}
+      disabled={pending || props.disabled}
       name={props.name}
       value={props.value}
     >
@@ -24,4 +25,3 @@ export function SubmitButton(props: SubmitButtonProps) {
     </button>
   );
 }
-

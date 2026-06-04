@@ -9,8 +9,11 @@ import { initialFormState, settingsSchema, type FormState } from "@/lib/validati
 export async function saveSettingsAction(_: FormState, formData: FormData): Promise<FormState> {
   const adminUser = await requireAdminUser();
   const parsed = settingsSchema.safeParse({
+    siteName: formData.get("siteName"),
+    siteFaviconUrl: formData.get("siteFaviconUrl"),
     publicAppUrl: formData.get("publicAppUrl"),
     uploadDirectory: formData.get("uploadDirectory"),
+    appTimezone: formData.get("appTimezone"),
   });
 
   if (!parsed.success) {
@@ -38,4 +41,3 @@ export async function saveSettingsAction(_: FormState, formData: FormData): Prom
     message: "Settings saved.",
   };
 }
-

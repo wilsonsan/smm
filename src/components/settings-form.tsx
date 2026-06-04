@@ -7,61 +7,100 @@ import { SubmitButton } from "@/components/submit-button";
 
 type SettingsFormProps = {
   initialValues: {
+    siteName: string;
+    siteFaviconUrl: string;
     publicAppUrl: string;
     uploadDirectory: string;
-  };
-  envFlags: {
-    facebookAppIdConfigured: boolean;
-    facebookAppSecretConfigured: boolean;
+    appTimezone: string;
   };
 };
 
-export function SettingsForm({ initialValues, envFlags }: SettingsFormProps) {
+export function SettingsForm({ initialValues }: SettingsFormProps) {
   const [state, formAction] = useActionState(saveSettingsAction, initialFormState);
 
   return (
-    <form action={formAction} className="panel form-card form-grid">
-      <div className="grid-2">
-        <div className="field">
-          <label htmlFor="publicAppUrl">Public app URL</label>
-          <input id="publicAppUrl" name="publicAppUrl" defaultValue={initialValues.publicAppUrl} required />
-          {state.fieldErrors?.publicAppUrl?.map((error) => (
-            <span key={error} className="error-text">
-              {error}
-            </span>
-          ))}
+    <form action={formAction} className="panel settings-section-card">
+      <div className="settings-section-head">
+        <div>
+          <span className="settings-eyebrow">System Settings</span>
+          <h3>Site Settings</h3>
+          <p>Update the visible app brand, favicon, public URL, storage path, and the timezone used across the app.</p>
         </div>
-
-        <div className="field">
-          <label htmlFor="uploadDirectory">Upload directory</label>
-          <input id="uploadDirectory" name="uploadDirectory" defaultValue={initialValues.uploadDirectory} required />
-          <span className="hint">Relative paths resolve from the app workspace. Absolute paths are also supported.</span>
-          {state.fieldErrors?.uploadDirectory?.map((error) => (
-            <span key={error} className="error-text">
-              {error}
-            </span>
-          ))}
-        </div>
+        <span className="settings-count">Editable</span>
       </div>
 
-      <div className="grid-2">
-        <div className="field">
-          <label>Facebook App ID</label>
-          <input value={envFlags.facebookAppIdConfigured ? "Configured via environment" : "Not configured"} readOnly />
+      <section className="settings-subcard">
+        <div className="settings-subcard-head">
+          <div>
+            <strong>Brand & Hosting</strong>
+            <p>These values control how the app presents itself and how core self-hosted paths are resolved.</p>
+          </div>
+          <span className="settings-chip">Live config</span>
         </div>
 
-        <div className="field">
-          <label>Facebook App Secret</label>
-          <input value={envFlags.facebookAppSecretConfigured ? "Configured via environment" : "Not configured"} readOnly />
+        <div className="form-grid">
+          <div className="grid-2">
+            <div className="field">
+              <label htmlFor="siteName">Site name</label>
+              <input id="siteName" name="siteName" defaultValue={initialValues.siteName} required />
+              {state.fieldErrors?.siteName?.map((error) => (
+                <span key={error} className="error-text">
+                  {error}
+                </span>
+              ))}
+            </div>
+
+            <div className="field">
+              <label htmlFor="siteFaviconUrl">Favicon path or URL</label>
+              <input id="siteFaviconUrl" name="siteFaviconUrl" defaultValue={initialValues.siteFaviconUrl} required />
+              <span className="hint">Use a local path like `/social-media-favicon.svg` or a full URL.</span>
+              {state.fieldErrors?.siteFaviconUrl?.map((error) => (
+                <span key={error} className="error-text">
+                  {error}
+                </span>
+              ))}
+            </div>
+
+            <div className="field">
+              <label htmlFor="publicAppUrl">Public app URL</label>
+              <input id="publicAppUrl" name="publicAppUrl" defaultValue={initialValues.publicAppUrl} required />
+              {state.fieldErrors?.publicAppUrl?.map((error) => (
+                <span key={error} className="error-text">
+                  {error}
+                </span>
+              ))}
+            </div>
+
+            <div className="field">
+              <label htmlFor="uploadDirectory">Upload directory</label>
+              <input id="uploadDirectory" name="uploadDirectory" defaultValue={initialValues.uploadDirectory} required />
+              <span className="hint">Relative paths resolve from the app workspace. Absolute paths are also supported.</span>
+              {state.fieldErrors?.uploadDirectory?.map((error) => (
+                <span key={error} className="error-text">
+                  {error}
+                </span>
+              ))}
+            </div>
+
+            <div className="field">
+              <label htmlFor="appTimezone">App timezone</label>
+              <input id="appTimezone" name="appTimezone" defaultValue={initialValues.appTimezone} required />
+              <span className="hint">Use an IANA timezone such as `America/New_York`.</span>
+              {state.fieldErrors?.appTimezone?.map((error) => (
+                <span key={error} className="error-text">
+                  {error}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {state.message ? <p className={state.success ? "success-text" : "error-text"}>{state.message}</p> : null}
+
+          <div className="button-row">
+            <SubmitButton className="primary-button">Save Site Settings</SubmitButton>
+          </div>
         </div>
-      </div>
-
-      {state.message ? <p className={state.success ? "success-text" : "error-text"}>{state.message}</p> : null}
-
-      <div className="button-row">
-        <SubmitButton className="primary-button">Save Settings</SubmitButton>
-      </div>
+      </section>
     </form>
   );
 }
-

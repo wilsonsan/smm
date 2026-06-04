@@ -1,53 +1,58 @@
-type CalendarDay = {
-  date: Date;
-  inCurrentMonth: boolean;
+import { DateTime } from "luxon";
+
+export type CalendarDay = {
+  kind: "day";
+  dateKey: string;
+  dayOfMonth: number;
+  dateTime: DateTime;
 };
 
-export function parseMonthParam(monthParam?: string) {
-  if (!monthParam) {
-    const now = new Date();
-    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  }
+export type CalendarEmptyCell = {
+  kind: "empty";
+  id: string;
+};
 
-  const match = /^(\d{4})-(\d{2})$/.exec(monthParam);
-  if (!match) {
-    const now = new Date();
-    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  }
+export type CalendarGridCell = CalendarDay | CalendarEmptyCell;
 
-  const year = Number(match[1]);
-  const monthIndex = Number(match[2]) - 1;
-  return new Date(Date.UTC(year, monthIndex, 1));
-}
+export function buildMonthGrid(monthStart: DateTime): CalendarGridCell[] {
+  const start = monthStart.startOf("month");
+  const end = monthStart.endOf("month");
+  const leadingEmptyCells = start.weekday % 7;
+  const trailingEmptyCells = 6 - (end.weekday % 7);
+  const cells: CalendarGridCell[] = [];
 
-export function buildMonthGrid(monthStart: Date): CalendarDay[] {
-  const start = new Date(monthStart);
-  const end = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 0));
-  const gridStart = new Date(start);
-  gridStart.setUTCDate(gridStart.getUTCDate() - gridStart.getUTCDay());
-
-  const gridEnd = new Date(end);
-  gridEnd.setUTCDate(gridEnd.getUTCDate() + (6 - gridEnd.getUTCDay()));
-
-  const days: CalendarDay[] = [];
-  const cursor = new Date(gridStart);
-
-  while (cursor <= gridEnd) {
-    days.push({
-      date: new Date(cursor),
-      inCurrentMonth: cursor.getUTCMonth() === monthStart.getUTCMonth(),
+  for (let index = 0; index < leadingEmptyCells; index += 1) {
+    cells.push({
+      kind: "empty",
+      id: `leading-${start.toFormat("yyyy-MM")}-${index}`,
     });
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
 
-  return days;
+  let cursor = start.startOf("day");
+  while (cursor <= end) {
+    cells.push({
+      kind: "day",
+      dateKey: cursor.toFormat("yyyy-MM-dd"),
+      dayOfMonth: cursor.day,
+      dateTime: cursor,
+    });
+    cursor = cursor.plus({ days: 1 });
+  }
+
+  for (let index = 0; index < trailingEmptyCells; index += 1) {
+    cells.push({
+      kind: "empty",
+      id: `trailing-${start.toFormat("yyyy-MM")}-${index}`,
+    });
+  }
+
+  return cells;
 }
 
-export function formatMonthParam(date: Date) {
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+export function formatMonthParam(monthStart: DateTime) {
+  return monthStart.toFormat("yyyy-MM");
 }
 
-export function shiftMonth(date: Date, delta: number) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + delta, 1));
+export function shiftMonth(monthStart: DateTime, delta: number) {
+  return monthStart.plus({ months: delta }).startOf("month");
 }
-

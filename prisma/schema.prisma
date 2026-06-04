@@ -29,10 +29,30 @@ enum PublishAttemptStatus {
   FAILED
 }
 
+enum ConnectedAccountStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+}
+
+enum AdminUserRole {
+  ADMIN
+  USER
+}
+
+enum MediaVariantType {
+  ORIGINAL
+  FACEBOOK_FEED
+  GOOGLE_BUSINESS_SAFE
+  INSTAGRAM_FEED_PLACEHOLDER
+}
+
 model AdminUser {
   id             String         @id @default(cuid())
+  username       String         @unique
   email          String         @unique
   passwordHash   String
+  role           AdminUserRole  @default(ADMIN)
   displayName    String?
   lastLoginAt    DateTime?
   createdAt      DateTime       @default(now())
@@ -69,20 +89,39 @@ model AppSetting {
 }
 
 model MediaAsset {
-  id                 String      @id @default(cuid())
-  originalFilename   String
-  mimeType           String
-  sizeBytes          BigInt
-  width              Int
-  height             Int
-  storagePath        String
+  id                   String         @id @default(cuid())
+  originalFilename     String
+  mimeType             String
+  sizeBytes            BigInt
+  width                Int
+  height               Int
+  storagePath          String
   createdByAdminUserId String
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
-  createdByAdminUser AdminUser   @relation(fields: [createdByAdminUserId], references: [id], onDelete: Restrict)
-  posts              SocialPost[]
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  createdByAdminUser   AdminUser      @relation(fields: [createdByAdminUserId], references: [id], onDelete: Restrict)
+  variants             MediaVariant[]
+  posts                SocialPost[]
 
   @@index([createdByAdminUserId])
+}
+
+model MediaVariant {
+  id          String           @id @default(cuid())
+  mediaAssetId String
+  variantType MediaVariantType
+  mimeType    String
+  sizeBytes   BigInt
+  width       Int
+  height      Int
+  storagePath String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  mediaAsset  MediaAsset       @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([mediaAssetId, variantType])
+  @@index([mediaAssetId])
+  @@index([variantType])
 }
 
 model SocialPost {
@@ -102,6 +141,7 @@ model SocialPost {
   createdByAdminUser   AdminUser            @relation("CreatedPosts", fields: [createdByAdminUserId], references: [id], onDelete: Restrict)
   updatedByAdminUser   AdminUser            @relation("UpdatedPosts", fields: [updatedByAdminUserId], references: [id], onDelete: Restrict)
   platforms            SocialPostPlatform[]
+  publishAttempts      PublishAttempt[]
 
   @@index([status, scheduledAt])
   @@index([mediaAssetId])
@@ -116,7 +156,8 @@ model SocialPostPlatform {
   status        SocialPostStatus     @default(DRAFT)
   scheduledAt   DateTime?
   publishedAt   DateTime?
-  externalPostId String?
+  platformPostId String?
+  platformPostUrl String?            @db.Text
   lastError     String?              @db.Text
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
@@ -129,16 +170,26 @@ model SocialPostPlatform {
 
 model PublishAttempt {
   id                   String               @id @default(cuid())
+  socialPostId         String
   socialPostPlatformId String
+  platform             SocialPlatform
   status               PublishAttemptStatus
-  message              String?              @db.Text
-  responsePayload      Json?
-  attemptedAt          DateTime             @default(now())
+  requestSummary       Json?
+  responseSummary      Json?
+  errorCode            String?
+  errorMessage         String?              @db.Text
+  platformPostId       String?
+  platformPostUrl      String?              @db.Text
+  startedAt            DateTime             @default(now())
+  finishedAt           DateTime?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
+  socialPost           SocialPost           @relation(fields: [socialPostId], references: [id], onDelete: Cascade)
   socialPostPlatform   SocialPostPlatform   @relation(fields: [socialPostPlatformId], references: [id], onDelete: Cascade)
 
-  @@index([socialPostPlatformId, attemptedAt])
+  @@index([socialPostId, startedAt])
+  @@index([socialPostPlatformId, startedAt])
+  @@index([platform, status, startedAt])
 }
 
 model AuditLog {
@@ -158,14 +209,21 @@ model AuditLog {
 }
 
 model ConnectedAccount {
-  id                String         @id @default(cuid())
-  platform          SocialPlatform
-  displayName       String
-  externalAccountId String?
-  isActive          Boolean        @default(false)
-  metadata          Json?
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  id                   String                 @id @default(cuid())
+  platform             SocialPlatform         @unique
+  accountName          String
+  accountId            String?
+  pageId               String?
+  pageName             String?
+  accessTokenEncrypted String?                @db.LongText
+  tokenExpiresAt       DateTime?
+  scopes               Json?
+  status               ConnectedAccountStatus @default(DISCONNECTED)
+  lastTestedAt         DateTime?
+  lastError            String?                @db.Text
+  metadata             Json?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
 
-  @@index([platform, isActive])
+  @@index([platform, status])
 }

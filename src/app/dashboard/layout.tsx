@@ -1,6 +1,9 @@
-import Link from "next/link";
 import { requireAdminUser } from "@/lib/auth/session";
 import { logoutAction } from "@/app/dashboard/actions";
+import Link from "next/link";
+import { DashboardSidebarNav } from "@/components/dashboard-sidebar-nav";
+import { RoleBadge } from "@/components/role-badge";
+import { getBrandingSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -10,35 +13,33 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }>) {
   const adminUser = await requireAdminUser();
+  const branding = await getBrandingSettings();
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <h1>SMM Scheduler</h1>
-        <p>Private social media operations workspace for drafting, scheduling, uploads, and future publishing.</p>
+        <div className="sidebar-brand">
+          <div className="sidebar-brand-mark" aria-hidden="true">
+            SM
+          </div>
+          <div>
+            <h1>{branding.siteName}</h1>
+          </div>
+        </div>
 
-        <nav className="sidebar-nav" aria-label="Dashboard navigation">
-          <Link className="sidebar-link" href="/dashboard">
-            Dashboard
-          </Link>
-          <Link className="sidebar-link" href="/dashboard/posts">
-            Posts
-          </Link>
-          <Link className="sidebar-link" href="/dashboard/posts/new">
-            New Post
-          </Link>
-          <Link className="sidebar-link" href="/dashboard/calendar">
-            Calendar
-          </Link>
-          <Link className="sidebar-link" href="/dashboard/settings">
-            Settings
-          </Link>
-        </nav>
+        <DashboardSidebarNav />
 
         <div className="sidebar-footer">
-          <div className="panel-body panel">
-            <strong>{adminUser.displayName || adminUser.email}</strong>
-            <p className="muted">Admin-only session</p>
+          <div className="panel sidebar-user-card">
+            <div className="panel-body">
+              <div className="sidebar-user-head">
+                <strong>{adminUser.username}</strong>
+                <RoleBadge role={adminUser.role} />
+              </div>
+              <Link href="/dashboard/account" className="sidebar-account-link">
+                Account Settings
+              </Link>
+            </div>
           </div>
 
           <form action={logoutAction}>

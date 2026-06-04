@@ -18,15 +18,27 @@ async function main() {
     where: { email: adminEmail },
     update: {
       passwordHash,
+      username: "admin",
+      role: "ADMIN",
     },
     create: {
+      username: "admin",
       email: adminEmail,
       passwordHash,
+      role: "ADMIN",
       displayName: "Admin",
     },
   });
 
   const settings = [
+    {
+      key: "SITE_NAME",
+      value: "Social Media Manager",
+    },
+    {
+      key: "SITE_FAVICON_URL",
+      value: "/social-media-favicon.svg",
+    },
     {
       key: "PUBLIC_APP_URL",
       value: process.env.APP_URL?.trim() || "http://localhost:3000",
@@ -34,6 +46,14 @@ async function main() {
     {
       key: "UPLOAD_DIRECTORY",
       value: process.env.UPLOAD_DIR?.trim() || "./uploads",
+    },
+    {
+      key: "APP_TIMEZONE",
+      value: "America/New_York",
+    },
+    {
+      key: "FACEBOOK_APP_ID",
+      value: process.env.FACEBOOK_APP_ID?.trim() || "",
     },
   ];
 
@@ -54,4 +74,3 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
-

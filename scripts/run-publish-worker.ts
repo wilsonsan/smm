@@ -7,7 +7,9 @@ async function main() {
     JSON.stringify(
       {
         claimedCount: result.claimedCount,
-        placeholderCount: result.placeholderCount,
+        publishedCount: result.publishedCount,
+        failedCount: result.failedCount,
+        skippedCount: result.skippedCount,
       },
       null,
       2,
@@ -19,4 +21,3 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
-

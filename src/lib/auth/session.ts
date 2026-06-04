@@ -40,7 +40,26 @@ export async function clearSessionCookie() {
   });
 }
 
-export async function getAdminSessionByToken(token: string | null | undefined) {
+function getSessionTokenFromCookieHeader(cookieHeader: string | null) {
+  if (!cookieHeader) {
+    return null;
+  }
+
+  return (
+    cookieHeader
+      .split(";")
+      .map((value) => value.trim())
+      .find((value) => value.startsWith(`${SESSION_COOKIE_NAME}=`))
+      ?.slice(SESSION_COOKIE_NAME.length + 1) ?? null
+  );
+}
+
+export async function getAdminSessionByToken(
+  token: string | null | undefined,
+  options?: {
+    touch?: boolean;
+  },
+) {
   if (!token) {
     return null;
   }
@@ -62,10 +81,12 @@ export async function getAdminSessionByToken(token: string | null | undefined) {
     return null;
   }
 
-  await prisma.adminSession.update({
-    where: { id: session.id },
-    data: { lastAccessedAt: new Date() },
-  });
+  if (options?.touch !== false) {
+    await prisma.adminSession.update({
+      where: { id: session.id },
+      data: { lastAccessedAt: new Date() },
+    });
+  }
 
   return session;
 }
@@ -90,6 +111,22 @@ export async function requireAdminUser() {
   }
 
   return session.adminUser;
+}
+
+export async function requireAdminSessionFromRequest(
+  request: Request,
+  options?: {
+    touch?: boolean;
+  },
+) {
+  const token = getSessionTokenFromCookieHeader(request.headers.get("cookie"));
+  const session = await getAdminSessionByToken(token, options);
+
+  if (!session) {
+    throw new Response("Unauthorized.", { status: 401 });
+  }
+
+  return session;
 }
 
 export async function createSessionForAdminUser(adminUserId: string) {
@@ -169,4 +206,3 @@ export async function logoutCurrentAdmin() {
 
   await clearSessionCookie();
 }
-
