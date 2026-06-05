@@ -5,14 +5,9 @@ export type CalendarDay = {
   dateKey: string;
   dayOfMonth: number;
   dateTime: DateTime;
+  isCurrentMonth: boolean;
 };
-
-export type CalendarEmptyCell = {
-  kind: "empty";
-  id: string;
-};
-
-export type CalendarGridCell = CalendarDay | CalendarEmptyCell;
+export type CalendarGridCell = CalendarDay;
 
 export function buildMonthGrid(monthStart: DateTime): CalendarGridCell[] {
   const start = monthStart.startOf("month");
@@ -22,9 +17,13 @@ export function buildMonthGrid(monthStart: DateTime): CalendarGridCell[] {
   const cells: CalendarGridCell[] = [];
 
   for (let index = 0; index < leadingEmptyCells; index += 1) {
+    const dateTime = start.minus({ days: leadingEmptyCells - index });
     cells.push({
-      kind: "empty",
-      id: `leading-${start.toFormat("yyyy-MM")}-${index}`,
+      kind: "day",
+      dateKey: dateTime.toFormat("yyyy-MM-dd"),
+      dayOfMonth: dateTime.day,
+      dateTime,
+      isCurrentMonth: false,
     });
   }
 
@@ -35,14 +34,19 @@ export function buildMonthGrid(monthStart: DateTime): CalendarGridCell[] {
       dateKey: cursor.toFormat("yyyy-MM-dd"),
       dayOfMonth: cursor.day,
       dateTime: cursor,
+      isCurrentMonth: true,
     });
     cursor = cursor.plus({ days: 1 });
   }
 
   for (let index = 0; index < trailingEmptyCells; index += 1) {
+    const dateTime = end.plus({ days: index + 1 }).startOf("day");
     cells.push({
-      kind: "empty",
-      id: `trailing-${start.toFormat("yyyy-MM")}-${index}`,
+      kind: "day",
+      dateKey: dateTime.toFormat("yyyy-MM-dd"),
+      dayOfMonth: dateTime.day,
+      dateTime,
+      isCurrentMonth: false,
     });
   }
 

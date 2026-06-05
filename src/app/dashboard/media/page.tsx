@@ -1,51 +1,34 @@
-import Link from "next/link";
-import { MediaAssetGallery } from "@/components/media-asset-gallery";
-import { toMediaAssetSummary } from "@/lib/media-presentation";
+import { SocialPostStatus } from "@prisma/client";
+import { MediaLibraryBrowser } from "@/components/media-library-browser";
+import { toMediaAssetGallerySummary } from "@/lib/media-presentation";
 import { prisma } from "@/lib/prisma";
+import { getResolvedAppTimezone } from "@/lib/time";
 
 export default async function MediaPage() {
-  const mediaAssets = await prisma.mediaAsset.findMany({
-    orderBy: {
-      createdAt: "desc",
-    },
-    include: {
-      variants: true,
-    },
-    take: 48,
-  });
+  const [mediaAssets, timezone] = await Promise.all([
+    prisma.mediaAsset.findMany({
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        variants: true,
+        posts: {
+          select: {
+            platforms: {
+              where: {
+                status: SocialPostStatus.PUBLISHED,
+              },
+              select: {
+                platform: true,
+                status: true,
+              },
+            },
+          },
+        },
+      },
+    }),
+    getResolvedAppTimezone(),
+  ]);
 
-  return (
-    <section className="section-stack">
-      <header className="page-header">
-        <div>
-          <h2>Gallery</h2>
-          <p>
-            Each upload stays grouped as one media asset. Originals remain preserved locally while Facebook and
-            Google-safe derivatives stay attached behind the scenes for publishing.
-          </p>
-        </div>
-        <Link href="/dashboard/posts/new" className="primary-button" style={{ display: "inline-flex", alignItems: "center" }}>
-          Upload In Composer
-        </Link>
-      </header>
-
-      {mediaAssets.length === 0 ? (
-        <section className="panel">
-          <div className="panel-body">
-            <p className="muted">No media has been uploaded yet.</p>
-          </div>
-        </section>
-      ) : (
-        <div className="media-library-grid">
-          {mediaAssets.map((mediaAsset) => (
-            <section key={mediaAsset.id} className="panel media-library-card">
-              <div className="panel-body">
-                <MediaAssetGallery mediaAsset={toMediaAssetSummary(mediaAsset)} heading="Media asset" />
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
-    </section>
-  );
+  return <MediaLibraryBrowser assets={mediaAssets.map((asset) => toMediaAssetGallerySummary(asset))} timezone={timezone} />;
 }

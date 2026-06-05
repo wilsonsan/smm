@@ -408,11 +408,10 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
             status: post.status,
             mediaAsset: post.mediaAsset ? toMediaAssetSummary(post.mediaAsset) : null,
           }}
-          recentMediaAssets={recentMediaAssets.map((asset) => toMediaAssetSummary(asset))}
-          timezone={timezone}
-          isReadOnly={isReadOnly}
-          backHref="/dashboard/calendar"
-        />
+        recentMediaAssets={recentMediaAssets.map((asset) => toMediaAssetSummary(asset))}
+        timezone={timezone}
+        isReadOnly={isReadOnly}
+      />
       </section>
 
       <section className="panel">

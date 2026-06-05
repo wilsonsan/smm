@@ -23,6 +23,19 @@ export type MediaAssetSummary = {
   variants: MediaVariantSummary[];
 };
 
+export type MediaAssetPostedPlatformFlags = {
+  postedToFacebook: boolean;
+  postedToInstagram: boolean;
+  postedToGoogle: boolean;
+  postedAnywhere: boolean;
+  postedEverywhere: boolean;
+};
+
+export type MediaAssetGallerySummary = MediaAssetSummary & {
+  createdAt: string;
+  postedPlatforms: MediaAssetPostedPlatformFlags;
+};
+
 const variantLabels: Record<MediaVariantTypeValue, string> = {
   ORIGINAL: "Original",
   FACEBOOK_FEED: "Facebook feed",
@@ -153,6 +166,60 @@ export function toMediaAssetSummary(asset: {
         width: variant.width,
         height: variant.height,
       })),
+    ),
+  };
+}
+
+export function resolvePostedPlatformFlags(platforms: Array<{ platform: string; status: string }>) {
+  const postedToFacebook = platforms.some(
+    (platform) => platform.platform === "FACEBOOK" && platform.status === "PUBLISHED",
+  );
+  const postedToInstagram = platforms.some(
+    (platform) => platform.platform === "INSTAGRAM" && platform.status === "PUBLISHED",
+  );
+  const postedToGoogle = platforms.some(
+    (platform) => platform.platform === "GOOGLE_BUSINESS" && platform.status === "PUBLISHED",
+  );
+  const postedAnywhere = postedToFacebook || postedToInstagram || postedToGoogle;
+  const postedEverywhere = postedToFacebook && postedToInstagram && postedToGoogle;
+
+  return {
+    postedToFacebook,
+    postedToInstagram,
+    postedToGoogle,
+    postedAnywhere,
+    postedEverywhere,
+  };
+}
+
+export function toMediaAssetGallerySummary(asset: {
+  id: string;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: bigint;
+  width: number;
+  height: number;
+  createdAt: Date;
+  variants: Array<{
+    id: string;
+    variantType: MediaVariantTypeValue;
+    mimeType: string;
+    sizeBytes: bigint;
+    width: number;
+    height: number;
+  }>;
+  posts: Array<{
+    platforms: Array<{
+      platform: string;
+      status: string;
+    }>;
+  }>;
+}): MediaAssetGallerySummary {
+  return {
+    ...toMediaAssetSummary(asset),
+    createdAt: asset.createdAt.toISOString(),
+    postedPlatforms: resolvePostedPlatformFlags(
+      asset.posts.flatMap((post) => post.platforms),
     ),
   };
 }

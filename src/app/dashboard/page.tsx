@@ -3,7 +3,25 @@
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { SocialPostStatus } from "@prisma/client";
+import { requireAdminUser } from "@/lib/auth/session";
 import { ClickableTableRow } from "@/components/clickable-table-row";
+import {
+  ArrowRightIcon,
+  BellIcon,
+  CalendarIcon,
+  ClockIcon,
+  ComposeIcon,
+  DraftIcon,
+  FacebookIcon,
+  FailureIcon,
+  GalleryIcon,
+  PostsIcon,
+  QueueIcon,
+  ScheduleIcon,
+  SettingsIcon,
+  SnapshotIcon,
+  SuccessIcon,
+} from "@/components/dashboard-icons";
 import { getVariantByType, getMediaVariantUrl } from "@/lib/media-presentation";
 import { getPostCaptionPreview, getPostStatusTone, resolvePostCalendarAt } from "@/lib/posts";
 import { prisma } from "@/lib/prisma";
@@ -14,9 +32,22 @@ function formatRelativeWorkerMode(enabled: boolean) {
   return enabled ? "Ready for cron or manual runs" : "Disabled";
 }
 
+function formatDateRangeLabel(start: DateTime, endExclusive: DateTime) {
+  const end = endExclusive.minus({ days: 1 });
+  const startLabel = start.toFormat("MMM d");
+  const endLabel = end.toFormat(start.month === end.month ? "d, yyyy" : "MMM d, yyyy");
+  return `${startLabel} - ${endLabel}`;
+}
+
+function getSnapshotTitle(value: string | null | undefined) {
+  return getPostCaptionPreview(value || "");
+}
+
 export default async function DashboardPage() {
+  const adminUser = await requireAdminUser();
   const timezone = await getResolvedAppTimezone();
-  const weekStart = DateTime.now().setZone(timezone).startOf("week");
+  const now = DateTime.now().setZone(timezone);
+  const weekStart = now.startOf("week");
   const weekEnd = weekStart.plus({ weeks: 1 });
 
   const [
@@ -72,203 +103,343 @@ export default async function DashboardPage() {
     }),
   ]);
 
+  const quickActions = [
+    {
+      href: "/dashboard/posts/new",
+      title: "New Post",
+      description: "Create a draft or schedule a Facebook post.",
+      accentClass: "is-purple",
+      Icon: ComposeIcon,
+    },
+    {
+      href: "/dashboard/calendar",
+      title: "Calendar",
+      description: "Manage your content calendar and upcoming publishes.",
+      accentClass: "is-blue",
+      Icon: CalendarIcon,
+    },
+    {
+      href: "/dashboard/media",
+      title: "Gallery",
+      description: "Review your media assets and content variants.",
+      accentClass: "is-green",
+      Icon: GalleryIcon,
+    },
+    {
+      href: "/dashboard/settings/channels/facebook",
+      title: "Facebook Settings",
+      description: "Check token health, scopes, and the connected Page.",
+      accentClass: "is-orange",
+      Icon: SettingsIcon,
+    },
+  ] as const;
+
+  const metricCards = [
+    {
+      label: "Total Posts",
+      value: totalPosts,
+      supporting: "All time",
+      accentClass: "is-blue",
+      Icon: PostsIcon,
+    },
+    {
+      label: "Drafts",
+      value: draftPosts,
+      supporting: "Saved drafts",
+      accentClass: "is-purple",
+      Icon: DraftIcon,
+    },
+    {
+      label: "Scheduled This Week",
+      value: scheduledThisWeekCount,
+      supporting: "Upcoming posts",
+      accentClass: "is-green",
+      Icon: ScheduleIcon,
+    },
+    {
+      label: "Failed Posts",
+      value: failedPostsNeedingAttention,
+      supporting: "Needs attention",
+      accentClass: "is-red",
+      Icon: FailureIcon,
+    },
+  ] as const;
+
+  const workerDetailCards = [
+    {
+      label: "Worker Mode",
+      value: workerStatus.mode,
+      supporting: formatRelativeWorkerMode(workerStatus.enabled),
+      accentClass: "is-purple",
+      Icon: QueueIcon,
+    },
+    {
+      label: "Connected Facebook Page",
+      value: workerStatus.connectedPage?.pageName || "Not connected",
+      supporting:
+        workerStatus.connectedPage?.pageId
+          ? `Page ID ${workerStatus.connectedPage.pageId}`
+          : "Connect and test a Facebook Page before scheduling.",
+      accentClass: "is-blue",
+      Icon: FacebookIcon,
+    },
+    {
+      label: "Due Now",
+      value: String(workerStatus.dueScheduledPostsCount),
+      supporting: "Posts currently ready for the worker to claim.",
+      accentClass: "is-orange",
+      Icon: ClockIcon,
+    },
+    {
+      label: "Publishing Queue",
+      value: String(workerStatus.publishingPostsCount),
+      supporting:
+        workerStatus.stuckPublishingCount > 0
+          ? `${workerStatus.stuckPublishingCount} may be stuck and will recover on the next worker run.`
+          : "No active publishing records detected.",
+      accentClass: "is-green",
+      Icon: SnapshotIcon,
+    },
+  ] as const;
+
   return (
-    <section className="section-stack">
-      <header className="page-header">
-        <div>
-          <h2>Dashboard</h2>
-          <p>Daily command center for Facebook scheduling, worker health, and posts that need attention.</p>
+    <section className="dashboard-home">
+      <header className="dashboard-hero">
+        <div className="dashboard-hero-copy">
+          <span className="dashboard-hero-kicker">Social Media Manager</span>
+          <h2>Welcome back, {adminUser.displayName || adminUser.username}</h2>
+          <p>Here&apos;s what&apos;s happening with your content and scheduled posts.</p>
+        </div>
+
+        <div className="dashboard-hero-toolbar">
+          <Link href="/dashboard/calendar" className="dashboard-toolbar-button dashboard-date-range-pill">
+            <CalendarIcon />
+            <span>{formatDateRangeLabel(weekStart, weekEnd)}</span>
+          </Link>
+
+          <button type="button" className="dashboard-toolbar-button dashboard-notification-button" aria-label="Notifications">
+            <BellIcon />
+          </button>
+
+          <Link href="/dashboard/posts/new" className="primary-button dashboard-create-button">
+            <ComposeIcon />
+            <span>Quick Create Post</span>
+          </Link>
         </div>
       </header>
 
-      <section className="panel">
+      <section className="panel dashboard-action-shell">
         <div className="panel-body">
-          <div className="page-header">
+          <div className="dashboard-section-heading">
             <div>
-              <h2 style={{ fontSize: "1.35rem" }}>Quick Actions</h2>
-              <p>Jump straight into the core workflows you’ll use throughout the day.</p>
+              <h3>Quick Actions</h3>
+              <p>Everything you need to create, schedule, and manage your content.</p>
             </div>
           </div>
 
-          <div className="action-grid">
-            <Link href="/dashboard/posts/new" className="summary-link-card">
-              <strong>New Post</strong>
-              <span>Create a draft or schedule a Facebook post.</span>
-            </Link>
-            <Link href="/dashboard/calendar" className="summary-link-card">
-              <strong>Calendar</strong>
-              <span>Manage the month view, filters, and upcoming publishes.</span>
-            </Link>
-            <Link href="/dashboard/media" className="summary-link-card">
-              <strong>Gallery</strong>
-              <span>Review uploaded media assets and generated variants.</span>
-            </Link>
-            <Link href="/dashboard/settings/channels/facebook" className="summary-link-card">
-              <strong>Facebook Settings</strong>
-              <span>Check token health, scopes, and the connected Page.</span>
-            </Link>
+          <div className="dashboard-action-grid">
+            {quickActions.map(({ href, title, description, accentClass, Icon }) => (
+              <Link key={href} href={href} className={`dashboard-action-card ${accentClass}`.trim()}>
+                <div className="dashboard-action-icon">
+                  <Icon />
+                </div>
+                <div className="dashboard-action-copy">
+                  <strong>{title}</strong>
+                  <span>{description}</span>
+                </div>
+                <span className="dashboard-action-arrow" aria-hidden="true">
+                  <ArrowRightIcon />
+                </span>
+              </Link>
+            ))}
           </div>
         </div>
       </section>
 
-      <div className="stats-grid">
-        <article className="stat-card">
-          <span>Total posts</span>
-          <strong>{totalPosts}</strong>
-        </article>
-        <article className="stat-card">
-          <span>Drafts</span>
-          <strong>{draftPosts}</strong>
-        </article>
-        <article className="stat-card">
-          <span>Scheduled this week</span>
-          <strong>{scheduledThisWeekCount}</strong>
-        </article>
-        <article className="stat-card">
-          <span>Failed posts</span>
-          <strong>{failedPostsNeedingAttention}</strong>
-        </article>
+      <div className="dashboard-kpi-grid">
+        {metricCards.map(({ label, value, supporting, accentClass, Icon }) => (
+          <article key={label} className={`dashboard-kpi-card ${accentClass}`.trim()}>
+            <div className="dashboard-kpi-icon">
+              <Icon />
+            </div>
+            <div className="dashboard-kpi-copy">
+              <span>{label}</span>
+              <strong>{value}</strong>
+              <p>{supporting}</p>
+            </div>
+          </article>
+        ))}
       </div>
 
-      <div className="dashboard-summary-grid">
-        <section className="panel">
+      <div className="dashboard-main-grid">
+        <section className="panel dashboard-module-card">
           <div className="panel-body">
-            <div className="page-header">
-              <div>
-                <h2 style={{ fontSize: "1.35rem" }}>Publishing Snapshot</h2>
-                <p>At-a-glance view of what’s next, what succeeded last, and what needs a retry.</p>
+            <div className="dashboard-module-heading">
+              <div className="dashboard-module-title">
+                <span className="dashboard-module-icon is-blue">
+                  <SnapshotIcon />
+                </span>
+                <div>
+                  <h3>Publishing Snapshot</h3>
+                  <p>A quick look at what&apos;s next and what&apos;s been published.</p>
+                </div>
               </div>
             </div>
 
-            <div className="status-list">
-              <article className="status-list-item">
-                <span className="muted">Next scheduled post</span>
-                {nextScheduledPost?.scheduledAt ? (
-                  <>
-                    <strong>{getPostCaptionPreview(nextScheduledPost.caption)}</strong>
-                    <span>{formatDateTimeForTimezone(nextScheduledPost.scheduledAt, timezone)}</span>
-                    <Link href={`/dashboard/posts/${nextScheduledPost.id}`}>Open post</Link>
-                  </>
-                ) : (
-                  <>
-                    <strong>Nothing queued</strong>
-                    <span>No Facebook posts are currently scheduled.</span>
-                  </>
-                )}
+            <div className="dashboard-snapshot-list">
+              <article className="dashboard-snapshot-item">
+                <div className="dashboard-snapshot-marker is-blue">
+                  <ClockIcon />
+                </div>
+                <div className="dashboard-snapshot-copy">
+                  <span>Next Scheduled Post</span>
+                  {nextScheduledPost?.scheduledAt ? (
+                    <>
+                      <strong>{getSnapshotTitle(nextScheduledPost.caption)}</strong>
+                      <p>{formatDateTimeForTimezone(nextScheduledPost.scheduledAt, timezone)}</p>
+                    </>
+                  ) : (
+                    <>
+                      <strong>Nothing queued</strong>
+                      <p>No Facebook posts are currently scheduled.</p>
+                    </>
+                  )}
+                </div>
+                {nextScheduledPost ? (
+                  <Link href={`/dashboard/posts/${nextScheduledPost.id}`} className="dashboard-inline-link">
+                    Open
+                  </Link>
+                ) : null}
               </article>
 
-              <article className="status-list-item">
-                <span className="muted">Last successful Facebook post</span>
-                {workerStatus.lastSuccessfulPublish?.finishedAt ? (
-                  <>
-                    <strong>{getPostCaptionPreview(workerStatus.lastSuccessfulPublish.socialPost.internalTitle)}</strong>
-                    <span>{formatDateTimeForTimezone(workerStatus.lastSuccessfulPublish.finishedAt, timezone)}</span>
-                    <Link href={`/dashboard/posts/${workerStatus.lastSuccessfulPublish.socialPost.id}`}>View publish details</Link>
-                  </>
-                ) : (
-                  <>
-                    <strong>None yet</strong>
-                    <span>No successful Facebook publishes have been recorded.</span>
-                  </>
-                )}
+              <article className="dashboard-snapshot-item">
+                <div className="dashboard-snapshot-marker is-green">
+                  <SuccessIcon />
+                </div>
+                <div className="dashboard-snapshot-copy">
+                  <span>Last Successful Post</span>
+                  {workerStatus.lastSuccessfulPublish?.finishedAt ? (
+                    <>
+                      <strong>{getSnapshotTitle(workerStatus.lastSuccessfulPublish.socialPost.internalTitle)}</strong>
+                      <p>{formatDateTimeForTimezone(workerStatus.lastSuccessfulPublish.finishedAt, timezone)}</p>
+                    </>
+                  ) : (
+                    <>
+                      <strong>None yet</strong>
+                      <p>No successful Facebook publishes have been recorded.</p>
+                    </>
+                  )}
+                </div>
+                {workerStatus.lastSuccessfulPublish ? (
+                  <Link href={`/dashboard/posts/${workerStatus.lastSuccessfulPublish.socialPost.id}`} className="dashboard-inline-link">
+                    View
+                  </Link>
+                ) : null}
               </article>
 
-              <article className="status-list-item">
-                <span className="muted">Last failed publish</span>
+              <article className="dashboard-snapshot-item">
+                <div className="dashboard-snapshot-marker is-red">
+                  <FailureIcon />
+                </div>
+                <div className="dashboard-snapshot-copy">
+                  <span>Last Failed Post</span>
+                  {workerStatus.lastFailedPublish ? (
+                    <>
+                      <strong>{getSnapshotTitle(workerStatus.lastFailedPublish.socialPost.internalTitle)}</strong>
+                      <p>{workerStatus.lastFailedPublish.errorMessage || "Facebook publish failed."}</p>
+                    </>
+                  ) : (
+                    <>
+                      <strong>None</strong>
+                      <p>No failed Facebook publishes to show.</p>
+                    </>
+                  )}
+                </div>
                 {workerStatus.lastFailedPublish ? (
-                  <>
-                    <strong>{getPostCaptionPreview(workerStatus.lastFailedPublish.socialPost.internalTitle)}</strong>
-                    <span>{workerStatus.lastFailedPublish.errorMessage || "Facebook publish failed."}</span>
-                    <Link href={`/dashboard/posts/${workerStatus.lastFailedPublish.socialPost.id}`}>Review failure</Link>
-                  </>
-                ) : (
-                  <>
-                    <strong>No failures pending</strong>
-                    <span>The publish history does not have a recorded Facebook failure yet.</span>
-                  </>
-                )}
+                  <Link href={`/dashboard/posts/${workerStatus.lastFailedPublish.socialPost.id}`} className="dashboard-inline-link">
+                    Review
+                  </Link>
+                ) : null}
               </article>
             </div>
           </div>
         </section>
 
-        <section className="panel">
+        <section className="panel dashboard-module-card">
           <div className="panel-body">
-            <div className="page-header">
-              <div>
-                <h2 style={{ fontSize: "1.35rem" }}>Worker Status</h2>
-                <p>Operational health for the scheduled Facebook publishing worker.</p>
+            <div className="dashboard-module-heading">
+              <div className="dashboard-module-title">
+                <span className="dashboard-module-icon is-red">
+                  <QueueIcon />
+                </span>
+                <div>
+                  <h3>Worker Status</h3>
+                  <p>Operational health for the scheduled publishing worker.</p>
+                </div>
               </div>
             </div>
 
-            <div className="grid-2">
-              <article className="stat-card compact">
-                <span>Worker mode</span>
-                <strong>{workerStatus.mode}</strong>
-                <p>{formatRelativeWorkerMode(workerStatus.enabled)}</p>
-              </article>
-              <article className="stat-card compact">
-                <span>Connected Facebook Page</span>
-                <strong>{workerStatus.connectedPage?.pageName || "Not connected"}</strong>
-                <p>
-                  {workerStatus.connectedPage?.pageId
-                    ? `Page ID ${workerStatus.connectedPage.pageId}`
-                    : "Connect and test a Facebook Page before scheduled publishing."}
-                </p>
-              </article>
-              <article className="stat-card compact">
-                <span>Due now</span>
-                <strong>{workerStatus.dueScheduledPostsCount}</strong>
-                <p>Posts currently ready for the worker to claim.</p>
-              </article>
-              <article className="stat-card compact">
-                <span>Publishing</span>
-                <strong>{workerStatus.publishingPostsCount}</strong>
-                <p>
-                  {workerStatus.stuckPublishingCount > 0
-                    ? `${workerStatus.stuckPublishingCount} may be stuck and will be recovered on the next worker run.`
-                    : "No stale publishing records detected."}
-                </p>
-              </article>
-              <article className="stat-card compact">
-                <span>Last worker run</span>
+            <div className="dashboard-status-grid">
+              {workerDetailCards.map(({ label, value, supporting, accentClass, Icon }) => (
+                <article key={label} className={`dashboard-status-card ${accentClass}`.trim()}>
+                  <span className="dashboard-status-icon">
+                    <Icon />
+                  </span>
+                  <div className="dashboard-status-copy">
+                    <span>{label}</span>
+                    <strong>{value}</strong>
+                    <p>{supporting}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            <div className="dashboard-worker-footer">
+              <div>
+                <span className="dashboard-worker-footer-label">Last Worker Run</span>
                 <strong>{workerStatus.lastRunAt ? formatDateTimeForTimezone(workerStatus.lastRunAt, timezone) : "Never"}</strong>
                 <p>
                   {workerStatus.lastRunResult
                     ? `Claimed ${workerStatus.lastRunResult.claimedCount}, published ${workerStatus.lastRunResult.publishedCount}, failed ${workerStatus.lastRunResult.failedCount}, recovered ${workerStatus.lastRunResult.recoveredCount ?? 0}.`
                     : "No worker runs have been recorded yet."}
                 </p>
-              </article>
-              <article className="stat-card compact">
-                <span>Last worker error</span>
+              </div>
+              <div>
+                <span className="dashboard-worker-footer-label">Last Worker Error</span>
                 <strong>{workerStatus.lastWorkerError ? "Needs review" : "Clear"}</strong>
                 <p>{workerStatus.lastWorkerError || "The latest worker run completed without a stored error."}</p>
-              </article>
+              </div>
             </div>
           </div>
         </section>
       </div>
 
-      <section className="panel">
+      <section className="panel dashboard-module-card dashboard-recent-card">
         <div className="panel-body">
-          <div className="page-header">
-            <div>
-              <h2 style={{ fontSize: "1.35rem" }}>Recent Posts</h2>
-              <p>Latest drafts, scheduled posts, and publish outcomes.</p>
+          <div className="dashboard-module-heading">
+            <div className="dashboard-module-title">
+              <span className="dashboard-module-icon is-purple">
+                <PostsIcon />
+              </span>
+              <div>
+                <h3>Recent Posts</h3>
+                <p>The latest drafts, scheduled posts, and publish outcomes.</p>
+              </div>
             </div>
-            <Link href="/dashboard/calendar" className="secondary-button" style={{ display: "inline-flex", alignItems: "center" }}>
-              Open Calendar
+            <Link href="/dashboard/calendar" className="secondary-button dashboard-secondary-inline">
+              <CalendarIcon />
+              <span>Open Calendar</span>
             </Link>
           </div>
 
-          <div className="table-wrap">
-            <table>
+          <div className="table-wrap dashboard-table-wrap">
+            <table className="dashboard-modern-table">
               <thead>
                 <tr>
                   <th>Preview</th>
-                  <th>Caption preview</th>
+                  <th>Caption Preview</th>
                   <th>Status</th>
-                  <th>Calendar time</th>
+                  <th>Calendar Time</th>
                   <th>Platform</th>
                 </tr>
               </thead>

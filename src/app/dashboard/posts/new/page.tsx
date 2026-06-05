@@ -33,14 +33,7 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
   });
 
   return (
-    <section className="section-stack">
-      <header className="page-header">
-        <div>
-          <h2>New Post</h2>
-          <p>Draft a caption, upload one source photo, and let the app generate safe Facebook and Google-ready versions.</p>
-        </div>
-      </header>
-
+    <section>
       <PostEditorForm
         post={{
           id: "",
