@@ -9,12 +9,13 @@ import {
   clearPendingFacebookPageSelection,
   disconnectFacebookConnection,
   getPendingFacebookPageSelection,
+  runStoredFacebookManualPageDiagnostics,
   saveFacebookConnectedPage,
   testFacebookConnection,
 } from "@/lib/facebook";
 import { getRequestMetadata } from "@/lib/http";
 import { saveFacebookAppIdSetting } from "@/lib/settings";
-import { facebookPageSelectionSchema, facebookSettingsSchema } from "@/lib/validation";
+import { facebookPageIdTestSchema, facebookPageSelectionSchema, facebookSettingsSchema } from "@/lib/validation";
 
 function buildFacebookSettingsHref(input?: { status?: "success" | "error"; message?: string }) {
   const params = new URLSearchParams();
@@ -160,6 +161,52 @@ export async function clearFacebookDebugResultAction() {
   await clearFacebookOauthDebugResult();
 
   redirect(buildFacebookSettingsHref());
+}
+
+export async function runFacebookPageIdDiagnosticsAction(formData: FormData) {
+  const adminUser = await requireAdminUser();
+  const parsed = facebookPageIdTestSchema.safeParse({
+    pageId: formData.get("pageId"),
+  });
+
+  if (!parsed.success) {
+    redirect(
+      buildFacebookSettingsHref({
+        status: "error",
+        message: parsed.error.flatten().fieldErrors.pageId?.[0] || "Enter a valid Facebook Page ID.",
+      }),
+    );
+  }
+
+  try {
+    await runStoredFacebookManualPageDiagnostics({
+      pageId: parsed.data.pageId,
+    });
+
+    await writeFacebookAuditLog({
+      actorAdminUserId: adminUser.id,
+      action: AUDIT_ACTIONS.FACEBOOK_CONNECTION_TESTED,
+      metadata: {
+        mode: "manual_page_id_diagnostic",
+        pageId: parsed.data.pageId,
+      },
+    });
+
+    redirect(
+      buildFacebookSettingsHref({
+        status: "success",
+        message: `Facebook diagnostics ran for Page ID ${parsed.data.pageId}.`,
+      }),
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Facebook Page ID diagnostics failed.";
+    redirect(
+      buildFacebookSettingsHref({
+        status: "error",
+        message,
+      }),
+    );
+  }
 }
 
 export async function disconnectFacebookAction() {

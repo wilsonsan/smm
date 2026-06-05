@@ -11,7 +11,7 @@ import {
 } from "@prisma/client";
 import { env, hasTokenEncryptionKeyConfigured, isProduction } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
-import { getAppSettings } from "@/lib/settings";
+import { APP_SETTING_KEYS, getAppSettingValue, getAppSettings, upsertAppSetting } from "@/lib/settings";
 import { ensureSafeAbsolutePath, resolveUploadBasePath } from "@/lib/uploads";
 
 export const FACEBOOK_GRAPH_VERSION = "v23.0";
@@ -25,8 +25,11 @@ export const FACEBOOK_OAUTH_STATE_COOKIE_NAME = "smm_facebook_oauth_state";
 export const FACEBOOK_OAUTH_MODE_COOKIE_NAME = "smm_facebook_oauth_mode";
 export const FACEBOOK_PENDING_SELECTION_COOKIE_NAME = "smm_facebook_pending_selection";
 export const FACEBOOK_OAUTH_DEBUG_COOKIE_NAME = "smm_facebook_oauth_debug";
+export const FACEBOOK_OAUTH_DEBUG_TOKENS_COOKIE_NAME = "smm_facebook_oauth_debug_tokens";
 const FACEBOOK_STATE_MAX_AGE_SECONDS = 10 * 60;
 const FACEBOOK_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+const FACEBOOK_DEBUG_TOKENS_MAX_AGE_SECONDS = 30 * 60;
+const FACEBOOK_OPTIONAL_DIAGNOSTIC_SCOPES = ["business_management"] as const;
 
 export type FacebookOauthMode = "connect" | "debug";
 
@@ -96,6 +99,79 @@ export type FacebookOauthDebugResult = {
     hydratedPageAccessTokenCount: number;
     usedShortLivedFallback: boolean;
   };
+  graphApiVersion: string;
+  redirectUri: string;
+  requestedScopes: string[];
+  missingRequiredScopes: string[];
+  optionalDiagnosticScopes: string[];
+  tokenInfo: {
+    shortLivedExists: boolean;
+    longLivedExists: boolean;
+    longLivedExchangeStatus: "success" | "failure";
+  };
+  tokenDebug: Array<{
+    tokenSource: "short_lived_user" | "long_lived_user";
+    appId: string | null;
+    userId: string | null;
+    isValid: boolean | null;
+    expiresAt: string | null;
+    scopes: string[];
+    errorMessage: string | null;
+    errorType: string | null;
+    errorCode: number | null;
+    errorSubcode: number | null;
+    fbtraceId: string | null;
+  }>;
+  endpointResults: Array<{
+    endpoint: string;
+    tokenSource: "short_lived_user" | "long_lived_user";
+    httpStatus: number | null;
+    success: boolean;
+    dataCount: number | null;
+    sanitizedJson: Prisma.JsonValue;
+    parsedAccounts?: Array<{
+      id: string;
+      name: string;
+      tasks: string[];
+      category: string | null;
+      verificationStatus: string | null;
+      hasPageAccessToken: boolean;
+    }>;
+  }>;
+  businessDiagnostics: {
+    businesses: Array<{
+      id: string;
+      name: string;
+    }>;
+    endpointResults: Array<{
+      endpoint: string;
+      tokenSource: "short_lived_user" | "long_lived_user";
+      httpStatus: number | null;
+      success: boolean;
+      dataCount: number | null;
+      sanitizedJson: Prisma.JsonValue;
+      parsedAccounts?: Array<{
+        id: string;
+        name: string;
+        tasks: string[];
+        category: string | null;
+        verificationStatus: string | null;
+        hasPageAccessToken: boolean;
+      }>;
+    }>;
+  };
+  manualPageIdTest: {
+    pageId: string | null;
+    endpointResults: Array<{
+      endpoint: string;
+      tokenSource: "short_lived_user" | "long_lived_user";
+      httpStatus: number | null;
+      success: boolean;
+      dataCount: number | null;
+      sanitizedJson: Prisma.JsonValue;
+    }>;
+  } | null;
+  summaryMessage: string;
   fetchedAt: string;
 };
 
@@ -112,7 +188,23 @@ type ResolvedFacebookOauthSession = {
   grantedScopes: string[];
   tokenExpiresAt: Date | null;
   diagnostics: FacebookOauthDebugResult["diagnostics"];
+  tokens: {
+    shortLivedAccessToken: string;
+    longLivedAccessToken: string | null;
+    longLivedExchangeStatus: "success" | "failure";
+  };
 };
+
+type FacebookDebugTokenBundle = {
+  shortLivedAccessToken: string;
+  longLivedAccessToken: string | null;
+  redirectUri: string;
+  requestedScopes: string[];
+  grantedScopes: string[];
+  fetchedAt: string;
+};
+
+type FacebookDiagnosticRequestResult = FacebookOauthDebugResult["endpointResults"][number];
 
 export type FacebookConnectionRecord = {
   id: string;
@@ -139,6 +231,7 @@ export type FacebookConfiguration = {
   appId: string;
   redirectUri: string;
   requiredScopes: string[];
+  optionalDiagnosticScopes: string[];
   missingConfig: string[];
   publicAppUrl: string;
   checks: FacebookRuntimeCheck[];
@@ -269,6 +362,70 @@ function normalizeFacebookScopes(scopes: unknown) {
     .filter(Boolean);
 }
 
+function sanitizeFacebookDiagnosticJson(value: unknown): Prisma.JsonValue {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeFacebookDiagnosticJson(entry));
+  }
+
+  if (typeof value === "object") {
+    const result: Prisma.JsonObject = {};
+
+    for (const [key, entry] of Object.entries(value)) {
+      if (key === "access_token" || key === "accessToken") {
+        result[key] = entry ? "[REDACTED_PRESENT]" : "[MISSING]";
+        continue;
+      }
+
+      result[key] = sanitizeFacebookDiagnosticJson(entry);
+    }
+
+    return result;
+  }
+
+  return String(value);
+}
+
+function parseDiagnosticAccounts(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const data = (value as { data?: unknown }).data;
+  if (!Array.isArray(data)) {
+    return undefined;
+  }
+
+  return data
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+    .map((entry) => ({
+      id: typeof entry.id === "string" ? entry.id : "",
+      name: typeof entry.name === "string" ? entry.name : "",
+      tasks: Array.isArray(entry.tasks) ? entry.tasks.map((task) => String(task)) : [],
+      category: typeof entry.category === "string" ? entry.category : null,
+      verificationStatus: typeof entry.verification_status === "string" ? entry.verification_status : null,
+      hasPageAccessToken:
+        typeof entry.access_token === "string" ? entry.access_token.trim().length > 0 : Boolean(entry.access_token),
+    }))
+    .filter((entry) => entry.id && entry.name);
+}
+
+function getDiagnosticDataCount(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const data = (value as { data?: unknown }).data;
+  return Array.isArray(data) ? data.length : null;
+}
+
 export async function getFacebookConfiguration(): Promise<FacebookConfiguration> {
   const settings = await getAppSettings();
   const appId = (settings.facebookAppId || env.FACEBOOK_APP_ID || "").trim();
@@ -324,6 +481,7 @@ export async function getFacebookConfiguration(): Promise<FacebookConfiguration>
     appId,
     redirectUri,
     requiredScopes: [...FACEBOOK_REQUIRED_SCOPES],
+    optionalDiagnosticScopes: [...FACEBOOK_OPTIONAL_DIAGNOSTIC_SCOPES],
     missingConfig,
     publicAppUrl,
     checks,
@@ -458,33 +616,58 @@ export async function getPendingFacebookPageSelection() {
 }
 
 export async function setFacebookOauthDebugResult(payload: FacebookOauthDebugResult) {
+  await upsertAppSetting(APP_SETTING_KEYS.FACEBOOK_DIAGNOSTIC_SNAPSHOT, JSON.stringify(payload));
+}
+
+export async function clearFacebookOauthDebugResult() {
+  await upsertAppSetting(APP_SETTING_KEYS.FACEBOOK_DIAGNOSTIC_SNAPSHOT, "");
   const cookieStore = await cookies();
-  cookieStore.set(FACEBOOK_OAUTH_DEBUG_COOKIE_NAME, encryptValue(JSON.stringify(payload)), {
+  cookieStore.delete(FACEBOOK_OAUTH_DEBUG_TOKENS_COOKIE_NAME);
+}
+
+export async function getFacebookOauthDebugResult() {
+  const storedValue = await getAppSettingValue(APP_SETTING_KEYS.FACEBOOK_DIAGNOSTIC_SNAPSHOT);
+
+  if (!storedValue) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(storedValue) as FacebookOauthDebugResult;
+
+    if (!parsed.profile?.id || !parsed.profile?.name || !Array.isArray(parsed.permissions) || !Array.isArray(parsed.accounts)) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function setFacebookOauthDebugTokens(payload: FacebookDebugTokenBundle) {
+  const cookieStore = await cookies();
+  cookieStore.set(FACEBOOK_OAUTH_DEBUG_TOKENS_COOKIE_NAME, encryptValue(JSON.stringify(payload)), {
     httpOnly: true,
     sameSite: "lax",
     secure: isProduction,
-    maxAge: FACEBOOK_STATE_MAX_AGE_SECONDS,
+    maxAge: FACEBOOK_DEBUG_TOKENS_MAX_AGE_SECONDS,
     path: "/",
   });
 }
 
-export async function clearFacebookOauthDebugResult() {
+async function getFacebookOauthDebugTokens() {
   const cookieStore = await cookies();
-  cookieStore.delete(FACEBOOK_OAUTH_DEBUG_COOKIE_NAME);
-}
-
-export async function getFacebookOauthDebugResult() {
-  const cookieStore = await cookies();
-  const encryptedValue = cookieStore.get(FACEBOOK_OAUTH_DEBUG_COOKIE_NAME)?.value;
+  const encryptedValue = cookieStore.get(FACEBOOK_OAUTH_DEBUG_TOKENS_COOKIE_NAME)?.value;
 
   if (!encryptedValue) {
     return null;
   }
 
   try {
-    const parsed = JSON.parse(decryptValue(encryptedValue)) as FacebookOauthDebugResult;
+    const parsed = JSON.parse(decryptValue(encryptedValue)) as FacebookDebugTokenBundle;
 
-    if (!parsed.profile?.id || !parsed.profile?.name || !Array.isArray(parsed.permissions) || !Array.isArray(parsed.accounts)) {
+    if (!parsed.shortLivedAccessToken || !Array.isArray(parsed.requestedScopes) || !Array.isArray(parsed.grantedScopes)) {
       return null;
     }
 
@@ -524,6 +707,102 @@ async function exchangeForLongLivedUserToken(input: { accessToken: string; appId
   }>(url, { method: "GET" });
 }
 
+async function debugFacebookUserToken(input: {
+  appId: string;
+  inputToken: string;
+  tokenSource: "short_lived_user" | "long_lived_user";
+}) {
+  const url = buildFacebookGraphUrl("/debug_token", {
+    input_token: input.inputToken,
+    access_token: `${input.appId}|${env.FACEBOOK_APP_SECRET}`,
+  });
+
+  try {
+    const payload = await facebookGraphRequestJson<{
+      data?: {
+        app_id?: string;
+        user_id?: string;
+        is_valid?: boolean;
+        expires_at?: number;
+        scopes?: string[];
+      };
+    }>(url, { method: "GET" });
+
+    return {
+      tokenSource: input.tokenSource,
+      appId: payload.data?.app_id ?? null,
+      userId: payload.data?.user_id ?? null,
+      isValid: typeof payload.data?.is_valid === "boolean" ? payload.data.is_valid : null,
+      expiresAt:
+        typeof payload.data?.expires_at === "number" && payload.data.expires_at > 0
+          ? new Date(payload.data.expires_at * 1000).toISOString()
+          : null,
+      scopes: Array.isArray(payload.data?.scopes) ? payload.data.scopes.map((scope) => String(scope)) : [],
+      errorMessage: null,
+      errorType: null,
+      errorCode: null,
+      errorSubcode: null,
+      fbtraceId: null,
+    } satisfies FacebookOauthDebugResult["tokenDebug"][number];
+  } catch (error) {
+    const normalizedError = handleFacebookApiError(error);
+    const responseSummary =
+      normalizedError.responseSummary && typeof normalizedError.responseSummary === "object" && !Array.isArray(normalizedError.responseSummary)
+        ? (normalizedError.responseSummary as Record<string, unknown>)
+        : null;
+
+    return {
+      tokenSource: input.tokenSource,
+      appId: null,
+      userId: null,
+      isValid: null,
+      expiresAt: null,
+      scopes: [],
+      errorMessage: normalizedError.message,
+      errorType: typeof responseSummary?.type === "string" ? responseSummary.type : null,
+      errorCode: typeof responseSummary?.code === "number" ? responseSummary.code : null,
+      errorSubcode:
+        typeof responseSummary?.subcode === "number" ? responseSummary.subcode : null,
+      fbtraceId: typeof responseSummary?.fbtraceId === "string" ? responseSummary.fbtraceId : null,
+    } satisfies FacebookOauthDebugResult["tokenDebug"][number];
+  }
+}
+
+async function runFacebookDiagnosticRequest(input: {
+  endpoint: string;
+  tokenSource: "short_lived_user" | "long_lived_user";
+  accessToken: string;
+  fields?: string;
+}) {
+  const url = buildFacebookGraphUrl(input.endpoint, {
+    access_token: input.accessToken,
+    fields: input.fields,
+  });
+
+  const response = await fetch(url, { method: "GET" });
+  const text = await response.text();
+  let payload: unknown = null;
+
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    payload = {
+      parse_error: "UNREADABLE_JSON",
+      body_preview: text.slice(0, 500),
+    };
+  }
+
+  return {
+    endpoint: input.fields ? `${input.endpoint}?fields=${input.fields}` : input.endpoint,
+    tokenSource: input.tokenSource,
+    httpStatus: response.status,
+    success: response.ok && !(payload && typeof payload === "object" && "error" in (payload as Record<string, unknown>)),
+    dataCount: getDiagnosticDataCount(payload),
+    sanitizedJson: sanitizeFacebookDiagnosticJson(payload),
+    parsedAccounts: parseDiagnosticAccounts(payload),
+  } satisfies FacebookDiagnosticRequestResult;
+}
+
 async function fetchFacebookUserProfile(userAccessToken: string) {
   const url = buildFacebookGraphUrl("/me", {
     access_token: userAccessToken,
@@ -537,6 +816,9 @@ async function fetchFacebookUserProfile(userAccessToken: string) {
 }
 
 async function fetchFacebookAccounts(userAccessToken: string) {
+  // /me/accounts is the standard Facebook Page discovery endpoint when pages_show_list is granted.
+  // Some Business Manager or New Pages Experience setups still return zero Pages here even when the user
+  // can work with the Page elsewhere, which is why we also run business/assigned-page diagnostics below.
   const url = buildFacebookGraphUrl("/me/accounts", {
     access_token: userAccessToken,
     fields: "id,name,access_token,link,tasks",
@@ -584,6 +866,8 @@ async function hydrateFacebookAccountsWithPageTokens(input: {
   accounts: FacebookRawPageAccount[];
   userAccessTokens: string[];
 }) {
+  // Never expose Page access tokens to the client. If /me/accounts returns Page rows without access_token,
+  // try to resolve them server-side with the current user tokens and only store a sanitized diagnostic snapshot.
   const hydratedAccounts: FacebookRawPageAccount[] = [];
   let hydratedPageAccessTokenCount = 0;
 
@@ -667,19 +951,37 @@ async function resolveFacebookOauthSession(input: { code: string }): Promise<Res
     redirectUri: config.redirectUri,
     appId: config.appId,
   });
-  const longLivedToken = await exchangeForLongLivedUserToken({
-    accessToken: shortLivedToken.access_token,
-    appId: config.appId,
-  });
-  const [profile, permissions, longLivedAccounts] = await Promise.all([
-    fetchFacebookUserProfile(longLivedToken.access_token),
-    fetchFacebookPermissions(longLivedToken.access_token),
-    fetchFacebookAccounts(longLivedToken.access_token),
+  let longLivedToken: {
+    access_token: string;
+    token_type?: string;
+    expires_in?: number;
+  } | null = null;
+  let longLivedExchangeStatus: "success" | "failure" = "failure";
+
+  try {
+    longLivedToken = await exchangeForLongLivedUserToken({
+      accessToken: shortLivedToken.access_token,
+      appId: config.appId,
+    });
+    longLivedExchangeStatus = "success";
+  } catch {
+    longLivedToken = null;
+  }
+
+  const primaryAccessToken = longLivedToken?.access_token || shortLivedToken.access_token;
+  const [profile, permissions, primaryAccounts] = await Promise.all([
+    fetchFacebookUserProfile(primaryAccessToken),
+    fetchFacebookPermissions(primaryAccessToken),
+    fetchFacebookAccounts(primaryAccessToken),
   ]);
   const grantedScopes = getGrantedFacebookPermissions(permissions);
   let accountsSource: "long_lived" | "short_lived" = "long_lived";
   let usedShortLivedFallback = false;
-  let resolvedAccounts = longLivedAccounts;
+  let resolvedAccounts = primaryAccounts;
+
+  if (!longLivedToken) {
+    accountsSource = "short_lived";
+  }
 
   if (resolvedAccounts.length === 0) {
     try {
@@ -698,7 +1000,7 @@ async function resolveFacebookOauthSession(input: { code: string }): Promise<Res
   const rawAccountsWithPageAccessTokenCount = resolvedAccounts.filter((account) => Boolean(account.accessToken)).length;
   const hydrationResult = await hydrateFacebookAccountsWithPageTokens({
     accounts: resolvedAccounts,
-    userAccessTokens: [longLivedToken.access_token, shortLivedToken.access_token],
+    userAccessTokens: [longLivedToken?.access_token, shortLivedToken.access_token].filter(Boolean) as string[],
   });
 
   return {
@@ -706,7 +1008,7 @@ async function resolveFacebookOauthSession(input: { code: string }): Promise<Res
     permissions,
     accounts: hydrationResult.accounts,
     grantedScopes,
-    tokenExpiresAt: longLivedToken.expires_in
+    tokenExpiresAt: longLivedToken?.expires_in
       ? new Date(Date.now() + longLivedToken.expires_in * 1000)
       : null,
     diagnostics: {
@@ -715,6 +1017,11 @@ async function resolveFacebookOauthSession(input: { code: string }): Promise<Res
       rawAccountsWithPageAccessTokenCount,
       hydratedPageAccessTokenCount: hydrationResult.hydratedPageAccessTokenCount,
       usedShortLivedFallback,
+    },
+    tokens: {
+      shortLivedAccessToken: shortLivedToken.access_token,
+      longLivedAccessToken: longLivedToken?.access_token ?? null,
+      longLivedExchangeStatus,
     },
   };
 }
@@ -741,14 +1048,236 @@ export async function getFacebookOauthCallbackData(input: { code: string }) {
   };
 }
 
-export async function getFacebookOauthDebugData(input: { code: string }): Promise<FacebookOauthDebugResult> {
-  const session = await resolveFacebookOauthSession(input);
+async function runCoreFacebookDiagnosticRequests(input: {
+  shortLivedAccessToken: string;
+  longLivedAccessToken: string | null;
+}) {
+  const requests: Array<Promise<FacebookDiagnosticRequestResult>> = [];
+  const tokenSources: Array<{
+    tokenSource: "short_lived_user" | "long_lived_user";
+    accessToken: string;
+  }> = [
+    { tokenSource: "short_lived_user", accessToken: input.shortLivedAccessToken },
+  ];
+
+  if (input.longLivedAccessToken) {
+    tokenSources.push({ tokenSource: "long_lived_user", accessToken: input.longLivedAccessToken });
+  }
+
+  for (const token of tokenSources) {
+    requests.push(runFacebookDiagnosticRequest({
+      endpoint: "/me",
+      fields: "id,name",
+      tokenSource: token.tokenSource,
+      accessToken: token.accessToken,
+    }));
+    requests.push(runFacebookDiagnosticRequest({
+      endpoint: "/me/permissions",
+      tokenSource: token.tokenSource,
+      accessToken: token.accessToken,
+    }));
+    requests.push(runFacebookDiagnosticRequest({
+      endpoint: "/me/accounts",
+      fields: "id,name,tasks,access_token",
+      tokenSource: token.tokenSource,
+      accessToken: token.accessToken,
+    }));
+    requests.push(runFacebookDiagnosticRequest({
+      endpoint: "/me/accounts",
+      fields: "id,name,tasks,category,verification_status,access_token",
+      tokenSource: token.tokenSource,
+      accessToken: token.accessToken,
+    }));
+  }
+
+  return Promise.all(requests);
+}
+
+async function runBusinessFallbackDiagnostics(input: {
+  shortLivedAccessToken: string;
+  longLivedAccessToken: string | null;
+}) {
+  // Some Page setups only become visible through Business Manager style discovery. Those fallbacks can require
+  // business_management even though the basic connect flow does not, so diagnostics should capture the raw errors too.
+  const tokenSources: Array<{
+    tokenSource: "short_lived_user" | "long_lived_user";
+    accessToken: string;
+  }> = [
+    { tokenSource: "short_lived_user", accessToken: input.shortLivedAccessToken },
+  ];
+
+  if (input.longLivedAccessToken) {
+    tokenSources.push({ tokenSource: "long_lived_user", accessToken: input.longLivedAccessToken });
+  }
+
+  const endpointResults: FacebookOauthDebugResult["businessDiagnostics"]["endpointResults"] = [];
+  const businesses = new Map<string, { id: string; name: string }>();
+
+  for (const token of tokenSources) {
+    const businessesResult = await runFacebookDiagnosticRequest({
+      endpoint: "/me/businesses",
+      fields: "id,name",
+      tokenSource: token.tokenSource,
+      accessToken: token.accessToken,
+    });
+    endpointResults.push(businessesResult);
+
+    const parsedBusinesses =
+      businessesResult.sanitizedJson &&
+      typeof businessesResult.sanitizedJson === "object" &&
+      !Array.isArray(businessesResult.sanitizedJson) &&
+      Array.isArray((businessesResult.sanitizedJson as { data?: unknown }).data)
+        ? ((businessesResult.sanitizedJson as { data?: Array<Record<string, unknown>> }).data ?? [])
+        : [];
+
+    for (const business of parsedBusinesses) {
+      const businessId = typeof business.id === "string" ? business.id : "";
+      const businessName = typeof business.name === "string" ? business.name : "";
+      if (businessId && businessName) {
+        businesses.set(businessId, { id: businessId, name: businessName });
+      }
+    }
+
+    endpointResults.push(await runFacebookDiagnosticRequest({
+      endpoint: "/me/assigned_pages",
+      fields: "id,name,tasks,access_token",
+      tokenSource: token.tokenSource,
+      accessToken: token.accessToken,
+    }));
+
+    for (const business of businesses.values()) {
+      endpointResults.push(await runFacebookDiagnosticRequest({
+        endpoint: `/${business.id}/owned_pages`,
+        fields: "id,name,tasks,access_token",
+        tokenSource: token.tokenSource,
+        accessToken: token.accessToken,
+      }));
+      endpointResults.push(await runFacebookDiagnosticRequest({
+        endpoint: `/${business.id}/client_pages`,
+        fields: "id,name,tasks,access_token",
+        tokenSource: token.tokenSource,
+        accessToken: token.accessToken,
+      }));
+    }
+  }
+
+  return {
+    businesses: Array.from(businesses.values()),
+    endpointResults,
+  } satisfies FacebookOauthDebugResult["businessDiagnostics"];
+}
+
+function buildFacebookDiagnosticSummary(input: {
+  grantedScopes: string[];
+  missingRequiredScopes: string[];
+  coreResults: FacebookOauthDebugResult["endpointResults"];
+  businessDiagnostics: FacebookOauthDebugResult["businessDiagnostics"];
+}) {
+  if (input.missingRequiredScopes.length > 0) {
+    return `Facebook login succeeded, but these required scopes are missing: ${input.missingRequiredScopes.join(", ")}.`;
+  }
+
+  const accountResults = input.coreResults.filter((result) => result.endpoint.startsWith("/me/accounts"));
+  const returnedPages = accountResults.some((result) => (result.dataCount ?? 0) > 0);
+  const returnedPageTokens = accountResults.some((result) =>
+    (result.parsedAccounts ?? []).some((account) => account.hasPageAccessToken),
+  );
+
+  if (returnedPages && !returnedPageTokens) {
+    return "Facebook returned Pages, but did not return Page access tokens. Check Page tasks/access and requested fields.";
+  }
+
+  if (!returnedPages && input.businessDiagnostics.businesses.length > 0) {
+    return "Facebook did not return Pages from /me/accounts. This Page may be managed through Business Manager. Try the Business Manager fallback or add business_management permission.";
+  }
+
+  const anyGraphErrors = [...input.coreResults, ...input.businessDiagnostics.endpointResults].find((result) => !result.success);
+  if (anyGraphErrors) {
+    return "One or more Graph API diagnostics returned an error. Review the sanitized error details below, including code, subcode, type, and fbtrace_id.";
+  }
+
+  return "OAuth succeeded and scopes were granted, but this Meta app could not discover any manageable Pages for this user. Check app mode, app role, Page access, and Business Integration Page selection.";
+}
+
+async function buildFacebookOauthDebugSnapshotFromSession(input: {
+  session: ResolvedFacebookOauthSession;
+  redirectUri: string;
+  appId: string;
+  pageId?: string | null;
+}) {
+  const session = input.session;
+  const missingRequiredScopes = FACEBOOK_REQUIRED_SCOPES.filter((scope) => !session.grantedScopes.includes(scope));
+  const tokenDebugResults = await Promise.all([
+    debugFacebookUserToken({
+      appId: input.appId,
+      inputToken: session.tokens.shortLivedAccessToken,
+      tokenSource: "short_lived_user",
+    }),
+    ...(session.tokens.longLivedAccessToken
+      ? [
+          debugFacebookUserToken({
+            appId: input.appId,
+            inputToken: session.tokens.longLivedAccessToken,
+            tokenSource: "long_lived_user" as const,
+          }),
+        ]
+      : []),
+  ]);
+  const endpointResults = await runCoreFacebookDiagnosticRequests({
+    shortLivedAccessToken: session.tokens.shortLivedAccessToken,
+    longLivedAccessToken: session.tokens.longLivedAccessToken,
+  });
+  const businessDiagnostics = await runBusinessFallbackDiagnostics({
+    shortLivedAccessToken: session.tokens.shortLivedAccessToken,
+    longLivedAccessToken: session.tokens.longLivedAccessToken,
+  });
+  const manualPageIdTest = input.pageId
+    ? {
+        pageId: input.pageId,
+        endpointResults: await Promise.all(
+          [
+            {
+              tokenSource: "short_lived_user" as const,
+              accessToken: session.tokens.shortLivedAccessToken,
+            },
+            ...(session.tokens.longLivedAccessToken
+              ? [
+                  {
+                    tokenSource: "long_lived_user" as const,
+                    accessToken: session.tokens.longLivedAccessToken,
+                  },
+                ]
+              : []),
+          ].flatMap((token) => [
+            runFacebookDiagnosticRequest({
+              endpoint: `/${input.pageId}`,
+              fields: "id,name,tasks,access_token",
+              tokenSource: token.tokenSource,
+              accessToken: token.accessToken,
+            }),
+            runFacebookDiagnosticRequest({
+              endpoint: `/${input.pageId}`,
+              fields: "id,name,access_token",
+              tokenSource: token.tokenSource,
+              accessToken: token.accessToken,
+            }),
+          ]),
+        ),
+      }
+    : null;
+
   const accounts = session.accounts.map((page) => ({
     id: page.id,
     name: page.name,
     tasks: page.tasks ?? [],
     hasPageAccessToken: Boolean(page.accessToken),
   }));
+  const summaryMessage = buildFacebookDiagnosticSummary({
+    grantedScopes: session.grantedScopes,
+    missingRequiredScopes,
+    coreResults: endpointResults,
+    businessDiagnostics,
+  });
 
   return {
     profile: {
@@ -762,8 +1291,96 @@ export async function getFacebookOauthDebugData(input: { code: string }): Promis
     emptyAccountsMessage:
       accounts.length === 0 ? "OAuth succeeded, but this Meta app could not see any manageable Pages." : null,
     diagnostics: session.diagnostics,
+    graphApiVersion: FACEBOOK_GRAPH_VERSION,
+    redirectUri: input.redirectUri,
+    requestedScopes: [...FACEBOOK_REQUIRED_SCOPES],
+    missingRequiredScopes,
+    optionalDiagnosticScopes: [...FACEBOOK_OPTIONAL_DIAGNOSTIC_SCOPES],
+    tokenInfo: {
+      shortLivedExists: Boolean(session.tokens.shortLivedAccessToken),
+      longLivedExists: Boolean(session.tokens.longLivedAccessToken),
+      longLivedExchangeStatus: session.tokens.longLivedExchangeStatus,
+    },
+    tokenDebug: tokenDebugResults,
+    endpointResults,
+    businessDiagnostics,
+    manualPageIdTest,
+    summaryMessage,
     fetchedAt: new Date().toISOString(),
+  } satisfies FacebookOauthDebugResult;
+}
+
+export async function getFacebookOauthDebugData(input: { code: string }): Promise<FacebookOauthDebugResult> {
+  const config = await getFacebookConfiguration();
+  const session = await resolveFacebookOauthSession(input);
+  const snapshot = await buildFacebookOauthDebugSnapshotFromSession({
+    session,
+    redirectUri: config.redirectUri,
+    appId: config.appId,
+  });
+  await setFacebookOauthDebugTokens({
+    shortLivedAccessToken: session.tokens.shortLivedAccessToken,
+    longLivedAccessToken: session.tokens.longLivedAccessToken,
+    redirectUri: snapshot.redirectUri,
+    requestedScopes: snapshot.requestedScopes,
+    grantedScopes: snapshot.grantedScopes,
+    fetchedAt: snapshot.fetchedAt,
+  });
+
+  return snapshot;
+}
+
+export async function runStoredFacebookManualPageDiagnostics(input: { pageId: string }) {
+  const tokenBundle = await getFacebookOauthDebugTokens();
+  if (!tokenBundle) {
+    throw new Error("Run Facebook Diagnostics first so the app has a fresh diagnostic user token to test against.");
+  }
+
+  const existing = await getFacebookOauthDebugResult();
+  if (!existing) {
+    throw new Error("Run Facebook Diagnostics first before testing a manual Page ID.");
+  }
+
+  const endpointResults = await Promise.all(
+    [
+      {
+        tokenSource: "short_lived_user" as const,
+        accessToken: tokenBundle.shortLivedAccessToken,
+      },
+      ...(tokenBundle.longLivedAccessToken
+        ? [
+            {
+              tokenSource: "long_lived_user" as const,
+              accessToken: tokenBundle.longLivedAccessToken,
+            },
+          ]
+        : []),
+    ].flatMap((token) => [
+      runFacebookDiagnosticRequest({
+        endpoint: `/${input.pageId}`,
+        fields: "id,name,tasks,access_token",
+        tokenSource: token.tokenSource,
+        accessToken: token.accessToken,
+      }),
+      runFacebookDiagnosticRequest({
+        endpoint: `/${input.pageId}`,
+        fields: "id,name,access_token",
+        tokenSource: token.tokenSource,
+        accessToken: token.accessToken,
+      }),
+    ]),
+  );
+
+  const updatedSnapshot: FacebookOauthDebugResult = {
+    ...existing,
+    manualPageIdTest: {
+      pageId: input.pageId,
+      endpointResults,
+    },
   };
+
+  await setFacebookOauthDebugResult(updatedSnapshot);
+  return updatedSnapshot;
 }
 
 export async function saveFacebookConnectedPage(input: {
@@ -1612,6 +2229,7 @@ async function facebookGraphRequestJson<T>(input: URL, init: RequestInit) {
       code,
       responseSummary: {
         status: response.status,
+        code: errorPayload.code ?? null,
         technicalMessage,
         type: errorPayload.type ?? null,
         subcode: errorPayload.error_subcode ?? null,

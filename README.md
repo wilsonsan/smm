@@ -224,6 +224,8 @@ Facebook media behavior:
   - `pages_show_list`
   - `pages_read_engagement`
   - `pages_manage_posts`
+- Optional diagnostic scope:
+  - `business_management`
 - Connected Page storage:
   - uses `ConnectedAccount`
   - stores the selected Facebook Page token encrypted
@@ -271,7 +273,25 @@ Facebook connection diagnostics:
   - `DATABASE_URL`
 - tokens are encrypted at rest and never returned to the browser
 - logs and publish attempts never store raw access tokens
-- if the token becomes invalid or scopes drift, the Facebook settings page now shows reconnect guidance directly in the UI
+  - if the token becomes invalid or scopes drift, the Facebook settings page now shows reconnect guidance directly in the UI
+- the Advanced Facebook Debug section can now show:
+  - Graph API version used
+  - OAuth redirect URI used
+  - requested scopes
+  - granted scopes
+  - missing required scopes
+  - short-lived vs long-lived user token diagnostics
+  - token debug summaries from Meta's `debug_token` endpoint
+  - sanitized `/me`, `/me/permissions`, `/me/accounts`, `/me/businesses`, `owned_pages`, `client_pages`, and `assigned_pages` responses
+  - manual Page ID tests using the current diagnostic user token bundle
+- diagnostics snapshots are stored sanitized; raw user tokens remain encrypted in a short-lived server-only cookie and are never rendered in the browser
+
+Reference docs:
+
+- [Pages API](https://developers.facebook.com/docs/pages-api/)
+- [User accounts reference](https://developers.facebook.com/docs/graph-api/reference/user/accounts/)
+- [Facebook Login access tokens](https://developers.facebook.com/docs/facebook-login/guides/access-tokens/)
+- [debug_token reference](https://developers.facebook.com/docs/graph-api/reference/debug_token/)
 
 ## Publish Worker
 
@@ -396,6 +416,15 @@ If the app is restored onto a new server:
   - `APP_URL` is correct
   - the exact redirect URI from the Facebook settings page is registered in Meta
   - `FACEBOOK_APP_SECRET` and `TOKEN_ENCRYPTION_KEY` are present
+- If Facebook OAuth succeeds but no Pages are found:
+  - run `Run Facebook Diagnostics`
+  - confirm the granted scopes
+  - confirm `/me` returns the expected Facebook user
+  - compare `/me/accounts` for both short-lived and long-lived token sources
+  - confirm whether Page access tokens are present in the sanitized account rows
+  - if `/me/accounts` is empty, inspect `/me/businesses`, `owned_pages`, `client_pages`, and `/me/assigned_pages`
+  - if fallback-only business results appear, add `business_management` and reconnect
+  - if Graph API Explorer or Postiz can see Pages but this app cannot, compare Graph API version, token source, and Meta app id
 - If `Test Connection` fails, review:
   - granted scopes
   - missing scopes
@@ -487,23 +516,40 @@ Verified in this workspace:
    - granted scopes are listed
    - missing required scopes show `None`
    - last tested time updates
-10. Create a draft with caption only and use `Post Now`.
-11. Create a draft with a processed image and use `Post Now`.
-12. Schedule a Facebook post about two minutes out.
+10. Click `Run Facebook Diagnostics` and confirm:
+    - token exchange status is shown
+    - the short-lived and long-lived token sources are listed without exposing the token values
+    - `/me` returns the expected Facebook user
+    - `/me/accounts` shows the raw data count and whether `access_token` is present per row
+    - if `/me/accounts` is empty, `/me/businesses` and fallback endpoints are shown
+11. If needed, enter a known Page ID in `Test Page ID` and run the manual Page ID test.
+12. Create a draft with caption only and use `Post Now`.
+13. Create a draft with a processed image and use `Post Now`.
+14. Schedule a Facebook post about two minutes out.
 13. Run the worker:
 
 ```powershell
 & 'C:\Program Files\nodejs\npm.cmd' run worker:publish
 ```
 
-14. Confirm the scheduled post becomes `PUBLISHED` or `FAILED`, then review:
+15. Confirm the scheduled post becomes `PUBLISHED` or `FAILED`, then review:
     - the dashboard worker card
     - the post detail page
     - the Facebook post link if returned
     - the latest publish attempt summary
     - the full publish attempt history
     - the calendar status color/state
-15. If a post fails, use `Retry Publish` from the post detail page and confirm a new publish attempt is added instead of overwriting prior failure details.
-16. If a future-scheduled post is posted manually, confirm the UI requires the explicit immediate-publish confirmation step first.
-17. Disconnect Facebook, reconnect it, and confirm the Page details repopulate without exposing the token in the UI.
-18. Restart the app and rerun `npm run worker:publish`, then confirm scheduled publishing still resumes from the current database state.
+16. If a post fails, use `Retry Publish` from the post detail page and confirm a new publish attempt is added instead of overwriting prior failure details.
+17. If a future-scheduled post is posted manually, confirm the UI requires the explicit immediate-publish confirmation step first.
+18. Disconnect Facebook, reconnect it, and confirm the Page details repopulate without exposing the token in the UI.
+19. Restart the app and rerun `npm run worker:publish`, then confirm scheduled publishing still resumes from the current database state.
+
+## Facebook Diagnostic Checklist
+
+- Confirm granted scopes.
+- Confirm `/me` returns the expected Facebook user.
+- Confirm `/me/accounts` raw response.
+- Confirm whether Page access tokens are present.
+- If `/me/accounts` is empty, check `/me/businesses` and `assigned_pages`.
+- If Business Manager pages appear only in fallback, add `business_management`.
+- If Graph API Explorer returns Pages but the app does not, compare Graph API version, token source, and redirect app ID.

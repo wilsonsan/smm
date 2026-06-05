@@ -1287,6 +1287,20 @@ th {
   line-height: 1.55;
 }
 
+.settings-code-block {
+  margin: 12px 0 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(124, 146, 206, 0.14);
+  background: rgba(8, 14, 24, 0.78);
+  color: #dce8ff;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .settings-nav-open {
   color: #a9bfd8;
   text-transform: uppercase;

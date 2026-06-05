@@ -5,6 +5,7 @@ import {
   clearFacebookDebugResultAction,
   clearFacebookPendingSelectionAction,
   disconnectFacebookAction,
+  runFacebookPageIdDiagnosticsAction,
   saveFacebookSettingsAction,
   selectFacebookPageAction,
   testFacebookConnectionAction,
@@ -52,6 +53,10 @@ function getStatusLabel(status: ConnectedAccountStatus | null) {
   }
 
   return "DISCONNECTED";
+}
+
+function formatDiagnosticJson(value: unknown) {
+  return JSON.stringify(value, null, 2);
 }
 
 export default async function FacebookChannelSettingsPage({ searchParams }: FacebookSettingsPageProps) {
@@ -159,6 +164,12 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                   <label>Required scopes</label>
                   <input value={config.requiredScopes.join(", ")} readOnly />
                 </div>
+
+                <div className="field">
+                  <label>Optional diagnostic scopes</label>
+                  <input value={config.optionalDiagnosticScopes.join(", ")} readOnly />
+                  <span className="hint">`business_management` is not required for basic Page connect, but it can help diagnose Business Manager owned Pages when `/me/accounts` returns zero.</span>
+                </div>
               </div>
 
               <div className="button-row">
@@ -179,7 +190,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                   aria-disabled={hasBlockingSetupIssue}
                   style={hasBlockingSetupIssue ? { pointerEvents: "none", opacity: 0.6 } : undefined}
                 >
-                  OAuth Debug
+                  Run Facebook Diagnostics
                 </a>
               </div>
             </form>
@@ -201,8 +212,8 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
         <section className="settings-subcard">
           <div className="settings-subcard-head">
             <div>
-              <strong>OAuth Debug</strong>
-              <p>Run a temporary Facebook OAuth debug pass and inspect the sanitized `/me`, `/me/permissions`, and `/me/accounts` results.</p>
+              <strong>Advanced Facebook Debug</strong>
+              <p>Run a server-side diagnostics pass against the current Meta app so we can compare token sources, raw sanitized Graph responses, and Business Manager fallbacks without exposing any tokens.</p>
             </div>
             <span className="settings-chip">Debug</span>
           </div>
@@ -211,18 +222,53 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
             <div className="form-grid">
               <div className="grid-2">
                 <div className="field">
-                  <label>Debug account name</label>
+                  <label>Facebook user</label>
                   <input value={debugResult.profile.name} readOnly />
                 </div>
 
                 <div className="field">
-                  <label>Debug account id</label>
+                  <label>Facebook user ID</label>
                   <input value={debugResult.profile.id} readOnly />
+                </div>
+
+                <div className="field">
+                  <label>Graph API version</label>
+                  <input value={debugResult.graphApiVersion} readOnly />
+                </div>
+
+                <div className="field">
+                  <label>OAuth redirect URI used</label>
+                  <input value={debugResult.redirectUri} readOnly />
+                </div>
+
+                <div className="field">
+                  <label>Requested scopes</label>
+                  <input value={debugResult.requestedScopes.join(", ") || "None requested"} readOnly />
                 </div>
 
                 <div className="field">
                   <label>Granted scopes</label>
                   <input value={debugResult.grantedScopes.join(", ") || "None returned"} readOnly />
+                </div>
+
+                <div className="field">
+                  <label>Missing required scopes</label>
+                  <input value={debugResult.missingRequiredScopes.join(", ") || "None"} readOnly />
+                </div>
+
+                <div className="field">
+                  <label>Long-lived token exchange</label>
+                  <input value={debugResult.tokenInfo.longLivedExchangeStatus} readOnly />
+                </div>
+
+                <div className="field">
+                  <label>Short-lived token existed</label>
+                  <input value={debugResult.tokenInfo.shortLivedExists ? "true" : "false"} readOnly />
+                </div>
+
+                <div className="field">
+                  <label>Long-lived token existed</label>
+                  <input value={debugResult.tokenInfo.longLivedExists ? "true" : "false"} readOnly />
                 </div>
 
                 <div className="field">
@@ -235,6 +281,11 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                     }
                     readOnly
                   />
+                </div>
+
+                <div className="field">
+                  <label>Last diagnostics run</label>
+                  <input value={formatDateTimeForTimezone(debugResult.fetchedAt, timezone)} readOnly />
                 </div>
 
                 <div className="field">
@@ -258,6 +309,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                 </div>
               </div>
 
+              <p className={debugResult.missingRequiredScopes.length > 0 ? "warning-text" : "hint"}>{debugResult.summaryMessage}</p>
               {debugResult.emptyAccountsMessage ? <p className="warning-text">{debugResult.emptyAccountsMessage}</p> : null}
               {debugResult.diagnostics.usedShortLivedFallback ? (
                 <p className="warning-text">
@@ -269,18 +321,55 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
               <div className="settings-subcard-list">
                 <div className="settings-nav-card">
                   <div className="settings-nav-card-head">
-                    <strong>/me?fields=id,name</strong>
+                    <strong>OAuth / token flow</strong>
                   </div>
                   <p>
-                    id: {debugResult.profile.id}
+                    Accounts source: {debugResult.diagnostics.accountsSource}
                     {" | "}
-                    name: {debugResult.profile.name}
+                    Raw account rows: {debugResult.diagnostics.rawAccountsCount}
+                    {" | "}
+                    Raw rows with tokens: {debugResult.diagnostics.rawAccountsWithPageAccessTokenCount}
+                    {" | "}
+                    Hydrated page tokens: {debugResult.diagnostics.hydratedPageAccessTokenCount}
                   </p>
                 </div>
 
                 <div className="settings-nav-card">
                   <div className="settings-nav-card-head">
-                    <strong>/me/permissions</strong>
+                    <strong>Token debug results</strong>
+                  </div>
+                  {debugResult.tokenDebug.length > 0 ? (
+                    <div className="settings-subcard-list">
+                      {debugResult.tokenDebug.map((entry) => (
+                        <div key={entry.tokenSource} className="settings-nav-card">
+                          <div className="settings-nav-card-head">
+                            <strong>{entry.tokenSource}</strong>
+                          </div>
+                          <p>app_id: {entry.appId || "Unavailable"}</p>
+                          <p>user_id: {entry.userId || "Unavailable"}</p>
+                          <p>is_valid: {entry.isValid === null ? "Unknown" : entry.isValid ? "true" : "false"}</p>
+                          <p>expires_at: {entry.expiresAt ? formatDateTimeForTimezone(entry.expiresAt, timezone) : "Not returned"}</p>
+                          <p>scopes: {entry.scopes.join(", ") || "None returned"}</p>
+                          {entry.errorMessage ? (
+                            <p className="error-text">
+                              {entry.errorMessage}
+                              {entry.errorType ? ` | type: ${entry.errorType}` : ""}
+                              {entry.errorCode !== null ? ` | code: ${entry.errorCode}` : ""}
+                              {entry.errorSubcode !== null ? ` | subcode: ${entry.errorSubcode}` : ""}
+                              {entry.fbtraceId ? ` | fbtrace_id: ${entry.fbtraceId}` : ""}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>No token debug results are stored yet.</p>
+                  )}
+                </div>
+
+                <div className="settings-nav-card">
+                  <div className="settings-nav-card-head">
+                    <strong>Permission records</strong>
                   </div>
                   <p>
                     {debugResult.permissions.length > 0
@@ -291,7 +380,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
 
                 <div className="settings-nav-card">
                   <div className="settings-nav-card-head">
-                    <strong>/me/accounts?fields=id,name,tasks,access_token</strong>
+                    <strong>Parsed /me/accounts rows</strong>
                   </div>
                   {debugResult.accounts.length > 0 ? (
                     <div className="settings-subcard-list">
@@ -310,19 +399,156 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                     <p>OAuth succeeded, but this Meta app could not see any manageable Pages.</p>
                   )}
                 </div>
+
+                <div className="settings-nav-card">
+                  <div className="settings-nav-card-head">
+                    <strong>Core Graph endpoint results</strong>
+                  </div>
+                  <div className="settings-subcard-list">
+                    {debugResult.endpointResults.map((result, index) => (
+                      <div key={`${result.endpoint}-${result.tokenSource}-${index}`} className="settings-nav-card">
+                        <div className="settings-nav-card-head">
+                          <strong>{result.endpoint}</strong>
+                          <span className={`badge is-${result.success ? "published" : "failed"}`.trim()}>
+                            {result.success ? "Success" : "Failed"}
+                          </span>
+                        </div>
+                        <p>
+                          token source: {result.tokenSource}
+                          {" | "}
+                          http status: {result.httpStatus ?? "Unknown"}
+                          {" | "}
+                          data count: {result.dataCount ?? "n/a"}
+                        </p>
+                        {result.parsedAccounts?.length ? (
+                          <div className="settings-subcard-list">
+                            {result.parsedAccounts.map((account) => (
+                              <div key={`${result.endpoint}-${result.tokenSource}-${account.id}`} className="settings-nav-card">
+                                <div className="settings-nav-card-head">
+                                  <strong>{account.name}</strong>
+                                </div>
+                                <p>Page ID: {account.id}</p>
+                                <p>Tasks: {account.tasks.join(", ") || "None returned"}</p>
+                                <p>Category: {account.category || "Not returned"}</p>
+                                <p>Verification status: {account.verificationStatus || "Not returned"}</p>
+                                <p>hasPageAccessToken: {account.hasPageAccessToken ? "true" : "false"}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                        <pre className="settings-code-block">{formatDiagnosticJson(result.sanitizedJson)}</pre>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="settings-nav-card">
+                  <div className="settings-nav-card-head">
+                    <strong>Business Manager fallback diagnostics</strong>
+                  </div>
+                  <p>
+                    businesses returned: {debugResult.businessDiagnostics.businesses.length}
+                    {" | "}
+                    optional scope: {debugResult.optionalDiagnosticScopes.join(", ")}
+                  </p>
+                  {debugResult.businessDiagnostics.businesses.length > 0 ? (
+                    <div className="settings-subcard-list">
+                      {debugResult.businessDiagnostics.businesses.map((business) => (
+                        <div key={business.id} className="settings-nav-card">
+                          <div className="settings-nav-card-head">
+                            <strong>{business.name}</strong>
+                          </div>
+                          <p>Business ID: {business.id}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="settings-subcard-list">
+                    {debugResult.businessDiagnostics.endpointResults.map((result, index) => (
+                      <div key={`${result.endpoint}-${result.tokenSource}-business-${index}`} className="settings-nav-card">
+                        <div className="settings-nav-card-head">
+                          <strong>{result.endpoint}</strong>
+                          <span className={`badge is-${result.success ? "published" : "failed"}`.trim()}>
+                            {result.success ? "Success" : "Failed"}
+                          </span>
+                        </div>
+                        <p>
+                          token source: {result.tokenSource}
+                          {" | "}
+                          http status: {result.httpStatus ?? "Unknown"}
+                          {" | "}
+                          data count: {result.dataCount ?? "n/a"}
+                        </p>
+                        {result.parsedAccounts?.length ? (
+                          <div className="settings-subcard-list">
+                            {result.parsedAccounts.map((account) => (
+                              <div key={`${result.endpoint}-${result.tokenSource}-${account.id}`} className="settings-nav-card">
+                                <div className="settings-nav-card-head">
+                                  <strong>{account.name}</strong>
+                                </div>
+                                <p>Page ID: {account.id}</p>
+                                <p>Tasks: {account.tasks.join(", ") || "None returned"}</p>
+                                <p>hasPageAccessToken: {account.hasPageAccessToken ? "true" : "false"}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                        <pre className="settings-code-block">{formatDiagnosticJson(result.sanitizedJson)}</pre>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="settings-nav-card">
+                  <div className="settings-nav-card-head">
+                    <strong>Manual Page ID test</strong>
+                  </div>
+                  <p>Enter a known Facebook Page ID and the app will query it with the current diagnostic user token sources.</p>
+                  <form action={runFacebookPageIdDiagnosticsAction} className="form-grid">
+                    <div className="field">
+                      <label htmlFor="debugPageId">Test Page ID</label>
+                      <input id="debugPageId" name="pageId" defaultValue={debugResult.manualPageIdTest?.pageId || ""} placeholder="Enter a Page ID" />
+                    </div>
+                    <div className="button-row">
+                      <button type="submit" className="secondary-button">
+                        Run Page ID Test
+                      </button>
+                    </div>
+                  </form>
+                  {debugResult.manualPageIdTest ? (
+                    <div className="settings-subcard-list">
+                      {debugResult.manualPageIdTest.endpointResults.map((result, index) => (
+                        <div key={`${result.endpoint}-${result.tokenSource}-manual-${index}`} className="settings-nav-card">
+                          <div className="settings-nav-card-head">
+                            <strong>{result.endpoint}</strong>
+                            <span className={`badge is-${result.success ? "published" : "failed"}`.trim()}>
+                              {result.success ? "Success" : "Failed"}
+                            </span>
+                          </div>
+                          <p>
+                            token source: {result.tokenSource}
+                            {" | "}
+                            http status: {result.httpStatus ?? "Unknown"}
+                          </p>
+                          <pre className="settings-code-block">{formatDiagnosticJson(result.sanitizedJson)}</pre>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               </div>
 
               <div className="button-row">
                 <form action={clearFacebookDebugResultAction}>
                   <button type="submit" className="ghost-link-button">
-                    Clear Debug Results
+                    Clear Diagnostics Snapshot
                   </button>
                 </form>
               </div>
             </div>
           ) : (
             <div className="form-grid">
-              <p className="hint">No OAuth debug results are stored yet. Use the OAuth Debug button above to inspect what Meta returns for this account.</p>
+              <p className="hint">No Facebook diagnostics snapshot is stored yet. Use the Run Facebook Diagnostics button above to inspect token exchange, `/me`, `/me/accounts`, and Business Manager fallback responses.</p>
             </div>
           )}
         </section>
@@ -408,11 +634,11 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                     connection?.lastTestedAt
                       ? formatDateTimeForTimezone(connection.lastTestedAt, timezone)
                       : "Not tested yet"
-                  }
-                  readOnly
-                />
+                    }
+                    readOnly
+                  />
+                </div>
               </div>
-            </div>
 
             {pageUrl ? (
               <p className="hint">

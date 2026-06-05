@@ -101,6 +101,15 @@ export const facebookPageSelectionSchema = z.object({
   pageId: z.string().trim().min(1, "Choose a Facebook Page."),
 });
 
+export const facebookPageIdTestSchema = z.object({
+  pageId: z
+    .string()
+    .trim()
+    .min(1, "Enter a Facebook Page ID.")
+    .max(100, "Facebook Page ID must be 100 characters or less.")
+    .regex(/^[a-zA-Z0-9_]+$/, "Use a valid Facebook Page ID."),
+});
+
 export const accountProfileSchema = z.object({
   username: z
     .string()
