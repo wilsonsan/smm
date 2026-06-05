@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { ConnectedAccountStatus } from "@prisma/client";
 import {
+  clearFacebookDebugResultAction,
   clearFacebookPendingSelectionAction,
   disconnectFacebookAction,
   saveFacebookSettingsAction,
@@ -11,6 +12,7 @@ import {
 import {
   getFacebookConfiguration,
   getFacebookConnectionRecord,
+  getFacebookOauthDebugResult,
   getPendingFacebookPageSelection,
 } from "@/lib/facebook";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
@@ -54,9 +56,10 @@ function getStatusLabel(status: ConnectedAccountStatus | null) {
 
 export default async function FacebookChannelSettingsPage({ searchParams }: FacebookSettingsPageProps) {
   const resolvedSearchParams = await searchParams;
-  const [config, connection, pendingSelection, timezone, detectedRequestOrigin] = await Promise.all([
+  const [config, connection, debugResult, pendingSelection, timezone, detectedRequestOrigin] = await Promise.all([
     getFacebookConfiguration(),
     getFacebookConnectionRecord(),
+    getFacebookOauthDebugResult(),
     getPendingFacebookPageSelection(),
     getResolvedAppTimezone(),
     getDetectedRequestOrigin(),
@@ -170,6 +173,14 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                 >
                   Connect Facebook
                 </a>
+                <a
+                  href={hasBlockingSetupIssue ? undefined : "/api/facebook/debug"}
+                  className="secondary-button"
+                  aria-disabled={hasBlockingSetupIssue}
+                  style={hasBlockingSetupIssue ? { pointerEvents: "none", opacity: 0.6 } : undefined}
+                >
+                  OAuth Debug
+                </a>
               </div>
             </form>
 
@@ -185,6 +196,109 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
               </p>
             ) : null}
           </div>
+        </section>
+
+        <section className="settings-subcard">
+          <div className="settings-subcard-head">
+            <div>
+              <strong>OAuth Debug</strong>
+              <p>Run a temporary Facebook OAuth debug pass and inspect the sanitized `/me`, `/me/permissions`, and `/me/accounts` results.</p>
+            </div>
+            <span className="settings-chip">Debug</span>
+          </div>
+
+          {debugResult ? (
+            <div className="form-grid">
+              <div className="grid-2">
+                <div className="field">
+                  <label>Debug account name</label>
+                  <input value={debugResult.profile.name} readOnly />
+                </div>
+
+                <div className="field">
+                  <label>Debug account id</label>
+                  <input value={debugResult.profile.id} readOnly />
+                </div>
+
+                <div className="field">
+                  <label>Granted scopes</label>
+                  <input value={debugResult.grantedScopes.join(", ") || "None returned"} readOnly />
+                </div>
+
+                <div className="field">
+                  <label>Token expiry</label>
+                  <input
+                    value={
+                      debugResult.tokenExpiresAt
+                        ? formatDateTimeForTimezone(debugResult.tokenExpiresAt, timezone)
+                        : "No token expiry reported"
+                    }
+                    readOnly
+                  />
+                </div>
+              </div>
+
+              {debugResult.emptyAccountsMessage ? <p className="warning-text">{debugResult.emptyAccountsMessage}</p> : null}
+
+              <div className="settings-subcard-list">
+                <div className="settings-nav-card">
+                  <div className="settings-nav-card-head">
+                    <strong>/me?fields=id,name</strong>
+                  </div>
+                  <p>
+                    id: {debugResult.profile.id}
+                    {" | "}
+                    name: {debugResult.profile.name}
+                  </p>
+                </div>
+
+                <div className="settings-nav-card">
+                  <div className="settings-nav-card-head">
+                    <strong>/me/permissions</strong>
+                  </div>
+                  <p>
+                    {debugResult.permissions.length > 0
+                      ? debugResult.permissions.map((entry) => `${entry.permission}: ${entry.status}`).join(", ")
+                      : "No permission records returned."}
+                  </p>
+                </div>
+
+                <div className="settings-nav-card">
+                  <div className="settings-nav-card-head">
+                    <strong>/me/accounts?fields=id,name,tasks,access_token</strong>
+                  </div>
+                  {debugResult.accounts.length > 0 ? (
+                    <div className="settings-subcard-list">
+                      {debugResult.accounts.map((account) => (
+                        <div key={account.id} className="settings-nav-card">
+                          <div className="settings-nav-card-head">
+                            <strong>{account.name}</strong>
+                          </div>
+                          <p>Page ID: {account.id}</p>
+                          <p>Tasks: {account.tasks.length > 0 ? account.tasks.join(", ") : "None returned"}</p>
+                          <p>hasPageAccessToken: {account.hasPageAccessToken ? "true" : "false"}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>OAuth succeeded, but this Meta app could not see any manageable Pages.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="button-row">
+                <form action={clearFacebookDebugResultAction}>
+                  <button type="submit" className="ghost-link-button">
+                    Clear Debug Results
+                  </button>
+                </form>
+              </div>
+            </div>
+          ) : (
+            <div className="form-grid">
+              <p className="hint">No OAuth debug results are stored yet. Use the OAuth Debug button above to inspect what Meta returns for this account.</p>
+            </div>
+          )}
         </section>
 
         <section className="settings-subcard">

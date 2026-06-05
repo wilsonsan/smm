@@ -22,9 +22,13 @@ export const FACEBOOK_REQUIRED_SCOPES = [
 ] as const;
 
 export const FACEBOOK_OAUTH_STATE_COOKIE_NAME = "smm_facebook_oauth_state";
+export const FACEBOOK_OAUTH_MODE_COOKIE_NAME = "smm_facebook_oauth_mode";
 export const FACEBOOK_PENDING_SELECTION_COOKIE_NAME = "smm_facebook_pending_selection";
+export const FACEBOOK_OAUTH_DEBUG_COOKIE_NAME = "smm_facebook_oauth_debug";
 const FACEBOOK_STATE_MAX_AGE_SECONDS = 10 * 60;
 const FACEBOOK_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+
+export type FacebookOauthMode = "connect" | "debug";
 
 export type FacebookRuntimeCheck = {
   key: string;
@@ -51,12 +55,41 @@ type FacebookManagedPage = {
   tasks?: string[];
 };
 
+type FacebookRawPageAccount = {
+  id: string;
+  name: string;
+  accessToken: string | null;
+  link?: string | null;
+  tasks?: string[];
+};
+
 type PendingFacebookPageSelection = {
   accountId: string;
   accountName: string;
   pages: FacebookManagedPage[];
   scopes: string[];
   tokenExpiresAt: string | null;
+};
+
+export type FacebookOauthDebugResult = {
+  profile: {
+    id: string;
+    name: string;
+  };
+  permissions: Array<{
+    permission: string;
+    status: string;
+  }>;
+  accounts: Array<{
+    id: string;
+    name: string;
+    tasks: string[];
+    hasPageAccessToken: boolean;
+  }>;
+  grantedScopes: string[];
+  tokenExpiresAt: string | null;
+  emptyAccountsMessage: string | null;
+  fetchedAt: string;
 };
 
 export type FacebookConnectionRecord = {
@@ -304,9 +337,9 @@ export async function assertFacebookRuntimeReady() {
   return config;
 }
 
-export async function buildFacebookConnectUrl() {
+export async function buildFacebookConnectUrl(input?: { mode?: FacebookOauthMode }) {
   const config = await getFacebookConfiguration();
-  const state = await createFacebookOauthState();
+  const state = await createFacebookOauthState(input?.mode ?? "connect");
   const url = new URL(`https://www.facebook.com/${FACEBOOK_GRAPH_VERSION}/dialog/oauth`);
   url.searchParams.set("client_id", config.appId);
   url.searchParams.set("redirect_uri", config.redirectUri);
@@ -317,10 +350,17 @@ export async function buildFacebookConnectUrl() {
   return url.toString();
 }
 
-export async function createFacebookOauthState() {
+export async function createFacebookOauthState(mode: FacebookOauthMode = "connect") {
   const state = randomBytes(24).toString("hex");
   const cookieStore = await cookies();
   cookieStore.set(FACEBOOK_OAUTH_STATE_COOKIE_NAME, state, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: isProduction,
+    maxAge: FACEBOOK_STATE_MAX_AGE_SECONDS,
+    path: "/",
+  });
+  cookieStore.set(FACEBOOK_OAUTH_MODE_COOKIE_NAME, mode, {
     httpOnly: true,
     sameSite: "lax",
     secure: isProduction,
@@ -348,6 +388,14 @@ export async function validateFacebookOauthState(returnedState: string | null) {
   }
 
   return timingSafeEqual(returnedBuffer, storedBuffer);
+}
+
+export async function consumeFacebookOauthMode(): Promise<FacebookOauthMode> {
+  const cookieStore = await cookies();
+  const mode = cookieStore.get(FACEBOOK_OAUTH_MODE_COOKIE_NAME)?.value;
+  cookieStore.delete(FACEBOOK_OAUTH_MODE_COOKIE_NAME);
+
+  return mode === "debug" ? "debug" : "connect";
 }
 
 export async function setPendingFacebookPageSelection(payload: PendingFacebookPageSelection) {
@@ -378,6 +426,43 @@ export async function getPendingFacebookPageSelection() {
     const parsed = JSON.parse(decryptValue(encryptedValue)) as PendingFacebookPageSelection;
 
     if (!Array.isArray(parsed.pages) || !parsed.accountName || !parsed.accountId) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export async function setFacebookOauthDebugResult(payload: FacebookOauthDebugResult) {
+  const cookieStore = await cookies();
+  cookieStore.set(FACEBOOK_OAUTH_DEBUG_COOKIE_NAME, encryptValue(JSON.stringify(payload)), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: isProduction,
+    maxAge: FACEBOOK_STATE_MAX_AGE_SECONDS,
+    path: "/",
+  });
+}
+
+export async function clearFacebookOauthDebugResult() {
+  const cookieStore = await cookies();
+  cookieStore.delete(FACEBOOK_OAUTH_DEBUG_COOKIE_NAME);
+}
+
+export async function getFacebookOauthDebugResult() {
+  const cookieStore = await cookies();
+  const encryptedValue = cookieStore.get(FACEBOOK_OAUTH_DEBUG_COOKIE_NAME)?.value;
+
+  if (!encryptedValue) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(decryptValue(encryptedValue)) as FacebookOauthDebugResult;
+
+    if (!parsed.profile?.id || !parsed.profile?.name || !Array.isArray(parsed.permissions) || !Array.isArray(parsed.accounts)) {
       return null;
     }
 
@@ -429,7 +514,7 @@ async function fetchFacebookUserProfile(userAccessToken: string) {
   }>(url, { method: "GET" });
 }
 
-async function fetchManagedFacebookPages(userAccessToken: string) {
+async function fetchFacebookAccounts(userAccessToken: string) {
   const url = buildFacebookGraphUrl("/me/accounts", {
     access_token: userAccessToken,
     fields: "id,name,access_token,link,tasks",
@@ -446,17 +531,17 @@ async function fetchManagedFacebookPages(userAccessToken: string) {
   }>(url, { method: "GET" });
 
   return (response.data ?? [])
-    .filter((page) => page.id && page.name && page.access_token)
+    .filter((page) => page.id && page.name)
     .map((page) => ({
       id: page.id,
       name: page.name,
-      accessToken: page.access_token,
+      accessToken: page.access_token ?? null,
       link: page.link ?? null,
       tasks: page.tasks ?? [],
-    }));
+    })) satisfies FacebookRawPageAccount[];
 }
 
-async function fetchFacebookGrantedPermissions(userAccessToken: string) {
+async function fetchFacebookPermissions(userAccessToken: string) {
   const url = buildFacebookGraphUrl("/me/permissions", {
     access_token: userAccessToken,
   });
@@ -469,12 +554,27 @@ async function fetchFacebookGrantedPermissions(userAccessToken: string) {
   }>(url, { method: "GET" });
 
   return (response.data ?? [])
+    .filter((entry) => entry.permission && entry.status)
+    .map((entry) => ({
+      permission: String(entry.permission).trim(),
+      status: String(entry.status).trim(),
+    }))
+    .filter((entry) => entry.permission && entry.status);
+}
+
+function getGrantedFacebookPermissions(
+  permissions: Array<{
+    permission: string;
+    status: string;
+  }>,
+) {
+  return permissions
     .filter((entry) => entry.permission && entry.status === "granted")
-    .map((entry) => String(entry.permission).trim())
+    .map((entry) => entry.permission)
     .filter(Boolean);
 }
 
-export async function getFacebookOauthCallbackData(input: { code: string }) {
+async function resolveFacebookOauthSession(input: { code: string }) {
   const config = await getFacebookConfiguration();
   const shortLivedToken = await exchangeCodeForUserToken({
     code: input.code,
@@ -485,20 +585,66 @@ export async function getFacebookOauthCallbackData(input: { code: string }) {
     accessToken: shortLivedToken.access_token,
     appId: config.appId,
   });
-  const [profile, pages, grantedScopes] = await Promise.all([
+  const [profile, permissions, accounts] = await Promise.all([
     fetchFacebookUserProfile(longLivedToken.access_token),
-    fetchManagedFacebookPages(longLivedToken.access_token),
-    fetchFacebookGrantedPermissions(longLivedToken.access_token),
+    fetchFacebookPermissions(longLivedToken.access_token),
+    fetchFacebookAccounts(longLivedToken.access_token),
   ]);
+  const grantedScopes = getGrantedFacebookPermissions(permissions);
 
   return {
-    accountId: profile.id,
-    accountName: profile.name,
-    pages,
-    scopes: grantedScopes.length > 0 ? grantedScopes : [...config.requiredScopes],
+    profile,
+    permissions,
+    accounts,
+    grantedScopes,
     tokenExpiresAt: longLivedToken.expires_in
       ? new Date(Date.now() + longLivedToken.expires_in * 1000)
       : null,
+  };
+}
+
+export async function getFacebookOauthCallbackData(input: { code: string }) {
+  const session = await resolveFacebookOauthSession(input);
+  const pages = session.accounts
+    .filter((page) => page.accessToken)
+    .map((page) => ({
+      id: page.id,
+      name: page.name,
+      accessToken: page.accessToken!,
+      link: page.link ?? null,
+      tasks: page.tasks ?? [],
+    })) satisfies FacebookManagedPage[];
+
+  return {
+    accountId: session.profile.id,
+    accountName: session.profile.name,
+    pages,
+    scopes: session.grantedScopes.length > 0 ? session.grantedScopes : [...FACEBOOK_REQUIRED_SCOPES],
+    tokenExpiresAt: session.tokenExpiresAt,
+  };
+}
+
+export async function getFacebookOauthDebugData(input: { code: string }): Promise<FacebookOauthDebugResult> {
+  const session = await resolveFacebookOauthSession(input);
+  const accounts = session.accounts.map((page) => ({
+    id: page.id,
+    name: page.name,
+    tasks: page.tasks ?? [],
+    hasPageAccessToken: Boolean(page.accessToken),
+  }));
+
+  return {
+    profile: {
+      id: session.profile.id,
+      name: session.profile.name,
+    },
+    permissions: session.permissions,
+    accounts,
+    grantedScopes: session.grantedScopes,
+    tokenExpiresAt: session.tokenExpiresAt?.toISOString() ?? null,
+    emptyAccountsMessage:
+      accounts.length === 0 ? "OAuth succeeded, but this Meta app could not see any manageable Pages." : null,
+    fetchedAt: new Date().toISOString(),
   };
 }
 

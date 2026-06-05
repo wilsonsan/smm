@@ -4,9 +4,13 @@ import { getCurrentAdminSession } from "@/lib/auth/session";
 import {
   FACEBOOK_REQUIRED_SCOPES,
   buildConfiguredAppUrl,
+  clearFacebookOauthDebugResult,
   clearPendingFacebookPageSelection,
+  consumeFacebookOauthMode,
+  getFacebookOauthDebugData,
   getFacebookOauthCallbackData,
   saveFacebookConnectedPage,
+  setFacebookOauthDebugResult,
   setPendingFacebookPageSelection,
   validateFacebookOauthState,
 } from "@/lib/facebook";
@@ -41,7 +45,22 @@ export async function GET(request: Request) {
   }
 
   try {
+    const oauthMode = await consumeFacebookOauthMode();
     await clearPendingFacebookPageSelection();
+
+    if (oauthMode === "debug") {
+      const debugData = await getFacebookOauthDebugData({ code });
+      await setFacebookOauthDebugResult(debugData);
+
+      return NextResponse.redirect(
+        await buildFacebookSettingsUrl(
+          debugData.emptyAccountsMessage ? "error" : "success",
+          debugData.emptyAccountsMessage || "Facebook OAuth debug completed.",
+        ),
+      );
+    }
+
+    await clearFacebookOauthDebugResult();
     const callbackData = await getFacebookOauthCallbackData({ code });
 
     if (callbackData.pages.length === 0) {

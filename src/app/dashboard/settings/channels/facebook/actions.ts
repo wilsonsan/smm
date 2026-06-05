@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { requireAdminUser } from "@/lib/auth/session";
 import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
 import {
+  clearFacebookOauthDebugResult,
   clearPendingFacebookPageSelection,
   disconnectFacebookConnection,
   getPendingFacebookPageSelection,
@@ -150,6 +151,13 @@ export async function selectFacebookPageAction(formData: FormData) {
 export async function clearFacebookPendingSelectionAction() {
   await requireAdminUser();
   await clearPendingFacebookPageSelection();
+
+  redirect(buildFacebookSettingsHref());
+}
+
+export async function clearFacebookDebugResultAction() {
+  await requireAdminUser();
+  await clearFacebookOauthDebugResult();
 
   redirect(buildFacebookSettingsHref());
 }
