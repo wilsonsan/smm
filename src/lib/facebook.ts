@@ -456,6 +456,24 @@ async function fetchManagedFacebookPages(userAccessToken: string) {
     }));
 }
 
+async function fetchFacebookGrantedPermissions(userAccessToken: string) {
+  const url = buildFacebookGraphUrl("/me/permissions", {
+    access_token: userAccessToken,
+  });
+
+  const response = await facebookGraphRequestJson<{
+    data?: Array<{
+      permission?: string;
+      status?: string;
+    }>;
+  }>(url, { method: "GET" });
+
+  return (response.data ?? [])
+    .filter((entry) => entry.permission && entry.status === "granted")
+    .map((entry) => String(entry.permission).trim())
+    .filter(Boolean);
+}
+
 export async function getFacebookOauthCallbackData(input: { code: string }) {
   const config = await getFacebookConfiguration();
   const shortLivedToken = await exchangeCodeForUserToken({
@@ -467,16 +485,17 @@ export async function getFacebookOauthCallbackData(input: { code: string }) {
     accessToken: shortLivedToken.access_token,
     appId: config.appId,
   });
-  const [profile, pages] = await Promise.all([
+  const [profile, pages, grantedScopes] = await Promise.all([
     fetchFacebookUserProfile(longLivedToken.access_token),
     fetchManagedFacebookPages(longLivedToken.access_token),
+    fetchFacebookGrantedPermissions(longLivedToken.access_token),
   ]);
 
   return {
     accountId: profile.id,
     accountName: profile.name,
     pages,
-    scopes: [...config.requiredScopes],
+    scopes: grantedScopes.length > 0 ? grantedScopes : [...config.requiredScopes],
     tokenExpiresAt: longLivedToken.expires_in
       ? new Date(Date.now() + longLivedToken.expires_in * 1000)
       : null,

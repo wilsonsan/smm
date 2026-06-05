@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
 import { getCurrentAdminSession } from "@/lib/auth/session";
 import {
+  FACEBOOK_REQUIRED_SCOPES,
   buildConfiguredAppUrl,
   clearPendingFacebookPageSelection,
   getFacebookOauthCallbackData,
@@ -44,10 +45,17 @@ export async function GET(request: Request) {
     const callbackData = await getFacebookOauthCallbackData({ code });
 
     if (callbackData.pages.length === 0) {
+      const missingScopes = FACEBOOK_REQUIRED_SCOPES.filter((scope) => !callbackData.scopes.includes(scope));
+      const grantedScopesLabel = callbackData.scopes.length > 0 ? callbackData.scopes.join(", ") : "none returned";
+      const message =
+        missingScopes.length > 0
+          ? `No manageable Facebook Pages were returned for ${callbackData.accountName}. Facebook granted: ${grantedScopesLabel}. Missing required scopes: ${missingScopes.join(", ")}. Reconnect and approve every requested Page permission.`
+          : `No manageable Facebook Pages were returned for ${callbackData.accountName}. Facebook granted: ${grantedScopesLabel}. This usually means that this Meta/Facebook account does not currently manage a Facebook Page, the app is still in Development mode and this account is not added as an app role, or the Page is owned through Business Manager without the needed Page access for this user.`;
+
       return NextResponse.redirect(
         await buildFacebookSettingsUrl(
           "error",
-          "No manageable Facebook Pages were returned for this Meta account. Confirm the requested Page permissions and Page ownership, then try again.",
+          message,
         ),
       );
     }

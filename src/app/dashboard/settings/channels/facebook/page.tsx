@@ -311,6 +311,46 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
           </div>
         </section>
 
+        <section className="settings-subcard">
+          <div className="settings-subcard-head">
+            <div>
+              <strong>Troubleshooting</strong>
+              <p>If Facebook login succeeds but no Page comes back, the account is authorized but Meta still is not returning a manageable Page.</p>
+            </div>
+            <span className="settings-chip">Help</span>
+          </div>
+
+          <div className="settings-subcard-list">
+            <div className="settings-nav-card">
+              <div className="settings-nav-card-head">
+                <strong>Check the Facebook account</strong>
+              </div>
+              <p>Make sure the exact Facebook account you used in OAuth can open the target Facebook Page and has Page access inside Meta Business Suite.</p>
+            </div>
+
+            <div className="settings-nav-card">
+              <div className="settings-nav-card-head">
+                <strong>Check Meta app mode</strong>
+              </div>
+              <p>If the Meta app is still in Development mode, this Facebook account must be added to the Meta app as an admin, developer, or tester.</p>
+            </div>
+
+            <div className="settings-nav-card">
+              <div className="settings-nav-card-head">
+                <strong>Approve every requested permission</strong>
+              </div>
+              <p>During Connect Facebook, approve all requested Page permissions. The callback now records the actually granted scopes, not just the requested ones.</p>
+            </div>
+
+            <div className="settings-nav-card">
+              <div className="settings-nav-card-head">
+                <strong>Reconnect after changing access</strong>
+              </div>
+              <p>If you add Page access or change app mode, disconnect and reconnect Facebook so the app gets a fresh user token and a fresh Page list.</p>
+            </div>
+          </div>
+        </section>
+
         {pendingSelection ? (
           <section className="settings-subcard">
             <div className="settings-subcard-head">
