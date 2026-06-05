@@ -66,10 +66,13 @@ export async function GET(request: Request) {
     if (callbackData.pages.length === 0) {
       const missingScopes = FACEBOOK_REQUIRED_SCOPES.filter((scope) => !callbackData.scopes.includes(scope));
       const grantedScopesLabel = callbackData.scopes.length > 0 ? callbackData.scopes.join(", ") : "none returned";
+      const diagnosticsLabel = `Accounts returned: ${callbackData.diagnostics.rawAccountsCount}. Accounts with page access tokens: ${callbackData.diagnostics.rawAccountsWithPageAccessTokenCount}. Hydrated page access tokens: ${callbackData.diagnostics.hydratedPageAccessTokenCount}. Accounts source: ${callbackData.diagnostics.accountsSource}.`;
       const message =
         missingScopes.length > 0
-          ? `No manageable Facebook Pages were returned for ${callbackData.accountName}. Facebook granted: ${grantedScopesLabel}. Missing required scopes: ${missingScopes.join(", ")}. Reconnect and approve every requested Page permission.`
-          : `No manageable Facebook Pages were returned for ${callbackData.accountName}. Facebook granted: ${grantedScopesLabel}. This usually means that this Meta/Facebook account does not currently manage a Facebook Page, the app is still in Development mode and this account is not added as an app role, or the Page is owned through Business Manager without the needed Page access for this user.`;
+          ? `No manageable Facebook Pages were returned for ${callbackData.accountName}. Facebook granted: ${grantedScopesLabel}. Missing required scopes: ${missingScopes.join(", ")}. ${diagnosticsLabel} Reconnect and approve every requested Page permission.`
+          : callbackData.diagnostics.rawAccountsCount > 0
+            ? `Facebook returned ${callbackData.diagnostics.rawAccountsCount} Page record(s) for ${callbackData.accountName}, but none produced a usable Page access token. Facebook granted: ${grantedScopesLabel}. ${diagnosticsLabel} This is usually a token-issuance or app-access problem rather than a missing account. Run OAuth Debug from Facebook Settings to inspect the raw account data.`
+            : `No manageable Facebook Pages were returned for ${callbackData.accountName}. Facebook granted: ${grantedScopesLabel}. ${diagnosticsLabel} This usually means that this Meta/Facebook account does not currently manage a Facebook Page, the app is still in Development mode and this account is not added as an app role, or the Page is owned through Business Manager without the needed Page access for this user.`;
 
       return NextResponse.redirect(
         await buildFacebookSettingsUrl(

@@ -89,7 +89,29 @@ export type FacebookOauthDebugResult = {
   grantedScopes: string[];
   tokenExpiresAt: string | null;
   emptyAccountsMessage: string | null;
+  diagnostics: {
+    accountsSource: "long_lived" | "short_lived";
+    rawAccountsCount: number;
+    rawAccountsWithPageAccessTokenCount: number;
+    hydratedPageAccessTokenCount: number;
+    usedShortLivedFallback: boolean;
+  };
   fetchedAt: string;
+};
+
+type ResolvedFacebookOauthSession = {
+  profile: {
+    id: string;
+    name: string;
+  };
+  permissions: Array<{
+    permission: string;
+    status: string;
+  }>;
+  accounts: FacebookRawPageAccount[];
+  grantedScopes: string[];
+  tokenExpiresAt: Date | null;
+  diagnostics: FacebookOauthDebugResult["diagnostics"];
 };
 
 export type FacebookConnectionRecord = {
@@ -541,6 +563,70 @@ async function fetchFacebookAccounts(userAccessToken: string) {
     })) satisfies FacebookRawPageAccount[];
 }
 
+async function fetchFacebookPageAccessToken(input: {
+  pageId: string;
+  userAccessToken: string;
+}) {
+  const url = buildFacebookGraphUrl(`/${input.pageId}`, {
+    access_token: input.userAccessToken,
+    fields: "id,name,access_token,link",
+  });
+
+  return facebookGraphRequestJson<{
+    id: string;
+    name?: string;
+    access_token?: string;
+    link?: string;
+  }>(url, { method: "GET" });
+}
+
+async function hydrateFacebookAccountsWithPageTokens(input: {
+  accounts: FacebookRawPageAccount[];
+  userAccessTokens: string[];
+}) {
+  const hydratedAccounts: FacebookRawPageAccount[] = [];
+  let hydratedPageAccessTokenCount = 0;
+
+  for (const account of input.accounts) {
+    if (account.accessToken) {
+      hydratedAccounts.push(account);
+      continue;
+    }
+
+    let hydratedAccount = account;
+
+    for (const token of input.userAccessTokens) {
+      try {
+        const response = await fetchFacebookPageAccessToken({
+          pageId: account.id,
+          userAccessToken: token,
+        });
+
+        if (response.access_token) {
+          hydratedAccount = {
+            id: account.id,
+            name: response.name || account.name,
+            accessToken: response.access_token,
+            link: response.link ?? account.link ?? null,
+            tasks: account.tasks ?? [],
+          };
+          hydratedPageAccessTokenCount += 1;
+          break;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    hydratedAccounts.push(hydratedAccount);
+  }
+
+  return {
+    accounts: hydratedAccounts,
+    hydratedPageAccessTokenCount,
+  };
+}
+
 async function fetchFacebookPermissions(userAccessToken: string) {
   const url = buildFacebookGraphUrl("/me/permissions", {
     access_token: userAccessToken,
@@ -574,7 +660,7 @@ function getGrantedFacebookPermissions(
     .filter(Boolean);
 }
 
-async function resolveFacebookOauthSession(input: { code: string }) {
+async function resolveFacebookOauthSession(input: { code: string }): Promise<ResolvedFacebookOauthSession> {
   const config = await getFacebookConfiguration();
   const shortLivedToken = await exchangeCodeForUserToken({
     code: input.code,
@@ -585,21 +671,51 @@ async function resolveFacebookOauthSession(input: { code: string }) {
     accessToken: shortLivedToken.access_token,
     appId: config.appId,
   });
-  const [profile, permissions, accounts] = await Promise.all([
+  const [profile, permissions, longLivedAccounts] = await Promise.all([
     fetchFacebookUserProfile(longLivedToken.access_token),
     fetchFacebookPermissions(longLivedToken.access_token),
     fetchFacebookAccounts(longLivedToken.access_token),
   ]);
   const grantedScopes = getGrantedFacebookPermissions(permissions);
+  let accountsSource: "long_lived" | "short_lived" = "long_lived";
+  let usedShortLivedFallback = false;
+  let resolvedAccounts = longLivedAccounts;
+
+  if (resolvedAccounts.length === 0) {
+    try {
+      const shortLivedAccounts = await fetchFacebookAccounts(shortLivedToken.access_token);
+
+      if (shortLivedAccounts.length > 0) {
+        resolvedAccounts = shortLivedAccounts;
+        accountsSource = "short_lived";
+        usedShortLivedFallback = true;
+      }
+    } catch {
+      usedShortLivedFallback = true;
+    }
+  }
+
+  const rawAccountsWithPageAccessTokenCount = resolvedAccounts.filter((account) => Boolean(account.accessToken)).length;
+  const hydrationResult = await hydrateFacebookAccountsWithPageTokens({
+    accounts: resolvedAccounts,
+    userAccessTokens: [longLivedToken.access_token, shortLivedToken.access_token],
+  });
 
   return {
     profile,
     permissions,
-    accounts,
+    accounts: hydrationResult.accounts,
     grantedScopes,
     tokenExpiresAt: longLivedToken.expires_in
       ? new Date(Date.now() + longLivedToken.expires_in * 1000)
       : null,
+    diagnostics: {
+      accountsSource,
+      rawAccountsCount: resolvedAccounts.length,
+      rawAccountsWithPageAccessTokenCount,
+      hydratedPageAccessTokenCount: hydrationResult.hydratedPageAccessTokenCount,
+      usedShortLivedFallback,
+    },
   };
 }
 
@@ -621,6 +737,7 @@ export async function getFacebookOauthCallbackData(input: { code: string }) {
     pages,
     scopes: session.grantedScopes.length > 0 ? session.grantedScopes : [...FACEBOOK_REQUIRED_SCOPES],
     tokenExpiresAt: session.tokenExpiresAt,
+    diagnostics: session.diagnostics,
   };
 }
 
@@ -644,6 +761,7 @@ export async function getFacebookOauthDebugData(input: { code: string }): Promis
     tokenExpiresAt: session.tokenExpiresAt?.toISOString() ?? null,
     emptyAccountsMessage:
       accounts.length === 0 ? "OAuth succeeded, but this Meta app could not see any manageable Pages." : null,
+    diagnostics: session.diagnostics,
     fetchedAt: new Date().toISOString(),
   };
 }

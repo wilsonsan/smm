@@ -236,9 +236,35 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                     readOnly
                   />
                 </div>
+
+                <div className="field">
+                  <label>Accounts source</label>
+                  <input
+                    value={
+                      debugResult.diagnostics.accountsSource === "short_lived"
+                        ? "Short-lived user token fallback"
+                        : "Long-lived user token"
+                    }
+                    readOnly
+                  />
+                </div>
+
+                <div className="field">
+                  <label>Account diagnostics</label>
+                  <input
+                    value={`raw: ${debugResult.diagnostics.rawAccountsCount} | raw with token: ${debugResult.diagnostics.rawAccountsWithPageAccessTokenCount} | hydrated: ${debugResult.diagnostics.hydratedPageAccessTokenCount}`}
+                    readOnly
+                  />
+                </div>
               </div>
 
               {debugResult.emptyAccountsMessage ? <p className="warning-text">{debugResult.emptyAccountsMessage}</p> : null}
+              {debugResult.diagnostics.usedShortLivedFallback ? (
+                <p className="warning-text">
+                  The long-lived token did not fully resolve page accounts, so the app also checked the short-lived
+                  OAuth token during this debug pass.
+                </p>
+              ) : null}
 
               <div className="settings-subcard-list">
                 <div className="settings-nav-card">
