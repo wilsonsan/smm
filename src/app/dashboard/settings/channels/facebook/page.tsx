@@ -4,6 +4,7 @@ import { ConnectedAccountStatus } from "@prisma/client";
 import {
   clearFacebookDebugResultAction,
   clearFacebookPendingSelectionAction,
+  connectFacebookResolvedPageAction,
   disconnectFacebookAction,
   runFacebookPageIdDiagnosticsAction,
   saveFacebookSettingsAction,
@@ -59,6 +60,37 @@ function formatDiagnosticJson(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
 
+function getManualResolvedPage(debugResult: Awaited<ReturnType<typeof getFacebookOauthDebugResult>>) {
+  if (!debugResult?.manualPageIdTest) {
+    return null;
+  }
+
+  for (const result of debugResult.manualPageIdTest.endpointResults) {
+    if (!result.success || !result.endpoint.includes("fields=id,name,access_token")) {
+      continue;
+    }
+
+    const payload = result.sanitizedJson;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      continue;
+    }
+
+    const id = "id" in payload && typeof payload.id === "string" ? payload.id : "";
+    const name = "name" in payload && typeof payload.name === "string" ? payload.name : "";
+    const accessTokenValue =
+      "access_token" in payload && typeof payload.access_token === "string" ? payload.access_token : "";
+
+    if (id && name && accessTokenValue === "[REDACTED_PRESENT]") {
+      return {
+        pageId: id,
+        pageName: name,
+      };
+    }
+  }
+
+  return null;
+}
+
 export default async function FacebookChannelSettingsPage({ searchParams }: FacebookSettingsPageProps) {
   const resolvedSearchParams = await searchParams;
   const [config, connection, debugResult, pendingSelection, timezone, detectedRequestOrigin] = await Promise.all([
@@ -81,6 +113,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
   const publicUrlMismatch =
     Boolean(detectedRequestOrigin) &&
     normalizeOrigin(detectedRequestOrigin) !== normalizeOrigin(config.publicAppUrl);
+  const manualResolvedPage = getManualResolvedPage(debugResult);
 
   return (
     <section className="section-stack">
@@ -515,6 +548,16 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                       </button>
                     </div>
                   </form>
+                  {manualResolvedPage ? (
+                    <div className="button-row">
+                      <form action={connectFacebookResolvedPageAction}>
+                        <input type="hidden" name="pageId" value={manualResolvedPage.pageId} />
+                        <button type="submit" className="primary-button">
+                          Connect {manualResolvedPage.pageName}
+                        </button>
+                      </form>
+                    </div>
+                  ) : null}
                   {debugResult.manualPageIdTest ? (
                     <div className="settings-subcard-list">
                       {debugResult.manualPageIdTest.endpointResults.map((result, index) => (

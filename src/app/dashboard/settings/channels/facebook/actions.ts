@@ -7,6 +7,7 @@ import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
 import {
   clearFacebookOauthDebugResult,
   clearPendingFacebookPageSelection,
+  connectFacebookPageFromStoredDiagnostics,
   disconnectFacebookConnection,
   getPendingFacebookPageSelection,
   runStoredFacebookManualPageDiagnostics,
@@ -204,7 +205,56 @@ export async function runFacebookPageIdDiagnosticsAction(formData: FormData) {
   redirect(
     buildFacebookSettingsHref({
       status: "success",
-      message: `Facebook diagnostics ran for Page ID ${parsed.data.pageId}.`,
+      message: `Facebook diagnostics completed for Page ID ${parsed.data.pageId}. Review the results below.`,
+    }),
+  );
+}
+
+export async function connectFacebookResolvedPageAction(formData: FormData) {
+  const adminUser = await requireAdminUser();
+  const parsed = facebookPageIdTestSchema.safeParse({
+    pageId: formData.get("pageId"),
+  });
+
+  if (!parsed.success) {
+    redirect(
+      buildFacebookSettingsHref({
+        status: "error",
+        message: parsed.error.flatten().fieldErrors.pageId?.[0] || "Enter a valid Facebook Page ID before connecting it.",
+      }),
+    );
+  }
+
+  try {
+    const result = await connectFacebookPageFromStoredDiagnostics({
+      pageId: parsed.data.pageId,
+    });
+
+    await writeFacebookAuditLog({
+      actorAdminUserId: adminUser.id,
+      action: AUDIT_ACTIONS.FACEBOOK_CONNECTED,
+      targetId: result.connectedAccount.id,
+      metadata: {
+        mode: "manual_page_connect",
+        pageId: result.resolvedPage.pageId,
+        pageName: result.resolvedPage.pageName,
+        tokenSource: result.resolvedPage.tokenSource,
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Connecting the Facebook Page from diagnostics failed.";
+    redirect(
+      buildFacebookSettingsHref({
+        status: "error",
+        message,
+      }),
+    );
+  }
+
+  redirect(
+    buildFacebookSettingsHref({
+      status: "success",
+      message: `Connected Facebook Page from manual lookup.`,
     }),
   );
 }

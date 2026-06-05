@@ -1383,6 +1383,96 @@ export async function runStoredFacebookManualPageDiagnostics(input: { pageId: st
   return updatedSnapshot;
 }
 
+async function resolveFacebookPageFromDiagnosticTokens(input: { pageId: string }) {
+  const tokenBundle = await getFacebookOauthDebugTokens();
+  if (!tokenBundle) {
+    throw new Error("Run Facebook Diagnostics first so the app has a fresh diagnostic user token to test against.");
+  }
+
+  const tokenSources: Array<{
+    tokenSource: "short_lived_user" | "long_lived_user";
+    accessToken: string;
+  }> = [];
+
+  if (tokenBundle.longLivedAccessToken) {
+    tokenSources.push({
+      tokenSource: "long_lived_user",
+      accessToken: tokenBundle.longLivedAccessToken,
+    });
+  }
+
+  tokenSources.push({
+    tokenSource: "short_lived_user",
+    accessToken: tokenBundle.shortLivedAccessToken,
+  });
+
+  let lastError: Error | null = null;
+
+  for (const token of tokenSources) {
+    try {
+      const page = await facebookGraphRequestJson<{
+        id: string;
+        name: string;
+        access_token?: string;
+        link?: string;
+      }>(buildFacebookGraphUrl(`/${input.pageId}`, {
+        access_token: token.accessToken,
+        fields: "id,name,access_token,link",
+      }), {
+        method: "GET",
+      });
+
+      if (!page.access_token) {
+        continue;
+      }
+
+      return {
+        pageId: page.id,
+        pageName: page.name,
+        pageAccessToken: page.access_token,
+        pageUrl: page.link ?? null,
+        tokenSource: token.tokenSource,
+        grantedScopes: tokenBundle.grantedScopes,
+      };
+    } catch (error) {
+      lastError = handleFacebookApiError(error);
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  throw new Error("Facebook could not resolve a usable Page access token from the manual Page test result.");
+}
+
+export async function connectFacebookPageFromStoredDiagnostics(input: { pageId: string }) {
+  const debugSnapshot = await getFacebookOauthDebugResult();
+  if (!debugSnapshot) {
+    throw new Error("Run Facebook Diagnostics first before connecting a Page from the manual test.");
+  }
+
+  const resolvedPage = await resolveFacebookPageFromDiagnosticTokens({
+    pageId: input.pageId,
+  });
+
+  const connectedAccount = await saveFacebookConnectedPage({
+    accountId: debugSnapshot.profile.id,
+    accountName: debugSnapshot.profile.name,
+    pageId: resolvedPage.pageId,
+    pageName: resolvedPage.pageName,
+    pageAccessToken: resolvedPage.pageAccessToken,
+    pageUrl: resolvedPage.pageUrl,
+    scopes: resolvedPage.grantedScopes,
+    tokenExpiresAt: debugSnapshot.tokenExpiresAt ? new Date(debugSnapshot.tokenExpiresAt) : null,
+  });
+
+  return {
+    connectedAccount,
+    resolvedPage,
+  };
+}
+
 export async function saveFacebookConnectedPage(input: {
   accountId: string;
   accountName: string;
