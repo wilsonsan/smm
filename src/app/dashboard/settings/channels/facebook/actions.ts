@@ -191,13 +191,6 @@ export async function runFacebookPageIdDiagnosticsAction(formData: FormData) {
         pageId: parsed.data.pageId,
       },
     });
-
-    redirect(
-      buildFacebookSettingsHref({
-        status: "success",
-        message: `Facebook diagnostics ran for Page ID ${parsed.data.pageId}.`,
-      }),
-    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Facebook Page ID diagnostics failed.";
     redirect(
@@ -207,6 +200,13 @@ export async function runFacebookPageIdDiagnosticsAction(formData: FormData) {
       }),
     );
   }
+
+  redirect(
+    buildFacebookSettingsHref({
+      status: "success",
+      message: `Facebook diagnostics ran for Page ID ${parsed.data.pageId}.`,
+    }),
+  );
 }
 
 export async function disconnectFacebookAction() {
