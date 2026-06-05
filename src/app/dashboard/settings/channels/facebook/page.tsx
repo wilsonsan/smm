@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import Link from "next/link";
 import { ConnectedAccountStatus } from "@prisma/client";
 import {
@@ -21,6 +22,24 @@ type FacebookSettingsPageProps = {
   }>;
 };
 
+function normalizeOrigin(value: string | null | undefined) {
+  return (value || "").replace(/\/+$/, "");
+}
+
+async function getDetectedRequestOrigin() {
+  const requestHeaders = await headers();
+  const forwardedProto = requestHeaders.get("x-forwarded-proto");
+  const forwardedHost = requestHeaders.get("x-forwarded-host");
+  const host = forwardedHost || requestHeaders.get("host");
+
+  if (!host) {
+    return "";
+  }
+
+  const protocol = forwardedProto || "https";
+  return `${protocol}://${host}`;
+}
+
 function getStatusLabel(status: ConnectedAccountStatus | null) {
   if (status === ConnectedAccountStatus.CONNECTED) {
     return "CONNECTED";
@@ -35,11 +54,12 @@ function getStatusLabel(status: ConnectedAccountStatus | null) {
 
 export default async function FacebookChannelSettingsPage({ searchParams }: FacebookSettingsPageProps) {
   const resolvedSearchParams = await searchParams;
-  const [config, connection, pendingSelection, timezone] = await Promise.all([
+  const [config, connection, pendingSelection, timezone, detectedRequestOrigin] = await Promise.all([
     getFacebookConfiguration(),
     getFacebookConnectionRecord(),
     getPendingFacebookPageSelection(),
     getResolvedAppTimezone(),
+    getDetectedRequestOrigin(),
   ]);
 
   const pageUrl =
@@ -50,6 +70,9 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
   const effectiveAppId = config.appId || "";
   const hasBlockingSetupIssue = config.missingConfig.length > 0;
   const missingScopes = config.requiredScopes.filter((scope) => !connection?.scopes.includes(scope));
+  const publicUrlMismatch =
+    Boolean(detectedRequestOrigin) &&
+    normalizeOrigin(detectedRequestOrigin) !== normalizeOrigin(config.publicAppUrl);
 
   return (
     <section className="section-stack">
@@ -113,15 +136,27 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                 </div>
 
                 <div className="field">
+                  <label>Effective public app URL</label>
+                  <input value={config.publicAppUrl} readOnly />
+                  <span className="hint">This is the base URL the Facebook OAuth flow will trust for callbacks and local redirects.</span>
+                </div>
+
+                <div className="field">
                   <label>Redirect URI</label>
                   <input value={config.redirectUri} readOnly />
-              </div>
+                </div>
 
-              <div className="field">
-                <label>Required scopes</label>
-                <input value={config.requiredScopes.join(", ")} readOnly />
+                <div className="field">
+                  <label>Detected request origin</label>
+                  <input value={detectedRequestOrigin || "Could not detect request origin"} readOnly />
+                  <span className="hint">Useful for spotting reverse-proxy host/protocol mismatches.</span>
+                </div>
+
+                <div className="field">
+                  <label>Required scopes</label>
+                  <input value={config.requiredScopes.join(", ")} readOnly />
+                </div>
               </div>
-            </div>
 
               <div className="button-row">
                 <button type="submit" className="primary-button">
@@ -141,6 +176,12 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
             {hasBlockingSetupIssue ? (
               <p className="error-text">
                 Facebook setup is incomplete: {config.missingConfig.join(", ")}. Add those values before starting OAuth.
+              </p>
+            ) : null}
+            {publicUrlMismatch ? (
+              <p className="warning-text">
+                The detected request origin ({detectedRequestOrigin}) does not match the configured public app URL ({config.publicAppUrl}).
+                Facebook callbacks may redirect incorrectly until the proxy or app URL is aligned.
               </p>
             ) : null}
           </div>
