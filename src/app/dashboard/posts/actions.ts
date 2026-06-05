@@ -2,7 +2,7 @@
 
 import { Prisma, SocialPlatform, SocialPostStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { requireAdminUser } from "@/lib/auth/session";
 import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
 import {
@@ -561,6 +561,7 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
     revalidatePostViews(post.post.id);
     redirect("/dashboard/calendar");
   } catch (error) {
+    unstable_rethrow(error);
     const message = error instanceof Error ? error.message : "Could not save the post.";
     return {
       ...initialFormState,
