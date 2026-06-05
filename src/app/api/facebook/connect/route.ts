@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
-import { buildFacebookConnectUrl, getFacebookConfiguration } from "@/lib/facebook";
+import { buildConfiguredAppUrl, buildFacebookConnectUrl, getFacebookConfiguration } from "@/lib/facebook";
 import { getRequestMetadata, assertSameOrigin } from "@/lib/http";
 import { requireAdminSessionFromRequest } from "@/lib/auth/session";
 
@@ -11,12 +11,10 @@ export async function GET(request: Request) {
 
   if (config.missingConfig.length > 0) {
     return NextResponse.redirect(
-      new URL(
-        `/dashboard/settings/channels/facebook?status=error&message=${encodeURIComponent(
-          `Facebook setup is incomplete: ${config.missingConfig.join(", ")}.`,
-        )}`,
-        request.url,
-      ),
+      await buildConfiguredAppUrl("/dashboard/settings/channels/facebook", {
+        status: "error",
+        message: `Facebook setup is incomplete: ${config.missingConfig.join(", ")}.`,
+      }),
     );
   }
 

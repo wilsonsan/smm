@@ -275,6 +275,25 @@ export async function getFacebookConfiguration(): Promise<FacebookConfiguration>
   };
 }
 
+export async function buildConfiguredAppUrl(
+  pathname: string,
+  searchParams?: Record<string, string | null | undefined>,
+) {
+  const settings = await getAppSettings();
+  const publicAppUrl = settings.publicAppUrl || env.APP_URL;
+  const url = new URL(pathname, publicAppUrl);
+
+  for (const [key, value] of Object.entries(searchParams ?? {})) {
+    if (!value) {
+      continue;
+    }
+
+    url.searchParams.set(key, value);
+  }
+
+  return url;
+}
+
 export async function assertFacebookRuntimeReady() {
   const config = await getFacebookConfiguration();
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
 import { getCurrentAdminSession } from "@/lib/auth/session";
 import {
+  buildConfiguredAppUrl,
   clearPendingFacebookPageSelection,
   getFacebookOauthCallbackData,
   saveFacebookConnectedPage,
@@ -9,11 +10,11 @@ import {
   validateFacebookOauthState,
 } from "@/lib/facebook";
 
-function buildFacebookSettingsUrl(request: Request, status: "success" | "error", message: string) {
-  const url = new URL("/dashboard/settings/channels/facebook", request.url);
-  url.searchParams.set("status", status);
-  url.searchParams.set("message", message);
-  return url;
+function buildFacebookSettingsUrl(status: "success" | "error", message: string) {
+  return buildConfiguredAppUrl("/dashboard/settings/channels/facebook", {
+    status,
+    message,
+  });
 }
 
 export async function GET(request: Request) {
@@ -24,17 +25,17 @@ export async function GET(request: Request) {
 
   if (!(await validateFacebookOauthState(state))) {
     return NextResponse.redirect(
-      buildFacebookSettingsUrl(request, "error", "Facebook OAuth state validation failed. Start the connection again."),
+      await buildFacebookSettingsUrl("error", "Facebook OAuth state validation failed. Start the connection again."),
     );
   }
 
   if (oauthError) {
-    return NextResponse.redirect(buildFacebookSettingsUrl(request, "error", `Facebook authorization failed: ${oauthError}`));
+    return NextResponse.redirect(await buildFacebookSettingsUrl("error", `Facebook authorization failed: ${oauthError}`));
   }
 
   if (!code) {
     return NextResponse.redirect(
-      buildFacebookSettingsUrl(request, "error", "Facebook did not return an authorization code."),
+      await buildFacebookSettingsUrl("error", "Facebook did not return an authorization code."),
     );
   }
 
@@ -44,8 +45,7 @@ export async function GET(request: Request) {
 
     if (callbackData.pages.length === 0) {
       return NextResponse.redirect(
-        buildFacebookSettingsUrl(
-          request,
+        await buildFacebookSettingsUrl(
           "error",
           "No manageable Facebook Pages were returned for this Meta account. Confirm the requested Page permissions and Page ownership, then try again.",
         ),
@@ -80,7 +80,7 @@ export async function GET(request: Request) {
       });
 
       return NextResponse.redirect(
-        buildFacebookSettingsUrl(request, "success", `Connected Facebook Page: ${page.name}.`),
+        await buildFacebookSettingsUrl("success", `Connected Facebook Page: ${page.name}.`),
       );
     }
 
@@ -93,14 +93,13 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.redirect(
-      buildFacebookSettingsUrl(
-        request,
+      await buildFacebookSettingsUrl(
         "success",
         "Facebook authorization succeeded. Choose which Page to connect below.",
       ),
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Facebook authorization failed.";
-    return NextResponse.redirect(buildFacebookSettingsUrl(request, "error", message));
+    return NextResponse.redirect(await buildFacebookSettingsUrl("error", message));
   }
 }
