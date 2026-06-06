@@ -15,7 +15,6 @@ import {
   canCancelScheduled,
   canDeleteDraft,
   canReturnToDraft,
-  getPrimaryFacebookVariant,
   isReadOnlyPostStatus,
   validateAndResolveScheduledAt,
 } from "@/lib/posts";
@@ -221,19 +220,6 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       return {
         ...initialFormState,
         message: "Choose a valid uploaded media asset before saving.",
-        submittedValues,
-      };
-    }
-
-    if (
-      parsed.data.platform === SocialPlatform.FACEBOOK &&
-      selectedMediaAsset &&
-      !getPrimaryFacebookVariant(selectedMediaAsset) &&
-      parsed.data.intent !== "publish"
-    ) {
-      return {
-        ...initialFormState,
-        message: "The selected media asset is missing a FACEBOOK_FEED variant.",
         submittedValues,
       };
     }

@@ -21,7 +21,7 @@ import {
   SnapshotIcon,
   SuccessIcon,
 } from "@/components/dashboard-icons";
-import { getVariantByType, getMediaVariantUrl } from "@/lib/media-presentation";
+import { getMediaVariantUrl, getPreferredPreviewVariant } from "@/lib/media-presentation";
 import { getPostCaptionPreview, getPostStatusTone, resolvePostCalendarAt } from "@/lib/posts";
 import { prisma } from "@/lib/prisma";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
@@ -447,16 +447,16 @@ export default async function DashboardPage() {
                   </tr>
                 ) : (
                   recentPosts.map((post) => {
-                    const facebookVariant = getVariantByType(post.mediaAsset?.variants ?? [], "FACEBOOK_FEED");
+                    const previewVariant = getPreferredPreviewVariant(post.mediaAsset?.variants ?? []);
                     const calendarAt = resolvePostCalendarAt(post);
                     const tone = getPostStatusTone(post.status);
 
                     return (
                       <ClickableTableRow key={post.id} href={`/dashboard/posts/${post.id}`}>
                         <td>
-                          {facebookVariant ? (
+                          {previewVariant ? (
                             <img
-                              src={getMediaVariantUrl(facebookVariant.id)}
+                              src={getMediaVariantUrl(previewVariant.id)}
                               alt={`${getPostCaptionPreview(post.caption)} thumbnail`}
                               className="table-thumb"
                             />

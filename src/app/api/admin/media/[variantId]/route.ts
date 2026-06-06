@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
+import sharp from "sharp";
 import { requireAdminSessionFromRequest } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
@@ -32,11 +33,26 @@ export async function GET(request: Request, context: MediaVariantRouteProps) {
     const uploadBasePath = resolveUploadBasePath((await getUploadDirectory()) || env.UPLOAD_DIR);
     const absolutePath = ensureSafeAbsolutePath(uploadBasePath, mediaVariant.storagePath);
     const fileBuffer = await readFile(absolutePath);
+    const shouldTranscodeForBrowserPreview =
+      mediaVariant.mimeType === "image/heic" || mediaVariant.mimeType === "image/heif";
 
-    return new NextResponse(fileBuffer, {
+    const responseBuffer = shouldTranscodeForBrowserPreview
+      ? await sharp(fileBuffer, { failOn: "none" })
+          .rotate()
+          .toColorspace("srgb")
+          .jpeg({
+            quality: 88,
+            progressive: false,
+            force: true,
+          })
+          .toBuffer()
+      : fileBuffer;
+    const responseMimeType = shouldTranscodeForBrowserPreview ? "image/jpeg" : mediaVariant.mimeType;
+
+    return new NextResponse(new Uint8Array(responseBuffer), {
       status: 200,
       headers: {
-        "Content-Type": mediaVariant.mimeType,
+        "Content-Type": responseMimeType,
         "Cache-Control": "private, max-age=300",
         "X-Content-Type-Options": "nosniff",
       },

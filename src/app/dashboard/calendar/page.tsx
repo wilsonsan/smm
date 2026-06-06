@@ -3,7 +3,7 @@ import { SocialPlatform, SocialPostStatus } from "@prisma/client";
 import { CalendarCommandCenter } from "@/components/calendar-command-center";
 import { buildMonthGrid, formatMonthParam, shiftMonth } from "@/lib/calendar";
 import { getPostCaptionPreview, resolvePostCalendarAt } from "@/lib/posts";
-import { getMediaVariantUrl, getVariantByType } from "@/lib/media-presentation";
+import { getMediaVariantUrl, getPreferredPreviewVariant } from "@/lib/media-presentation";
 import { prisma } from "@/lib/prisma";
 import {
   formatMonthLabel,
@@ -107,8 +107,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
         return null;
       }
 
-      const previewVariant = getVariantByType(post.mediaAsset?.variants ?? [], "FACEBOOK_FEED")
-        ?? getVariantByType(post.mediaAsset?.variants ?? [], "ORIGINAL");
+      const previewVariant = getPreferredPreviewVariant(post.mediaAsset?.variants ?? []);
 
       return {
         id: post.id,

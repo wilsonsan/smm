@@ -1,4 +1,4 @@
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
@@ -6,7 +6,7 @@ import { fileTypeFromBuffer } from "file-type";
 import { MediaVariantType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
-import { getUploadDirectory } from "@/lib/settings";
+import { getAppSettings, getUploadDirectory } from "@/lib/settings";
 
 const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   "image/jpeg",
@@ -37,6 +37,30 @@ type OriginalUpload = StoredMediaFile & {
 
 type GeneratedVariant = StoredMediaFile;
 
+export type TemporaryPlatformImagePlatform = "FACEBOOK" | "GOOGLE_BUSINESS" | "INSTAGRAM";
+
+export type ValidatedStoredMediaFile = {
+  absolutePath: string;
+  fileSizeBytes: number;
+  storagePath: string;
+};
+
+export type TemporaryPlatformImage = {
+  absolutePath: string;
+  storagePath: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  sizeBytes: bigint;
+  platform: TemporaryPlatformImagePlatform;
+};
+
+export type TemporaryMediaCleanupResult = {
+  absolutePath: string;
+  status: "deleted" | "missing" | "failed";
+  message: string | null;
+};
+
 export function resolveUploadBasePath(configuredPath: string) {
   return path.isAbsolute(configuredPath)
     ? configuredPath
@@ -59,6 +83,14 @@ export function ensureSafeAbsolutePath(basePath: string, relativePath: string) {
 
 function getDatedPathSegments(timestamp: Date) {
   return [String(timestamp.getUTCFullYear()), String(timestamp.getUTCMonth() + 1).padStart(2, "0")];
+}
+
+function getDetailedDatedPathSegments(timestamp: Date) {
+  return [
+    String(timestamp.getUTCFullYear()),
+    String(timestamp.getUTCMonth() + 1).padStart(2, "0"),
+    String(timestamp.getUTCDate()).padStart(2, "0"),
+  ];
 }
 
 function buildStoragePath(segments: string[], extension: string) {
@@ -141,6 +173,10 @@ export async function getImageMetadata(buffer: Buffer, mimeType?: string) {
   } catch (error) {
     throw toImageProcessingError(error, mimeType);
   }
+}
+
+function isSupportedStoredImageMimeType(mimeType: string) {
+  return ALLOWED_UPLOAD_MIME_TYPES.has(mimeType);
 }
 
 async function generateVariantBuffer(input: {
@@ -278,6 +314,321 @@ export async function generateMediaVariants(input: {
   return variants;
 }
 
+export async function validateStoredMediaFile(input: {
+  storagePath: string;
+  expectedMimeType?: string;
+  maxFileSizeBytes?: number;
+}) {
+  const settings = await getAppSettings();
+  const uploadBasePath = resolveUploadBasePath(settings.uploadDirectory || env.UPLOAD_DIR);
+  const absolutePath = ensureSafeAbsolutePath(uploadBasePath, input.storagePath);
+
+  try {
+    await access(absolutePath);
+  } catch {
+    throw new Error("The media file is missing on disk. Re-upload the original image and try again.");
+  }
+
+  let fileStats;
+  try {
+    fileStats = await stat(absolutePath);
+  } catch {
+    throw new Error("The media file could not be inspected on disk.");
+  }
+
+  if (!fileStats.isFile()) {
+    throw new Error("The media path does not point to a readable file.");
+  }
+
+  if (fileStats.size <= 0) {
+    throw new Error("The media file is empty.");
+  }
+
+  if (input.maxFileSizeBytes && fileStats.size > input.maxFileSizeBytes) {
+    throw new Error("The generated Facebook image is too large to publish safely.");
+  }
+
+  return {
+    absolutePath,
+    fileSizeBytes: fileStats.size,
+    storagePath: input.storagePath,
+  } satisfies ValidatedStoredMediaFile;
+}
+
+export async function validateStoredOriginalMediaAsset(input: {
+  mediaAsset:
+    | {
+        id: string;
+        mimeType: string;
+        storagePath: string;
+      }
+    | null
+    | undefined;
+}) {
+  if (!input.mediaAsset) {
+    throw new Error("No media asset is attached to this post.");
+  }
+
+  if (!isSupportedStoredImageMimeType(input.mediaAsset.mimeType)) {
+    throw new Error("Only JPEG, PNG, WEBP, and HEIC/HEIF uploads can be optimized for Facebook publishing.");
+  }
+
+  return validateStoredMediaFile({
+    storagePath: input.mediaAsset.storagePath,
+  });
+}
+
+async function readStoredMediaBuffer(storagePath: string) {
+  const validatedFile = await validateStoredMediaFile({ storagePath });
+  const sourceBuffer = await readFile(validatedFile.absolutePath);
+  return {
+    validatedFile,
+    sourceBuffer,
+  };
+}
+
+export async function generateTemporaryPlatformImage(input: {
+  mediaAsset: {
+    id: string;
+    mimeType: string;
+    storagePath: string;
+  };
+  platform: TemporaryPlatformImagePlatform;
+  occurredAt?: Date;
+  uploadBasePath?: string;
+}) {
+  const occurredAt = input.occurredAt ?? new Date();
+  const uploadBasePath =
+    input.uploadBasePath ??
+    resolveUploadBasePath((await getUploadDirectory()) || env.UPLOAD_DIR);
+  const { sourceBuffer } = await readStoredMediaBuffer(input.mediaAsset.storagePath);
+
+  if (!isSupportedStoredImageMimeType(input.mediaAsset.mimeType)) {
+    throw new Error("This uploaded file type cannot be optimized for platform publishing.");
+  }
+
+  let generationSettings: { maxWidth: number; maxHeight: number; quality: number; folder: string };
+  switch (input.platform) {
+    case "GOOGLE_BUSINESS":
+      generationSettings = {
+        maxWidth: 1200,
+        maxHeight: 1200,
+        quality: 85,
+        folder: "google",
+      };
+      break;
+    case "INSTAGRAM":
+      generationSettings = {
+        maxWidth: 1080,
+        maxHeight: 1350,
+        quality: 88,
+        folder: "instagram",
+      };
+      break;
+    case "FACEBOOK":
+    default:
+      generationSettings = {
+        maxWidth: 2048,
+        maxHeight: 2048,
+        quality: 88,
+        folder: "facebook",
+      };
+      break;
+  }
+
+  const outputBuffer = await generateVariantBuffer({
+    sourceBuffer,
+    sourceMimeType: input.mediaAsset.mimeType,
+    maxWidth: generationSettings.maxWidth,
+    maxHeight: generationSettings.maxHeight,
+    quality: generationSettings.quality,
+  });
+  const storagePath = buildStoragePath(
+    ["tmp", generationSettings.folder, ...getDetailedDatedPathSegments(occurredAt)],
+    "jpg",
+  );
+  const metadata = await getImageMetadata(outputBuffer, JPEG_MIME_TYPE);
+  const absolutePath = await writeStoredFile(uploadBasePath, storagePath, outputBuffer);
+
+  return {
+    absolutePath,
+    storagePath,
+    mimeType: JPEG_MIME_TYPE,
+    width: metadata.width,
+    height: metadata.height,
+    sizeBytes: BigInt(outputBuffer.byteLength),
+    platform: input.platform,
+  } satisfies TemporaryPlatformImage;
+}
+
+export async function cleanupTemporaryPlatformImage(absolutePath: string) {
+  try {
+    await unlink(absolutePath);
+    return {
+      absolutePath,
+      status: "deleted",
+      message: null,
+    } satisfies TemporaryMediaCleanupResult;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return {
+        absolutePath,
+        status: "missing",
+        message: "Temporary platform image was already removed.",
+      } satisfies TemporaryMediaCleanupResult;
+    }
+
+    return {
+      absolutePath,
+      status: "failed",
+      message: error instanceof Error ? error.message : "Temporary platform image cleanup failed.",
+    } satisfies TemporaryMediaCleanupResult;
+  }
+}
+
+async function pruneEmptyDirectories(startingDirectory: string, stopAtDirectory: string) {
+  let currentDirectory = startingDirectory;
+  const normalizedStopAt = path.resolve(stopAtDirectory);
+
+  while (currentDirectory.startsWith(normalizedStopAt) && currentDirectory !== normalizedStopAt) {
+    try {
+      const children = await readdir(currentDirectory);
+      if (children.length > 0) {
+        return;
+      }
+
+      await rm(currentDirectory, { recursive: false, force: true });
+      currentDirectory = path.dirname(currentDirectory);
+    } catch {
+      return;
+    }
+  }
+}
+
+async function collectFilesRecursively(directoryPath: string, collected: string[] = []) {
+  const entries = await readdir(directoryPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const absolutePath = path.join(directoryPath, entry.name);
+    if (entry.isDirectory()) {
+      await collectFilesRecursively(absolutePath, collected);
+    } else if (entry.isFile()) {
+      collected.push(absolutePath);
+    }
+  }
+
+  return collected;
+}
+
+export async function cleanupTemporaryPlatformImagesOlderThan(input?: {
+  maxAgeHours?: number;
+  uploadBasePath?: string;
+}) {
+  const maxAgeHours = input?.maxAgeHours ?? 24;
+  const uploadBasePath =
+    input?.uploadBasePath ??
+    resolveUploadBasePath((await getUploadDirectory()) || env.UPLOAD_DIR);
+  const tempBasePath = path.join(uploadBasePath, "tmp");
+  const cutoffTime = Date.now() - maxAgeHours * 60 * 60 * 1000;
+  const summary = {
+    scannedFiles: 0,
+    deletedFiles: 0,
+    failedDeletes: 0,
+    deletedPaths: [] as string[],
+    failedPaths: [] as Array<{ path: string; message: string }>,
+  };
+
+  try {
+    const files = await collectFilesRecursively(tempBasePath);
+    summary.scannedFiles = files.length;
+
+    for (const filePath of files) {
+      try {
+        const fileStats = await stat(filePath);
+        if (fileStats.mtimeMs > cutoffTime) {
+          continue;
+        }
+
+        await unlink(filePath);
+        summary.deletedFiles += 1;
+        summary.deletedPaths.push(filePath);
+        await pruneEmptyDirectories(path.dirname(filePath), tempBasePath);
+      } catch (error) {
+        summary.failedDeletes += 1;
+        summary.failedPaths.push({
+          path: filePath,
+          message: error instanceof Error ? error.message : "Could not delete temporary file.",
+        });
+      }
+    }
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+      throw error;
+    }
+  }
+
+  return summary;
+}
+
+export async function cleanupStoredPermanentMediaVariants(input?: {
+  uploadBasePath?: string;
+}) {
+  const uploadBasePath =
+    input?.uploadBasePath ??
+    resolveUploadBasePath((await getUploadDirectory()) || env.UPLOAD_DIR);
+  const variants = await prisma.mediaVariant.findMany({
+    where: {
+      variantType: {
+        not: MediaVariantType.ORIGINAL,
+      },
+    },
+    select: {
+      id: true,
+      storagePath: true,
+      variantType: true,
+    },
+  });
+
+  const summary = {
+    foundVariants: variants.length,
+    deletedFiles: 0,
+    missingFiles: 0,
+    failedDeletes: 0,
+    deletedRecords: 0,
+    failedPaths: [] as Array<{ variantId: string; storagePath: string; message: string }>,
+  };
+
+  for (const variant of variants) {
+    const absolutePath = ensureSafeAbsolutePath(uploadBasePath, variant.storagePath);
+    try {
+      await unlink(absolutePath);
+      summary.deletedFiles += 1;
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+        summary.missingFiles += 1;
+      } else {
+        summary.failedDeletes += 1;
+        summary.failedPaths.push({
+          variantId: variant.id,
+          storagePath: variant.storagePath,
+          message: error instanceof Error ? error.message : "Could not delete variant file.",
+        });
+      }
+    }
+  }
+
+  const deleteResult = await prisma.mediaVariant.deleteMany({
+    where: {
+      variantType: {
+        not: MediaVariantType.ORIGINAL,
+      },
+    },
+  });
+  summary.deletedRecords = deleteResult.count;
+
+  return summary;
+}
+
 export function buildMediaVariantUrl(variantId: string) {
   return `/api/admin/media/${variantId}`;
 }
@@ -298,14 +649,6 @@ export async function storeUploadedMedia(input: {
     });
     storedFiles.push(originalUpload);
 
-    const generatedVariants = await generateMediaVariants({
-      occurredAt,
-      sourceBuffer: originalUpload.sourceBuffer,
-      sourceMimeType: originalUpload.mimeType,
-      uploadBasePath,
-    });
-    storedFiles.push(...generatedVariants);
-
     const mediaAsset = await prisma.mediaAsset.create({
       data: {
         originalFilename: originalUpload.originalFilename,
@@ -316,14 +659,16 @@ export async function storeUploadedMedia(input: {
         storagePath: originalUpload.storagePath,
         createdByAdminUserId: input.adminUserId,
         variants: {
-          create: storedFiles.map((file) => ({
-            variantType: file.variantType,
-            mimeType: file.mimeType,
-            sizeBytes: file.sizeBytes,
-            width: file.width,
-            height: file.height,
-            storagePath: file.storagePath,
-          })),
+          create: [
+            {
+              variantType: MediaVariantType.ORIGINAL,
+              mimeType: originalUpload.mimeType,
+              sizeBytes: originalUpload.sizeBytes,
+              width: originalUpload.width,
+              height: originalUpload.height,
+              storagePath: originalUpload.storagePath,
+            },
+          ],
         },
       },
       include: {

@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { access, readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { cookies } from "next/headers";
 import {
   ConnectedAccountStatus,
@@ -19,7 +19,12 @@ import {
 } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { APP_SETTING_KEYS, getAppSettingValue, getAppSettings, upsertAppSetting } from "@/lib/settings";
-import { ensureSafeAbsolutePath, resolveUploadBasePath } from "@/lib/uploads";
+import {
+  cleanupTemporaryPlatformImage,
+  generateTemporaryPlatformImage,
+  validateStoredMediaFile,
+  validateStoredOriginalMediaAsset,
+} from "@/lib/uploads";
 
 export const FACEBOOK_GRAPH_VERSION = "v23.0";
 export const FACEBOOK_REQUIRED_SCOPES = [
@@ -298,24 +303,6 @@ export class FacebookServiceError extends Error {
     this.code = options?.code ?? null;
     this.responseSummary = options?.responseSummary ?? null;
   }
-}
-
-function getFacebookPublishVariant(
-  mediaAsset:
-    | {
-        variants?: Array<{
-          id: string;
-          variantType: "ORIGINAL" | "FACEBOOK_FEED" | "GOOGLE_BUSINESS_SAFE" | "INSTAGRAM_FEED_PLACEHOLDER";
-          storagePath: string;
-          mimeType: string;
-          width: number;
-          height: number;
-        }>;
-      }
-    | null
-    | undefined,
-) {
-  return mediaAsset?.variants?.find((variant) => variant.variantType === "FACEBOOK_FEED") ?? null;
 }
 
 function buildTokenEncryptionKey() {
@@ -2055,62 +2042,16 @@ export async function testFacebookConnection() {
   } satisfies FacebookConnectionTestResult;
 }
 
-async function validateFacebookImageVariant(input: {
-  storagePath: string;
-  mimeType: string;
-}) {
-  if (input.mimeType !== "image/jpeg") {
-    throw new Error("Facebook image publishing requires the generated FACEBOOK_FEED JPEG variant.");
-  }
-
-  const settings = await getAppSettings();
-  const uploadBasePath = resolveUploadBasePath(settings.uploadDirectory || env.UPLOAD_DIR);
-  const absolutePath = ensureSafeAbsolutePath(uploadBasePath, input.storagePath);
-
-  try {
-    await access(absolutePath);
-  } catch {
-    throw new Error("The Facebook image variant file is missing on disk. Re-upload or reprocess the media asset.");
-  }
-
-  let fileStats;
-  try {
-    fileStats = await stat(absolutePath);
-  } catch {
-    throw new Error("The Facebook image variant could not be inspected on disk.");
-  }
-
-  if (!fileStats.isFile()) {
-    throw new Error("The Facebook image variant path does not point to a readable file.");
-  }
-
-  if (fileStats.size <= 0) {
-    throw new Error("The Facebook image variant file is empty.");
-  }
-
-  if (fileStats.size > FACEBOOK_MAX_IMAGE_BYTES) {
-    throw new Error("The Facebook image variant is too large to publish safely. Reprocess or upload a smaller image.");
-  }
-
-  return {
-    absolutePath,
-    fileSizeBytes: fileStats.size,
-  };
-}
-
 export async function validateFacebookPublishPrerequisites(input: {
   caption: string;
   mediaAsset:
     | {
         id: string;
-        variants?: Array<{
-          id: string;
-          variantType: "ORIGINAL" | "FACEBOOK_FEED" | "GOOGLE_BUSINESS_SAFE" | "INSTAGRAM_FEED_PLACEHOLDER";
-          storagePath: string;
-          mimeType: string;
-          width: number;
-          height: number;
-        }>;
+        mimeType: string;
+        sizeBytes?: bigint | string;
+        width?: number;
+        height?: number;
+        storagePath: string;
       }
     | null
     | undefined;
@@ -2134,30 +2075,24 @@ export async function validateFacebookPublishPrerequisites(input: {
     throw new Error("Caption is required before publishing to Facebook.");
   }
 
-  const facebookVariant = getFacebookPublishVariant(input.mediaAsset);
-  if (input.mediaAsset && !facebookVariant) {
-    throw new Error("The selected media asset is missing a FACEBOOK_FEED variant.");
-  }
-
-  if (facebookVariant) {
-    const validatedFile = await validateFacebookImageVariant({
-      storagePath: facebookVariant.storagePath,
-      mimeType: facebookVariant.mimeType,
+  if (input.mediaAsset) {
+    const validatedOriginal = await validateStoredOriginalMediaAsset({
+      mediaAsset: input.mediaAsset,
     });
 
     return {
       connection,
       caption: trimmedCaption,
-      facebookVariant,
-      validatedFile,
+      originalMediaAsset: input.mediaAsset,
+      validatedOriginal,
     };
   }
 
   return {
     connection,
     caption: trimmedCaption,
-    facebookVariant: null,
-    validatedFile: null,
+    originalMediaAsset: null,
+    validatedOriginal: null,
   };
 }
 
@@ -2166,29 +2101,28 @@ export function buildFacebookPostPayload(input: {
   mediaAsset:
     | {
         id: string;
-        variants?: Array<{
-          id: string;
-          variantType: "ORIGINAL" | "FACEBOOK_FEED" | "GOOGLE_BUSINESS_SAFE" | "INSTAGRAM_FEED_PLACEHOLDER";
-          storagePath: string;
-          mimeType: string;
-          width: number;
-          height: number;
-        }>;
+        mimeType: string;
+        sizeBytes?: bigint | string;
+        width?: number;
+        height?: number;
+        storagePath: string;
       }
     | null
     | undefined;
 }) {
-  const facebookVariant = getFacebookPublishVariant(input.mediaAsset);
-
   return {
-    kind: facebookVariant ? "image" : "text",
-    variantId: facebookVariant?.id ?? null,
+    kind: input.mediaAsset ? "image" : "text",
+    variantId: null,
     summary: {
       captionLength: input.caption.trim().length,
-      hasMedia: Boolean(facebookVariant),
+      hasMedia: Boolean(input.mediaAsset),
       mediaAssetId: input.mediaAsset?.id ?? null,
-      mediaVariantId: facebookVariant?.id ?? null,
-      mediaVariantDimensions: facebookVariant ? `${facebookVariant.width}x${facebookVariant.height}` : null,
+      mediaVariantId: null,
+      mediaVariantDimensions:
+        input.mediaAsset?.width && input.mediaAsset?.height
+          ? `${input.mediaAsset.width}x${input.mediaAsset.height}`
+          : null,
+      mediaStoragePath: input.mediaAsset?.storagePath ?? null,
     },
   } as const;
 }
@@ -2256,6 +2190,50 @@ export async function publishFacebookImagePost(input: {
   };
 }
 
+function appendFacebookTempImageDiagnostics(
+  responseSummary: Prisma.InputJsonValue | null | undefined,
+  input: {
+    originalMediaAssetId: string | null;
+    originalStoragePath: string | null;
+    temporaryImage:
+      | {
+          storagePath: string;
+          width: number;
+          height: number;
+          sizeBytes: bigint;
+          mimeType: string;
+        }
+      | null;
+    cleanupResult:
+      | {
+          status: "deleted" | "missing" | "failed";
+          message: string | null;
+        }
+      | null;
+  },
+) {
+  const base =
+    responseSummary && typeof responseSummary === "object" && !Array.isArray(responseSummary)
+      ? { ...(responseSummary as Prisma.InputJsonObject) }
+      : {};
+
+  return {
+    ...base,
+    originalMediaAssetId: input.originalMediaAssetId,
+    originalStoragePath: input.originalStoragePath,
+    temporaryPlatformImage: input.temporaryImage
+      ? {
+          storagePath: input.temporaryImage.storagePath,
+          width: input.temporaryImage.width,
+          height: input.temporaryImage.height,
+          sizeBytes: input.temporaryImage.sizeBytes.toString(),
+          mimeType: input.temporaryImage.mimeType,
+        }
+      : null,
+    temporaryPlatformImageCleanup: input.cleanupResult,
+  } satisfies Prisma.InputJsonObject;
+}
+
 async function fetchFacebookPostUrl(input: { accessToken: string; platformPostId: string }) {
   try {
     const response = await facebookGraphRequestJson<{
@@ -2284,54 +2262,137 @@ export async function publishFacebookPost(input: {
   mediaAsset:
     | {
         id: string;
-        variants?: Array<{
-          id: string;
-          variantType: "ORIGINAL" | "FACEBOOK_FEED" | "GOOGLE_BUSINESS_SAFE" | "INSTAGRAM_FEED_PLACEHOLDER";
-          storagePath: string;
-          mimeType: string;
-          width: number;
-          height: number;
-        }>;
+        mimeType: string;
+        sizeBytes?: bigint | string;
+        width?: number;
+        height?: number;
+        storagePath: string;
       }
     | null
     | undefined;
 }) {
   const payload = buildFacebookPostPayload(input);
   const validation = await validateFacebookPublishPrerequisites(input);
+  let temporaryImage:
+    | {
+        absolutePath: string;
+        storagePath: string;
+        mimeType: string;
+        width: number;
+        height: number;
+        sizeBytes: bigint;
+      }
+    | null = null;
+  let cleanupResult:
+    | {
+        status: "deleted" | "missing" | "failed";
+        message: string | null;
+      }
+    | null = null;
+  let publishedResult:
+    | {
+        platformPostId: string;
+        platformPostUrl: string | null;
+        responseSummary: Prisma.InputJsonObject;
+      }
+    | null = null;
+  let publishError: unknown = null;
 
   try {
-    const publishResult =
-      payload.kind === "image" && validation.facebookVariant && validation.validatedFile
-        ? await publishFacebookImagePost({
-            accessToken: validation.connection.accessToken,
-            pageId: validation.connection.pageId!,
-            caption: validation.caption,
-            absolutePath: validation.validatedFile.absolutePath,
-          })
-        : await publishFacebookTextPost({
-            accessToken: validation.connection.accessToken,
-            pageId: validation.connection.pageId!,
-            caption: validation.caption,
-          });
+    if (payload.kind === "image" && validation.originalMediaAsset) {
+      temporaryImage = await generateTemporaryPlatformImage({
+        mediaAsset: validation.originalMediaAsset,
+        platform: "FACEBOOK",
+      });
 
-    const platformPostUrl = await fetchFacebookPostUrl({
-      accessToken: validation.connection.accessToken,
-      platformPostId: publishResult.id,
-    });
+      const validatedTempImage = await validateStoredMediaFile({
+        storagePath: temporaryImage.storagePath,
+        expectedMimeType: temporaryImage.mimeType,
+        maxFileSizeBytes: FACEBOOK_MAX_IMAGE_BYTES,
+      });
 
-    return {
-      platformPostId: publishResult.id,
-      platformPostUrl,
-      responseSummary: {
-        ...publishResult.responseSummary,
-        pageId: validation.connection.pageId,
-        pageName: validation.connection.pageName,
+      const publishResult = await publishFacebookImagePost({
+        accessToken: validation.connection.accessToken,
+        pageId: validation.connection.pageId!,
+        caption: validation.caption,
+        absolutePath: validatedTempImage.absolutePath,
+      });
+
+      const platformPostUrl = await fetchFacebookPostUrl({
+        accessToken: validation.connection.accessToken,
+        platformPostId: publishResult.id,
+      });
+
+      publishedResult = {
+        platformPostId: publishResult.id,
         platformPostUrl,
-      } as Prisma.InputJsonObject,
-    } satisfies FacebookPublishResult;
+        responseSummary: {
+          ...publishResult.responseSummary,
+          pageId: validation.connection.pageId,
+          pageName: validation.connection.pageName,
+          platformPostUrl,
+        } satisfies Prisma.InputJsonObject,
+      };
+    } else {
+      const publishResult = await publishFacebookTextPost({
+        accessToken: validation.connection.accessToken,
+        pageId: validation.connection.pageId!,
+        caption: validation.caption,
+      });
+
+      const platformPostUrl = await fetchFacebookPostUrl({
+        accessToken: validation.connection.accessToken,
+        platformPostId: publishResult.id,
+      });
+
+      publishedResult = {
+        platformPostId: publishResult.id,
+        platformPostUrl,
+        responseSummary: {
+          ...publishResult.responseSummary,
+          pageId: validation.connection.pageId,
+          pageName: validation.connection.pageName,
+          platformPostUrl,
+        } satisfies Prisma.InputJsonObject,
+      };
+    }
   } catch (error) {
-    throw handleFacebookApiError(error);
+    publishError = error;
+  } finally {
+    if (temporaryImage) {
+      cleanupResult = await cleanupTemporaryPlatformImage(temporaryImage.absolutePath);
+      if (cleanupResult.status === "failed") {
+        console.warn("Temporary Facebook publish image cleanup failed.", {
+          storagePath: temporaryImage.storagePath,
+          message: cleanupResult.message,
+        });
+      }
+    }
   }
+
+  if (publishedResult) {
+    return {
+      platformPostId: publishedResult.platformPostId,
+      platformPostUrl: publishedResult.platformPostUrl,
+      responseSummary: appendFacebookTempImageDiagnostics(publishedResult.responseSummary, {
+        originalMediaAssetId: validation.originalMediaAsset?.id ?? null,
+        originalStoragePath: validation.originalMediaAsset?.storagePath ?? null,
+        temporaryImage,
+        cleanupResult,
+      }),
+    } satisfies FacebookPublishResult;
+  }
+
+  const normalizedError = handleFacebookApiError(publishError);
+  throw new FacebookServiceError(normalizedError.message, {
+    code: normalizedError.code,
+    responseSummary: appendFacebookTempImageDiagnostics(normalizedError.responseSummary, {
+      originalMediaAssetId: validation.originalMediaAsset?.id ?? null,
+      originalStoragePath: validation.originalMediaAsset?.storagePath ?? null,
+      temporaryImage,
+      cleanupResult,
+    }),
+  });
 }
 
 function normalizeFacebookErrorCode(code: string | number | null | undefined, subcode?: string | number | null) {
@@ -2374,7 +2435,7 @@ function mapFacebookApiErrorToFriendlyMessage(input: {
       return "Facebook rejected the image because it was too large or invalid. Re-upload or regenerate the media asset.";
     }
 
-    return "Facebook could not accept the image upload. Confirm the Facebook-ready JPEG exists and try again.";
+    return "Facebook could not accept the image upload. Confirm the original media can be optimized successfully and try again.";
   }
 
   if (input.type === "OAuthException") {

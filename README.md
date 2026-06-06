@@ -11,8 +11,8 @@ This foundation now includes the secure admin shell, media processing pipeline, 
 - Prisma schema and initial MySQL migration
 - Environment-seeded admin account
 - Draft/save/edit/delete/schedule/cancel workflow for Facebook-ready posts
-- Authenticated local media upload with original preservation and processed variants
-- Sharp-based Facebook and Google-safe JPEG generation
+- Authenticated local media upload with original preservation and temporary publish-time optimization
+- Sharp-based Facebook JPEG generation at publish time with cleanup tooling
 - Admin-only media library with preview thumbnails
 - Calendar-first post management with draft, scheduled, failed, published, and optional cancelled visibility
 - Monthly calendar view with clickable status-toned cards and thumbnails
@@ -134,9 +134,9 @@ Recommended production checklist:
 - Uploads are validated server-side for size, type, and image dimensions.
 - The upload path is generated server-side; client file metadata is not trusted.
 - Uploads are stored outside the public web root by default.
-- Media files are served through an authenticated route by variant id, not by arbitrary path.
+- Media files are served through an authenticated route, not by arbitrary path.
 - Post state transitions are validated server-side before writes are accepted.
-- Audit records are written for login, logout, create/update/schedule/cancel/delete/return-to-draft post actions, settings save, media upload, media changes, and media variant generation.
+- Audit records are written for login, logout, create/update/schedule/cancel/delete/return-to-draft post actions, settings save, media upload, and media changes.
 - Facebook access tokens are encrypted at rest with `TOKEN_ENCRYPTION_KEY`.
 - Facebook OAuth uses a server-side state cookie and never exposes tokens to the client.
 - Facebook app secret stays in environment variables only.
@@ -150,21 +150,29 @@ Recommended production checklist:
 - Current scope: single-image upload for the composer flow and media library
 - Stored metadata: original filename, MIME type, size, width, height, storage path
 - Preserved source: the original upload is stored untouched and also recorded as the `ORIGINAL` variant
-- Generated derivatives:
-  - `FACEBOOK_FEED`: max `2048x2048`, JPEG quality `88`
-  - `GOOGLE_BUSINESS_SAFE`: max `1200x1200`, JPEG quality `85`
-  - `INSTAGRAM_FEED_PLACEHOLDER`: schema/code hook only for now
-- Processing behavior:
-  - auto-rotates based on orientation
-  - strips EXIF/metadata from derivatives
-  - converts derivatives to JPEG
-  - forces `sRGB`
-  - uses non-progressive JPEG output
-  - prevents enlargement
+- Permanent storage now keeps only the original upload
+- Temporary Facebook publish images are generated on demand with:
+  - max `2048x2048`
+  - JPEG quality `88`
+  - auto-rotation from orientation metadata
+  - metadata stripping
+  - forced `sRGB`
+  - non-progressive JPEG output
+  - no enlargement
+- Temporary Google and Instagram generation paths are reserved for future channels
 - Storage layout:
   - `uploads/originals/yyyy/mm/...`
-  - `uploads/variants/facebook/yyyy/mm/...`
-  - `uploads/variants/google/yyyy/mm/...`
+  - `uploads/tmp/facebook/yyyy/mm/dd/...`
+
+Cleanup commands:
+
+```powershell
+& 'C:\Program Files\nodejs\npm.cmd' run media:cleanup-variants
+& 'C:\Program Files\nodejs\npm.cmd' run media:cleanup-temp
+```
+
+- `media:cleanup-variants` deletes old non-original stored variant files and removes their database records
+- `media:cleanup-temp` removes temporary generated publish images older than 24 hours
 
 ## Sharp Notes
 
@@ -209,11 +217,10 @@ Timezone behavior:
 
 Facebook media behavior:
 
-- The composer uses the `FACEBOOK_FEED` media variant by default when an image asset is selected
+- The composer selects the original media asset when an image is attached
 - New posts start with no media preselected
 - `Clear Media` removes the attached asset from the form immediately so saving persists a text-only post when desired
-- The selected Facebook-safe derivative is previewed with dimensions, MIME type, and file size
-- Scheduling is blocked if a selected image asset does not have a valid `FACEBOOK_FEED` variant
+- Facebook creates a temporary optimized JPEG automatically at publish time
 
 ## Facebook OAuth And Publishing
 
@@ -276,13 +283,15 @@ Manual Facebook publishing behavior:
 - future-scheduled posts require an explicit confirmation before immediate publishing
 - `Retry Publish` is shown for failed Facebook posts and creates a fresh publish attempt without overwriting prior history
 - text-only publishing is supported
-- image publishing uses the `FACEBOOK_FEED` processed variant
-- image publishing validates the processed file before upload:
-  - `FACEBOOK_FEED` must exist
-  - file must exist on disk
-  - file must be readable
-  - MIME type must be `image/jpeg`
-  - file size must stay within the current Facebook-safe limit
+- image publishing validates the stored original before upload
+- image publishing then generates a temporary optimized JPEG and validates:
+  - the original file exists on disk
+  - the original file is readable
+  - the temporary JPEG exists on disk
+  - the temporary JPEG is readable
+  - MIME type is `image/jpeg`
+  - file size stays within the current Facebook-safe limit
+- temporary publish images are deleted after each publish attempt, whether it succeeds or fails
 - successful publishes mark the post/platform `PUBLISHED`, store the returned post id, and keep the latest publish attempt details
 - failed publishes mark the post/platform `FAILED` and keep the error on both the post and the publish attempt
 - common Meta API failures are mapped to friendlier UI messages for:
@@ -471,8 +480,8 @@ If the app is restored onto a new server:
   - token expiry and last error on the Facebook settings page
 - If image publishing fails, confirm:
   - the media asset still exists
-  - the `FACEBOOK_FEED` variant exists
-  - the JPEG file exists on disk and is readable
+  - the original file exists on disk and is readable
+  - the app can generate a temporary Facebook JPEG from that original
 - If a post stays in `PUBLISHING`, run the worker again and review the dashboard worker card plus the post detail history
 - If chunks or CSS look stale locally after a rebuild, restart the app process and hard refresh the browser tab
 
@@ -489,8 +498,7 @@ Verified in this workspace:
 - browser login verification on `http://127.0.0.1:3196`
 - synthetic media-processing smoke test confirming:
   - original preserved
-  - Facebook derivative resized to `2048x1365`
-  - Google derivative resized to `1200x800`
+  - temporary Facebook publish images can be resized safely from the original
 - browser verification of:
   - `/dashboard/calendar`
   - `/dashboard/settings`
@@ -501,14 +509,8 @@ Verified in this workspace:
 2. Go to `New Post`.
 3. Confirm the composer loads with no media preselected and no preview attached.
 4. Upload a raw job photo from the upload area or select an existing item from the recent media picker.
-5. Confirm the success/selection state shows preview thumbnails for:
-   - `Original`
-   - `Facebook feed`
-   - `Google Business safe`
-6. Confirm the selected Facebook preview shows:
-   - variant type
-   - dimensions
-   - file size
+5. Confirm the success/selection state shows the original preview and notes that Facebook optimization happens at publish time.
+6. Confirm the selected media summary shows original dimensions and file size.
 7. Click `Clear Media` and confirm the preview disappears immediately, then save and verify the post stays text-only when reopened.
 8. Save a draft with a date/time and confirm it appears on the correct day in `Calendar` with muted draft styling.
 9. Reopen the draft from `Calendar`, edit it, and save it again.
@@ -521,7 +523,7 @@ Verified in this workspace:
 14. Confirm `PUBLISHING` and `PUBLISHED` posts remain read-only if you create those states later.
 15. Visit `Media` in the sidebar and confirm the asset appears in the library.
 16. If testing HEIC/HEIF, confirm either:
-   - the upload succeeds and variants are generated, or
+   - the upload succeeds and the original is stored while previewing still works, or
    - the app returns the explicit unsupported-codec error without partial records.
 
 ## Facebook Manual Testing Checklist
@@ -564,7 +566,7 @@ Verified in this workspace:
     - if `/me/accounts` is empty, `/me/businesses` and fallback endpoints are shown
 11. If needed, enter a known Page ID in `Test Page ID` and run the manual Page ID test.
 12. Create a draft with caption only and use `Post Now`.
-13. Create a draft with a processed image and use `Post Now`.
+13. Create a draft with an original uploaded image and use `Post Now`.
 14. Schedule a Facebook post about two minutes out.
 13. Run the worker:
 
@@ -580,6 +582,8 @@ Verified in this workspace:
     - the full publish attempt history
     - the calendar status color/state
 16. If a post fails, use `Retry Publish` from the post detail page and confirm a new publish attempt is added instead of overwriting prior failure details.
+17. Run `npm run media:cleanup-temp` and confirm stale temporary publish files are removed cleanly.
+18. Run `npm run media:cleanup-variants` only when you are ready to remove old stored derivatives and confirm originals remain untouched.
 17. If a future-scheduled post is posted manually, confirm the UI requires the explicit immediate-publish confirmation step first.
 18. Restart the app and confirm the Facebook Page still appears connected without reconnecting.
 19. Use `Post Now` again after restart and confirm the saved Facebook connection is reused.

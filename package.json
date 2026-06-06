@@ -10,7 +10,9 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "db:seed": "node --env-file=.env --import tsx prisma/seed.ts",
-    "worker:publish": "tsx scripts/run-publish-worker.ts"
+    "worker:publish": "tsx scripts/run-publish-worker.ts",
+    "media:cleanup-variants": "tsx scripts/media-cleanup-variants.ts",
+    "media:cleanup-temp": "tsx scripts/media-cleanup-temp.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

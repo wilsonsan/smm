@@ -1,4 +1,4 @@
-import { MediaVariantType, SocialPostStatus } from "@prisma/client";
+import { SocialPostStatus } from "@prisma/client";
 import { getResolvedAppTimezone, parseScheduledAtInTimezone } from "@/lib/time";
 
 export const POST_LIST_FILTERS = [
@@ -56,24 +56,6 @@ export function canManuallyPublish(status: SocialPostStatus) {
     status === SocialPostStatus.SCHEDULED ||
     status === SocialPostStatus.FAILED
   );
-}
-
-export function getPrimaryFacebookVariant(
-  mediaAsset:
-    | {
-        variants?: Array<{
-          id: string;
-          variantType: MediaVariantType;
-          mimeType: string;
-          width: number;
-          height: number;
-          sizeBytes?: bigint | string;
-        }>;
-      }
-    | null
-    | undefined,
-) {
-  return mediaAsset?.variants?.find((variant) => variant.variantType === MediaVariantType.FACEBOOK_FEED) ?? null;
 }
 
 export async function validateAndResolveScheduledAt(input: {

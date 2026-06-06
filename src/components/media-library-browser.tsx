@@ -155,15 +155,17 @@ function ChevronRightIcon(props: SVGProps<SVGSVGElement>) {
 function VariantInfoRow({
   label,
   variant,
+  missingMessage = "Generated only when needed",
 }: {
   label: string;
   variant: MediaVariantSummary | null;
+  missingMessage?: string;
 }) {
   if (!variant) {
     return (
       <div className="gallery-variant-row is-missing">
         <strong>{label}</strong>
-        <span>Not available yet</span>
+        <span>{missingMessage}</span>
       </div>
     );
   }
@@ -406,8 +408,8 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
               <div>
                 <h2>Gallery</h2>
                 <p>
-                  Each upload stays grouped as one media asset. Originals remain preserved locally while Facebook and
-                  Google-safe derivatives stay attached behind the scenes for publishing.
+                  Each upload stays grouped as one media asset. Originals remain preserved locally while platform-ready
+                  images are generated temporarily at publish time to save storage.
                 </p>
               </div>
             </div>
@@ -663,7 +665,7 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
               <div>
                 <strong>{openAsset.originalFilename}</strong>
                 <p className="muted">
-                  Original image preview with attached Facebook and Google-safe derivatives preserved for publishing.
+                  Original image preview with publish-time optimization details for Facebook and Google.
                 </p>
               </div>
               <button type="button" className="ghost-link-button" onClick={() => setOpenAssetId(null)}>
@@ -710,16 +712,24 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
                   <VariantInfoRow
                     label={getMediaVariantLabel("ORIGINAL")}
                     variant={getVariantByType(openAsset.variants, "ORIGINAL")}
+                    missingMessage="Original record missing"
                   />
                   <VariantInfoRow
                     label={getMediaVariantLabel("FACEBOOK_FEED")}
                     variant={getVariantByType(openAsset.variants, "FACEBOOK_FEED")}
+                    missingMessage="Generated temporarily at Facebook publish time"
                   />
                   <VariantInfoRow
                     label={getMediaVariantLabel("GOOGLE_BUSINESS_SAFE")}
                     variant={getVariantByType(openAsset.variants, "GOOGLE_BUSINESS_SAFE")}
+                    missingMessage="Generated temporarily for future Google publishing"
                   />
                 </div>
+
+                <p className="hint">
+                  Platform-optimized images are generated temporarily at publish time to save storage. The original
+                  upload remains preserved locally for future reuse.
+                </p>
               </div>
             </div>
           </div>

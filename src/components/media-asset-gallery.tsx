@@ -24,15 +24,17 @@ type MediaAssetGalleryProps = {
 function VariantInfoRow({
   label,
   variant,
+  missingMessage = "Generated only when needed",
 }: {
   label: string;
   variant: MediaVariantSummary | null;
+  missingMessage?: string;
 }) {
   if (!variant) {
     return (
       <div className="media-variant-info-card is-missing">
         <strong>{label}</strong>
-        <p className="muted">Not available yet</p>
+        <p className="muted">{missingMessage}</p>
       </div>
     );
   }
@@ -90,7 +92,7 @@ export function MediaAssetGallery({
             </p>
           </div>
           {showComposerHint ? (
-            <span className="badge">Facebook posts use the processed Facebook-ready version automatically</span>
+            <span className="badge">Facebook creates a temporary optimized JPEG automatically at publish time</span>
           ) : null}
         </div>
 
@@ -113,10 +115,7 @@ export function MediaAssetGallery({
               <span className="media-card-action">Open details</span>
             </div>
 
-            <p className="muted">
-              Stored as one source image with platform-ready child variants. The composer selects the right version for
-              Facebook automatically.
-            </p>
+            <p className="muted">Stored as one source image. Platform-ready images are generated temporarily only when publishing.</p>
 
             <div className="inline-list">
               {variantSummary.map((item) => (
@@ -141,7 +140,7 @@ export function MediaAssetGallery({
             <div className="preview-header">
               <div>
                 <strong>{mediaAsset.originalFilename}</strong>
-                <p className="muted">Original image preview with processed Facebook and Google metadata below.</p>
+                <p className="muted">Original image preview with publish-time optimization details below.</p>
               </div>
               <button type="button" className="ghost-link-button" onClick={() => setIsOpen(false)}>
                 Close
@@ -173,31 +172,27 @@ export function MediaAssetGallery({
                   </div>
                 </div>
 
-                {originalVariant && modalPreviewVariant.id !== originalVariant.id ? (
-                  <p className="hint">
-                    This browser is previewing a processed JPEG derivative here, while the original upload details stay
-                    preserved below.
-                  </p>
-                ) : null}
-
                 <div className="media-variant-info-grid">
                   <VariantInfoRow
                     label={getMediaVariantLabel("ORIGINAL")}
                     variant={originalVariant}
+                    missingMessage="Original record missing"
                   />
                   <VariantInfoRow
                     label={getMediaVariantLabel("FACEBOOK_FEED")}
                     variant={facebookVariant}
+                    missingMessage="Generated temporarily at Facebook publish time"
                   />
                   <VariantInfoRow
                     label={getMediaVariantLabel("GOOGLE_BUSINESS_SAFE")}
                     variant={googleVariant}
+                    missingMessage="Generated temporarily for future Google publishing"
                   />
                 </div>
 
                 <p className="hint">
-                  Files stay self-hosted and are served through authenticated media routes. The original upload remains
-                  preserved for future processing.
+                  Files stay self-hosted and are served through authenticated media routes. Platform-optimized images
+                  are generated temporarily at publish time to save storage.
                 </p>
               </div>
             </div>

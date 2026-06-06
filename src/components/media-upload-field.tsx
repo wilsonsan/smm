@@ -10,7 +10,6 @@ import {
   getAvailableVariantSummary,
   getMediaVariantUrl,
   getPreferredPreviewVariant,
-  getVariantByType,
   type MediaAssetSummary,
 } from "@/lib/media-presentation";
 
@@ -98,7 +97,9 @@ export function MediaUploadField({
 
       setMediaOptions((current) => dedupeAssets([payload.mediaAsset, ...current]));
       onSelectedMediaAssetIdChange(payload.mediaAsset.id);
-      setSuccessMessage("Upload complete. Original, Facebook-ready, and Google-safe versions are ready.");
+      setSuccessMessage(
+        "Upload complete. The original image is stored locally and platform-ready JPEGs will be generated only when needed.",
+      );
     } catch {
       setError("Upload failed. Check the server logs and try again.");
     } finally {
@@ -208,7 +209,6 @@ export function MediaUploadField({
         <div className="composer-recent-media-grid">
           {mediaOptions.slice(0, 6).map((asset) => {
             const previewVariant = getPreferredPreviewVariant(asset.variants);
-            const facebookVariant = getVariantByType(asset.variants, "FACEBOOK_FEED");
             const summaryItems = getAvailableVariantSummary(asset.variants);
 
             return (
@@ -232,14 +232,14 @@ export function MediaUploadField({
                 <div className="composer-recent-media-meta">
                   <strong>{asset.originalFilename}</strong>
                   <span>{summaryItems.join(" · ") || "Original only"}</span>
-                  <span>{facebookVariant ? "Facebook ready" : "Missing Facebook variant"}</span>
+                  <span>Facebook optimization happens automatically at publish time</span>
                 </div>
               </button>
             );
           })}
         </div>
       ) : (
-        <p className="muted">No uploads yet. Your recent media will appear here after the first image is processed.</p>
+        <p className="muted">No uploads yet. Your recent originals will appear here after the first image is stored.</p>
       )}
 
       <input type="hidden" name="mediaAssetId" value={selectedMediaAsset?.id ?? ""} />

@@ -108,27 +108,27 @@ export function getPreferredPreviewVariant<
   }
 
   return (
+    original ??
     getVariantByType(variants, "FACEBOOK_FEED") ??
     getVariantByType(variants, "GOOGLE_BUSINESS_SAFE") ??
-    original ??
     variants[0] ??
     null
   );
 }
 
 export function getAvailableVariantSummary(variants: Array<{ variantType: MediaVariantTypeValue }>) {
-  const items: string[] = [];
-
-  if (getVariantByType(variants, "ORIGINAL")) {
-    items.push("Original");
-  }
+  const items: string[] = ["Original"];
 
   if (getVariantByType(variants, "FACEBOOK_FEED")) {
     items.push("Facebook ready");
+  } else {
+    items.push("Facebook at publish time");
   }
 
   if (getVariantByType(variants, "GOOGLE_BUSINESS_SAFE")) {
     items.push("Google safe");
+  } else {
+    items.push("Google at publish time");
   }
 
   return items;

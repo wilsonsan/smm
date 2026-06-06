@@ -316,11 +316,8 @@ export function PostEditorForm({
   const previewVariant = resolvedSelectedMediaAsset
     ? getPreferredPreviewVariant(resolvedSelectedMediaAsset.variants)
     : null;
-  const facebookVariant = resolvedSelectedMediaAsset
-    ? getVariantByType(resolvedSelectedMediaAsset.variants, "FACEBOOK_FEED")
-    : null;
-  const googleVariant = resolvedSelectedMediaAsset
-    ? getVariantByType(resolvedSelectedMediaAsset.variants, "GOOGLE_BUSINESS_SAFE")
+  const originalVariant = resolvedSelectedMediaAsset
+    ? getVariantByType(resolvedSelectedMediaAsset.variants, "ORIGINAL")
     : null;
 
   const selectedSummaryPlatform = FACEBOOK_PLATFORM;
@@ -337,9 +334,9 @@ export function PostEditorForm({
         });
   const postTypeLabel = resolvedSelectedMediaAsset ? "Image post" : "Text-only post";
   const mediaCountLabel = resolvedSelectedMediaAsset ? "1 image" : "0 media";
-  const statusMessage = facebookVariant || !resolvedSelectedMediaAsset
-    ? "All systems ready! Your post is good to go."
-    : "Upload a Facebook-ready image variant before scheduling an image post.";
+  const statusMessage = resolvedSelectedMediaAsset
+    ? "Original stored. Facebook will generate a temporary optimized JPEG at publish time."
+    : "All systems ready! Your text-only post is good to go.";
 
   return (
     <form action={formAction} className="composer-shell">
@@ -639,7 +636,7 @@ export function PostEditorForm({
                   {previewVariant ? (
                     <div className="composer-social-media">
                       <img
-                        src={getMediaVariantUrl((facebookVariant ?? previewVariant).id)}
+                        src={getMediaVariantUrl((originalVariant ?? previewVariant).id)}
                         alt="Selected media preview"
                         className="composer-social-image"
                       />
@@ -677,7 +674,7 @@ export function PostEditorForm({
                   </div>
                   <p>{captionPreview}</p>
                   <div className="composer-google-preview-meta">
-                    <span>{googleVariant ? "Google-safe image ready" : "Google-safe variant will appear here later"}</span>
+                    <span>Google-safe images will be generated temporarily when Google publishing is added later.</span>
                   </div>
                 </div>
               )}
@@ -719,20 +716,18 @@ export function PostEditorForm({
                   </span>
                   <span>
                     Facebook:{" "}
-                    {facebookVariant
-                      ? `${formatDimensions(facebookVariant.width, facebookVariant.height)} · ${formatBytes(facebookVariant.sizeBytes)}`
-                      : "Missing variant"}
+                    Temporary optimized JPEG at publish time
                   </span>
                 </div>
               ) : null}
             </section>
 
-            <section className={`composer-ready-card${facebookVariant || !resolvedSelectedMediaAsset ? "" : " is-warning"}`.trim()}>
+            <section className="composer-ready-card">
               <span className="composer-ready-icon">
                 <SuccessIcon />
               </span>
               <div>
-                <strong>{facebookVariant || !resolvedSelectedMediaAsset ? "All systems ready!" : "Almost ready"}</strong>
+                <strong>All systems ready!</strong>
                 <p>{statusMessage}</p>
               </div>
             </section>

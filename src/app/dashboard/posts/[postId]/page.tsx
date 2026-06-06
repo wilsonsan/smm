@@ -121,7 +121,6 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
     post.scheduledAt > new Date();
   const originalVariant = getVariantByType(post.mediaAsset?.variants ?? [], "ORIGINAL");
   const facebookVariant = getVariantByType(post.mediaAsset?.variants ?? [], "FACEBOOK_FEED");
-  const googleVariant = getVariantByType(post.mediaAsset?.variants ?? [], "GOOGLE_BUSINESS_SAFE");
 
   return (
     <section className="section-stack">
@@ -191,7 +190,7 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
             <div className="page-header">
               <div>
                 <h2 style={{ fontSize: "1.35rem" }}>Attached Media</h2>
-                <p>Facebook publishes use the `FACEBOOK_FEED` derivative automatically when one is attached.</p>
+                <p>Facebook publishes generate a temporary optimized JPEG from the stored original when one is attached.</p>
               </div>
             </div>
 
@@ -222,27 +221,25 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
                   <div className="settings-subcard">
                     <div className="settings-subcard-head">
                       <div>
-                        <strong>Selected Facebook Variant</strong>
-                        <p>{facebookVariant ? getMediaVariantLabel(facebookVariant.variantType) : "Missing"}</p>
+                        <strong>Facebook Publish Image</strong>
+                        <p>{facebookVariant ? getMediaVariantLabel(facebookVariant.variantType) : "Generated on demand"}</p>
                       </div>
-                      <span className={`badge is-${facebookVariant ? "published" : "failed"}`.trim()}>
-                        {facebookVariant ? "Ready" : "Missing"}
+                      <span className="badge is-published">
+                        Publish-time
                       </span>
                     </div>
                     <p className="muted">
                       {facebookVariant
                         ? `${formatDimensions(facebookVariant.width, facebookVariant.height)} · ${formatBytes(facebookVariant.sizeBytes)} · ${facebookVariant.mimeType}`
-                        : "This asset cannot be published to Facebook until a FACEBOOK_FEED JPEG variant exists."}
+                        : "Facebook will generate a temporary optimized JPEG from the stored original at publish time."}
                     </p>
                   </div>
                 </div>
 
-                {googleVariant ? (
-                  <p className="hint">
-                    Additional variant available for later channels:{" "}
-                    {formatDimensions(googleVariant.width, googleVariant.height)} · {formatBytes(googleVariant.sizeBytes)}
-                  </p>
-                ) : null}
+                <p className="hint">
+                  Platform-optimized images are generated temporarily at publish time to save storage. The original
+                  upload remains preserved locally.
+                </p>
               </>
             ) : (
               <p className="muted">No media asset is attached to this post. Text-only Facebook posts are still allowed.</p>
