@@ -229,7 +229,45 @@ Facebook media behavior:
 - Connected Page storage:
   - uses `ConnectedAccount`
   - stores the selected Facebook Page token encrypted
-  - stores Page id/name, account id/name, scopes, token expiry if Meta returns one, status, and test error state
+  - stores Page id/name, account id/name, scopes, token expiry if Meta returns one, status, and token health timestamps
+  - persists across deploys and restarts until the user disconnects the Page or the token becomes invalid
+
+Facebook connection persistence and token health:
+
+- the saved Facebook connection is reused automatically for:
+  - `Post Now`
+  - retry publish
+  - scheduled worker publishing
+- reconnect is only required when the token expires, becomes invalid, or required scopes drift
+- server-side token health checks now run:
+  - when `Settings > Facebook` loads
+  - before manual Facebook publishing
+  - before scheduled worker publishing
+- connection status can now move through:
+  - `CONNECTED`
+  - `NEEDS_RECONNECT`
+  - `EXPIRED`
+  - `INVALID`
+  - `MISSING_SCOPES`
+  - `DISCONNECTED`
+  - `ERROR`
+- related Facebook token notifications are dismissed automatically after a successful reconnect or healthy token test
+
+Dashboard notifications:
+
+- the dashboard shell now has a shared notification bell with an unread red badge
+- clicking a notification marks it read and opens its action URL
+- current notification foundation supports:
+  - `TOKEN_EXPIRED`
+  - `TOKEN_INVALID`
+  - `MISSING_SCOPE`
+  - `PUBLISH_FAILED`
+  - `WORKER_ERROR`
+  - `INFO`
+- provider support is future-ready for:
+  - `FACEBOOK`
+  - `INSTAGRAM`
+  - `GOOGLE_BUSINESS`
 
 Manual Facebook publishing behavior:
 
@@ -274,6 +312,7 @@ Facebook connection diagnostics:
 - tokens are encrypted at rest and never returned to the browser
 - logs and publish attempts never store raw access tokens
   - if the token becomes invalid or scopes drift, the Facebook settings page now shows reconnect guidance directly in the UI
+  - token failures also create or update an in-app dashboard notification that links back to `Settings > Facebook`
 - the Advanced Facebook Debug section can now show:
   - Graph API version used
   - OAuth redirect URI used
@@ -516,6 +555,7 @@ Verified in this workspace:
    - granted scopes are listed
    - missing required scopes show `None`
    - last tested time updates
+   - connection status stays `CONNECTED`
 10. Click `Run Facebook Diagnostics` and confirm:
     - token exchange status is shown
     - the short-lived and long-lived token sources are listed without exposing the token values
@@ -541,8 +581,21 @@ Verified in this workspace:
     - the calendar status color/state
 16. If a post fails, use `Retry Publish` from the post detail page and confirm a new publish attempt is added instead of overwriting prior failure details.
 17. If a future-scheduled post is posted manually, confirm the UI requires the explicit immediate-publish confirmation step first.
-18. Disconnect Facebook, reconnect it, and confirm the Page details repopulate without exposing the token in the UI.
-19. Restart the app and rerun `npm run worker:publish`, then confirm scheduled publishing still resumes from the current database state.
+18. Restart the app and confirm the Facebook Page still appears connected without reconnecting.
+19. Use `Post Now` again after restart and confirm the saved Facebook connection is reused.
+20. Schedule a Facebook post after restart and confirm the worker uses the saved connection without reconnecting.
+21. Simulate an invalid token or expired token and confirm:
+    - the publish is blocked with a readable reconnect message
+    - the post moves to `FAILED`
+    - a failed publish attempt is created
+    - the dashboard notification bell shows a red unread badge
+22. Click the dashboard notification and confirm it opens `Settings > Facebook`.
+23. Click `Reconnect Facebook`, complete OAuth again, and confirm:
+    - the existing connection record updates in place
+    - the token warning notification is dismissed
+    - `Test Connection` succeeds again
+24. Disconnect Facebook, reconnect it, and confirm the Page details repopulate without exposing the token in the UI.
+25. Restart the app and rerun `npm run worker:publish`, then confirm scheduled publishing still resumes from the current database state.
 
 ## Facebook Diagnostic Checklist
 

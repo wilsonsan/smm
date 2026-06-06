@@ -13,11 +13,13 @@ import {
 } from "@/app/dashboard/settings/channels/facebook/actions";
 import {
   getFacebookConfiguration,
+  refreshFacebookConnectionHealth,
   getFacebookConnectionRecord,
   getFacebookOauthDebugResult,
   getPendingFacebookPageSelection,
 } from "@/lib/facebook";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
+import { FacebookDiagnosticsPanel } from "@/components/facebook-diagnostics-panel";
 
 type FacebookSettingsPageProps = {
   searchParams?: Promise<{
@@ -49,6 +51,22 @@ function getStatusLabel(status: ConnectedAccountStatus | null) {
     return "CONNECTED";
   }
 
+  if (status === ConnectedAccountStatus.NEEDS_RECONNECT) {
+    return "NEEDS RECONNECT";
+  }
+
+  if (status === ConnectedAccountStatus.EXPIRED) {
+    return "EXPIRED";
+  }
+
+  if (status === ConnectedAccountStatus.INVALID) {
+    return "INVALID";
+  }
+
+  if (status === ConnectedAccountStatus.MISSING_SCOPES) {
+    return "MISSING SCOPES";
+  }
+
   if (status === ConnectedAccountStatus.ERROR) {
     return "ERROR";
   }
@@ -56,8 +74,25 @@ function getStatusLabel(status: ConnectedAccountStatus | null) {
   return "DISCONNECTED";
 }
 
-function formatDiagnosticJson(value: unknown) {
-  return JSON.stringify(value, null, 2);
+function getStatusTone(status: ConnectedAccountStatus | null) {
+  if (status === ConnectedAccountStatus.CONNECTED) {
+    return "published";
+  }
+
+  if (
+    status === ConnectedAccountStatus.EXPIRED ||
+    status === ConnectedAccountStatus.INVALID ||
+    status === ConnectedAccountStatus.MISSING_SCOPES ||
+    status === ConnectedAccountStatus.ERROR
+  ) {
+    return "failed";
+  }
+
+  if (status === ConnectedAccountStatus.NEEDS_RECONNECT) {
+    return "scheduled";
+  }
+
+  return "draft";
 }
 
 function getManualResolvedPage(debugResult: Awaited<ReturnType<typeof getFacebookOauthDebugResult>>) {
@@ -93,6 +128,10 @@ function getManualResolvedPage(debugResult: Awaited<ReturnType<typeof getFaceboo
 
 export default async function FacebookChannelSettingsPage({ searchParams }: FacebookSettingsPageProps) {
   const resolvedSearchParams = await searchParams;
+  await refreshFacebookConnectionHealth({
+    createNotification: true,
+    source: "settings_page_load",
+  }).catch(() => null);
   const [config, connection, debugResult, pendingSelection, timezone, detectedRequestOrigin] = await Promise.all([
     getFacebookConfiguration(),
     getFacebookConnectionRecord(),
@@ -114,6 +153,13 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
     Boolean(detectedRequestOrigin) &&
     normalizeOrigin(detectedRequestOrigin) !== normalizeOrigin(config.publicAppUrl);
   const manualResolvedPage = getManualResolvedPage(debugResult);
+  const needsReconnect =
+    connection?.status === ConnectedAccountStatus.NEEDS_RECONNECT ||
+    connection?.status === ConnectedAccountStatus.EXPIRED ||
+    connection?.status === ConnectedAccountStatus.INVALID ||
+    connection?.status === ConnectedAccountStatus.MISSING_SCOPES ||
+    connection?.status === ConnectedAccountStatus.ERROR;
+  const hasConnectedPage = Boolean(connection?.pageId);
 
   return (
     <section className="section-stack">
@@ -210,12 +256,18 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                   Save Facebook Settings
                 </button>
                 <a
-                  href={hasBlockingSetupIssue ? undefined : "/api/facebook/connect"}
+                  href={
+                    hasBlockingSetupIssue
+                      ? undefined
+                      : connection?.pageId
+                        ? "/api/facebook/connect?mode=reconnect"
+                        : "/api/facebook/connect"
+                  }
                   className="secondary-button"
                   aria-disabled={hasBlockingSetupIssue}
                   style={hasBlockingSetupIssue ? { pointerEvents: "none", opacity: 0.6 } : undefined}
                 >
-                  Connect Facebook
+                  {connection?.pageId ? "Reconnect Facebook" : "Connect Facebook"}
                 </a>
                 <a
                   href={hasBlockingSetupIssue ? undefined : "/api/facebook/debug"}
@@ -252,343 +304,14 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
           </div>
 
           {debugResult ? (
-            <div className="form-grid">
-              <div className="grid-2">
-                <div className="field">
-                  <label>Facebook user</label>
-                  <input value={debugResult.profile.name} readOnly />
-                </div>
-
-                <div className="field">
-                  <label>Facebook user ID</label>
-                  <input value={debugResult.profile.id} readOnly />
-                </div>
-
-                <div className="field">
-                  <label>Graph API version</label>
-                  <input value={debugResult.graphApiVersion} readOnly />
-                </div>
-
-                <div className="field">
-                  <label>OAuth redirect URI used</label>
-                  <input value={debugResult.redirectUri} readOnly />
-                </div>
-
-                <div className="field">
-                  <label>Requested scopes</label>
-                  <input value={debugResult.requestedScopes.join(", ") || "None requested"} readOnly />
-                </div>
-
-                <div className="field">
-                  <label>Granted scopes</label>
-                  <input value={debugResult.grantedScopes.join(", ") || "None returned"} readOnly />
-                </div>
-
-                <div className="field">
-                  <label>Missing required scopes</label>
-                  <input value={debugResult.missingRequiredScopes.join(", ") || "None"} readOnly />
-                </div>
-
-                <div className="field">
-                  <label>Long-lived token exchange</label>
-                  <input value={debugResult.tokenInfo.longLivedExchangeStatus} readOnly />
-                </div>
-
-                <div className="field">
-                  <label>Short-lived token existed</label>
-                  <input value={debugResult.tokenInfo.shortLivedExists ? "true" : "false"} readOnly />
-                </div>
-
-                <div className="field">
-                  <label>Long-lived token existed</label>
-                  <input value={debugResult.tokenInfo.longLivedExists ? "true" : "false"} readOnly />
-                </div>
-
-                <div className="field">
-                  <label>Token expiry</label>
-                  <input
-                    value={
-                      debugResult.tokenExpiresAt
-                        ? formatDateTimeForTimezone(debugResult.tokenExpiresAt, timezone)
-                        : "No token expiry reported"
-                    }
-                    readOnly
-                  />
-                </div>
-
-                <div className="field">
-                  <label>Last diagnostics run</label>
-                  <input value={formatDateTimeForTimezone(debugResult.fetchedAt, timezone)} readOnly />
-                </div>
-
-                <div className="field">
-                  <label>Accounts source</label>
-                  <input
-                    value={
-                      debugResult.diagnostics.accountsSource === "short_lived"
-                        ? "Short-lived user token fallback"
-                        : "Long-lived user token"
-                    }
-                    readOnly
-                  />
-                </div>
-
-                <div className="field">
-                  <label>Account diagnostics</label>
-                  <input
-                    value={`raw: ${debugResult.diagnostics.rawAccountsCount} | raw with token: ${debugResult.diagnostics.rawAccountsWithPageAccessTokenCount} | hydrated: ${debugResult.diagnostics.hydratedPageAccessTokenCount}`}
-                    readOnly
-                  />
-                </div>
-              </div>
-
-              <p className={debugResult.missingRequiredScopes.length > 0 ? "warning-text" : "hint"}>{debugResult.summaryMessage}</p>
-              {debugResult.emptyAccountsMessage ? <p className="warning-text">{debugResult.emptyAccountsMessage}</p> : null}
-              {debugResult.diagnostics.usedShortLivedFallback ? (
-                <p className="warning-text">
-                  The long-lived token did not fully resolve page accounts, so the app also checked the short-lived
-                  OAuth token during this debug pass.
-                </p>
-              ) : null}
-
-              <div className="settings-subcard-list">
-                <div className="settings-nav-card">
-                  <div className="settings-nav-card-head">
-                    <strong>OAuth / token flow</strong>
-                  </div>
-                  <p>
-                    Accounts source: {debugResult.diagnostics.accountsSource}
-                    {" | "}
-                    Raw account rows: {debugResult.diagnostics.rawAccountsCount}
-                    {" | "}
-                    Raw rows with tokens: {debugResult.diagnostics.rawAccountsWithPageAccessTokenCount}
-                    {" | "}
-                    Hydrated page tokens: {debugResult.diagnostics.hydratedPageAccessTokenCount}
-                  </p>
-                </div>
-
-                <div className="settings-nav-card">
-                  <div className="settings-nav-card-head">
-                    <strong>Token debug results</strong>
-                  </div>
-                  {debugResult.tokenDebug.length > 0 ? (
-                    <div className="settings-subcard-list">
-                      {debugResult.tokenDebug.map((entry) => (
-                        <div key={entry.tokenSource} className="settings-nav-card">
-                          <div className="settings-nav-card-head">
-                            <strong>{entry.tokenSource}</strong>
-                          </div>
-                          <p>app_id: {entry.appId || "Unavailable"}</p>
-                          <p>user_id: {entry.userId || "Unavailable"}</p>
-                          <p>is_valid: {entry.isValid === null ? "Unknown" : entry.isValid ? "true" : "false"}</p>
-                          <p>expires_at: {entry.expiresAt ? formatDateTimeForTimezone(entry.expiresAt, timezone) : "Not returned"}</p>
-                          <p>scopes: {entry.scopes.join(", ") || "None returned"}</p>
-                          {entry.errorMessage ? (
-                            <p className="error-text">
-                              {entry.errorMessage}
-                              {entry.errorType ? ` | type: ${entry.errorType}` : ""}
-                              {entry.errorCode !== null ? ` | code: ${entry.errorCode}` : ""}
-                              {entry.errorSubcode !== null ? ` | subcode: ${entry.errorSubcode}` : ""}
-                              {entry.fbtraceId ? ` | fbtrace_id: ${entry.fbtraceId}` : ""}
-                            </p>
-                          ) : null}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p>No token debug results are stored yet.</p>
-                  )}
-                </div>
-
-                <div className="settings-nav-card">
-                  <div className="settings-nav-card-head">
-                    <strong>Permission records</strong>
-                  </div>
-                  <p>
-                    {debugResult.permissions.length > 0
-                      ? debugResult.permissions.map((entry) => `${entry.permission}: ${entry.status}`).join(", ")
-                      : "No permission records returned."}
-                  </p>
-                </div>
-
-                <div className="settings-nav-card">
-                  <div className="settings-nav-card-head">
-                    <strong>Parsed /me/accounts rows</strong>
-                  </div>
-                  {debugResult.accounts.length > 0 ? (
-                    <div className="settings-subcard-list">
-                      {debugResult.accounts.map((account) => (
-                        <div key={account.id} className="settings-nav-card">
-                          <div className="settings-nav-card-head">
-                            <strong>{account.name}</strong>
-                          </div>
-                          <p>Page ID: {account.id}</p>
-                          <p>Tasks: {account.tasks.length > 0 ? account.tasks.join(", ") : "None returned"}</p>
-                          <p>hasPageAccessToken: {account.hasPageAccessToken ? "true" : "false"}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p>OAuth succeeded, but this Meta app could not see any manageable Pages.</p>
-                  )}
-                </div>
-
-                <div className="settings-nav-card">
-                  <div className="settings-nav-card-head">
-                    <strong>Core Graph endpoint results</strong>
-                  </div>
-                  <div className="settings-subcard-list">
-                    {debugResult.endpointResults.map((result, index) => (
-                      <div key={`${result.endpoint}-${result.tokenSource}-${index}`} className="settings-nav-card">
-                        <div className="settings-nav-card-head">
-                          <strong>{result.endpoint}</strong>
-                          <span className={`badge is-${result.success ? "published" : "failed"}`.trim()}>
-                            {result.success ? "Success" : "Failed"}
-                          </span>
-                        </div>
-                        <p>
-                          token source: {result.tokenSource}
-                          {" | "}
-                          http status: {result.httpStatus ?? "Unknown"}
-                          {" | "}
-                          data count: {result.dataCount ?? "n/a"}
-                        </p>
-                        {result.parsedAccounts?.length ? (
-                          <div className="settings-subcard-list">
-                            {result.parsedAccounts.map((account) => (
-                              <div key={`${result.endpoint}-${result.tokenSource}-${account.id}`} className="settings-nav-card">
-                                <div className="settings-nav-card-head">
-                                  <strong>{account.name}</strong>
-                                </div>
-                                <p>Page ID: {account.id}</p>
-                                <p>Tasks: {account.tasks.join(", ") || "None returned"}</p>
-                                <p>Category: {account.category || "Not returned"}</p>
-                                <p>Verification status: {account.verificationStatus || "Not returned"}</p>
-                                <p>hasPageAccessToken: {account.hasPageAccessToken ? "true" : "false"}</p>
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
-                        <pre className="settings-code-block">{formatDiagnosticJson(result.sanitizedJson)}</pre>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="settings-nav-card">
-                  <div className="settings-nav-card-head">
-                    <strong>Business Manager fallback diagnostics</strong>
-                  </div>
-                  <p>
-                    businesses returned: {debugResult.businessDiagnostics.businesses.length}
-                    {" | "}
-                    optional scope: {debugResult.optionalDiagnosticScopes.join(", ")}
-                  </p>
-                  {debugResult.businessDiagnostics.businesses.length > 0 ? (
-                    <div className="settings-subcard-list">
-                      {debugResult.businessDiagnostics.businesses.map((business) => (
-                        <div key={business.id} className="settings-nav-card">
-                          <div className="settings-nav-card-head">
-                            <strong>{business.name}</strong>
-                          </div>
-                          <p>Business ID: {business.id}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  <div className="settings-subcard-list">
-                    {debugResult.businessDiagnostics.endpointResults.map((result, index) => (
-                      <div key={`${result.endpoint}-${result.tokenSource}-business-${index}`} className="settings-nav-card">
-                        <div className="settings-nav-card-head">
-                          <strong>{result.endpoint}</strong>
-                          <span className={`badge is-${result.success ? "published" : "failed"}`.trim()}>
-                            {result.success ? "Success" : "Failed"}
-                          </span>
-                        </div>
-                        <p>
-                          token source: {result.tokenSource}
-                          {" | "}
-                          http status: {result.httpStatus ?? "Unknown"}
-                          {" | "}
-                          data count: {result.dataCount ?? "n/a"}
-                        </p>
-                        {result.parsedAccounts?.length ? (
-                          <div className="settings-subcard-list">
-                            {result.parsedAccounts.map((account) => (
-                              <div key={`${result.endpoint}-${result.tokenSource}-${account.id}`} className="settings-nav-card">
-                                <div className="settings-nav-card-head">
-                                  <strong>{account.name}</strong>
-                                </div>
-                                <p>Page ID: {account.id}</p>
-                                <p>Tasks: {account.tasks.join(", ") || "None returned"}</p>
-                                <p>hasPageAccessToken: {account.hasPageAccessToken ? "true" : "false"}</p>
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
-                        <pre className="settings-code-block">{formatDiagnosticJson(result.sanitizedJson)}</pre>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="settings-nav-card">
-                  <div className="settings-nav-card-head">
-                    <strong>Manual Page ID test</strong>
-                  </div>
-                  <p>Enter a known Facebook Page ID and the app will query it with the current diagnostic user token sources.</p>
-                  <form action={runFacebookPageIdDiagnosticsAction} className="form-grid">
-                    <div className="field">
-                      <label htmlFor="debugPageId">Test Page ID</label>
-                      <input id="debugPageId" name="pageId" defaultValue={debugResult.manualPageIdTest?.pageId || ""} placeholder="Enter a Page ID" />
-                    </div>
-                    <div className="button-row">
-                      <button type="submit" className="secondary-button">
-                        Run Page ID Test
-                      </button>
-                    </div>
-                  </form>
-                  {manualResolvedPage ? (
-                    <div className="button-row">
-                      <form action={connectFacebookResolvedPageAction}>
-                        <input type="hidden" name="pageId" value={manualResolvedPage.pageId} />
-                        <button type="submit" className="primary-button">
-                          Connect {manualResolvedPage.pageName}
-                        </button>
-                      </form>
-                    </div>
-                  ) : null}
-                  {debugResult.manualPageIdTest ? (
-                    <div className="settings-subcard-list">
-                      {debugResult.manualPageIdTest.endpointResults.map((result, index) => (
-                        <div key={`${result.endpoint}-${result.tokenSource}-manual-${index}`} className="settings-nav-card">
-                          <div className="settings-nav-card-head">
-                            <strong>{result.endpoint}</strong>
-                            <span className={`badge is-${result.success ? "published" : "failed"}`.trim()}>
-                              {result.success ? "Success" : "Failed"}
-                            </span>
-                          </div>
-                          <p>
-                            token source: {result.tokenSource}
-                            {" | "}
-                            http status: {result.httpStatus ?? "Unknown"}
-                          </p>
-                          <pre className="settings-code-block">{formatDiagnosticJson(result.sanitizedJson)}</pre>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="button-row">
-                <form action={clearFacebookDebugResultAction}>
-                  <button type="submit" className="ghost-link-button">
-                    Clear Diagnostics Snapshot
-                  </button>
-                </form>
-              </div>
-            </div>
+            <FacebookDiagnosticsPanel
+              debugResult={debugResult}
+              manualResolvedPage={manualResolvedPage}
+              timezone={timezone}
+              onClearAction={clearFacebookDebugResultAction}
+              onRunPageIdDiagnosticsAction={runFacebookPageIdDiagnosticsAction}
+              onConnectResolvedPageAction={connectFacebookResolvedPageAction}
+            />
           ) : (
             <div className="form-grid">
               <p className="hint">No Facebook diagnostics snapshot is stored yet. Use the Run Facebook Diagnostics button above to inspect token exchange, `/me`, `/me/accounts`, and Business Manager fallback responses.</p>
@@ -626,7 +349,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
               <strong>Connected Page Status</strong>
               <p>Only one Facebook Page is active in this phase so manual publishing and the worker share the same token.</p>
             </div>
-            <span className={`badge is-${connection?.status === ConnectedAccountStatus.ERROR ? "failed" : connection?.status === ConnectedAccountStatus.CONNECTED ? "published" : "draft"}`.trim()}>
+            <span className={`badge is-${getStatusTone(connection?.status ?? null)}`.trim()}>
               {getStatusLabel(connection?.status ?? null)}
             </span>
           </div>
@@ -677,11 +400,35 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                     connection?.lastTestedAt
                       ? formatDateTimeForTimezone(connection.lastTestedAt, timezone)
                       : "Not tested yet"
-                    }
-                    readOnly
-                  />
-                </div>
+                  }
+                  readOnly
+                />
               </div>
+
+              <div className="field">
+                <label>Last successful token test</label>
+                <input
+                  value={
+                    connection?.lastSuccessfulTestAt
+                      ? formatDateTimeForTimezone(connection.lastSuccessfulTestAt, timezone)
+                      : "No successful test recorded yet"
+                  }
+                  readOnly
+                />
+              </div>
+
+              <div className="field">
+                <label>Last failed token test</label>
+                <input
+                  value={
+                    connection?.lastFailedTestAt
+                      ? formatDateTimeForTimezone(connection.lastFailedTestAt, timezone)
+                      : "No failed test recorded"
+                  }
+                  readOnly
+                />
+              </div>
+            </div>
 
             {pageUrl ? (
               <p className="hint">
@@ -693,6 +440,11 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
             ) : null}
 
             {connection?.lastError ? <p className="error-text">{connection.lastError}</p> : null}
+            {needsReconnect ? (
+              <p className="warning-text">
+                Facebook needs to be reconnected before posting again. Use Reconnect Facebook below and complete the Meta OAuth flow.
+              </p>
+            ) : null}
             {connection?.status === ConnectedAccountStatus.ERROR || missingScopes.length > 0 ? (
               <p className="warning-text">
                 Reconnect this Facebook Page if the token is invalid, the app changed mode, or required scopes are
@@ -705,11 +457,26 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                 <button
                   type="submit"
                   className="secondary-button"
-                  disabled={!connection?.pageId || hasBlockingSetupIssue}
+                  disabled={!hasConnectedPage || hasBlockingSetupIssue}
                 >
                   Test Connection
                 </button>
               </form>
+
+              <a
+                href={
+                  hasBlockingSetupIssue
+                    ? undefined
+                    : hasConnectedPage
+                      ? "/api/facebook/connect?mode=reconnect"
+                      : "/api/facebook/connect"
+                }
+                className="primary-button"
+                aria-disabled={hasBlockingSetupIssue}
+                style={hasBlockingSetupIssue ? { pointerEvents: "none", opacity: 0.6 } : undefined}
+              >
+                {needsReconnect ? "Reconnect Facebook" : "Reconnect"}
+              </a>
 
               <form action={disconnectFacebookAction}>
                 <button type="submit" className="danger-button" disabled={!connection}>

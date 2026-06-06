@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
-import { buildConfiguredAppUrl, buildFacebookConnectUrl, getFacebookConfiguration } from "@/lib/facebook";
+import { buildConfiguredAppUrl, buildFacebookConnectUrl, getFacebookConfiguration, getFacebookConnectionRecord } from "@/lib/facebook";
 import { getRequestMetadata, assertSameOrigin } from "@/lib/http";
 import { requireAdminSessionFromRequest } from "@/lib/auth/session";
 
@@ -8,6 +8,9 @@ export async function GET(request: Request) {
   assertSameOrigin(request);
   const session = await requireAdminSessionFromRequest(request, { touch: false });
   const config = await getFacebookConfiguration();
+  const requestUrl = new URL(request.url);
+  const requestedMode = requestUrl.searchParams.get("mode");
+  const oauthMode = requestedMode === "reconnect" ? "reconnect" : "connect";
 
   if (config.missingConfig.length > 0) {
     return NextResponse.redirect(
@@ -18,14 +21,16 @@ export async function GET(request: Request) {
     );
   }
 
+  const existingConnection = await getFacebookConnectionRecord();
   const { ipAddress, userAgent } = await getRequestMetadata();
   await createAuditLog({
     actorAdminUserId: session.adminUserId,
-    action: AUDIT_ACTIONS.FACEBOOK_CONNECT_STARTED,
+    action: oauthMode === "reconnect" ? AUDIT_ACTIONS.FACEBOOK_RECONNECT_STARTED : AUDIT_ACTIONS.FACEBOOK_CONNECT_STARTED,
     targetType: "ConnectedAccount",
+    targetId: existingConnection?.id ?? null,
     ipAddress,
     userAgent,
   });
 
-  return NextResponse.redirect(await buildFacebookConnectUrl());
+  return NextResponse.redirect(await buildFacebookConnectUrl({ mode: oauthMode }));
 }

@@ -3,13 +3,20 @@ import { access, readFile, stat } from "node:fs/promises";
 import { cookies } from "next/headers";
 import {
   ConnectedAccountStatus,
+  NotificationType,
   Prisma,
   PublishAttemptStatus,
   SocialPlatform,
   SocialPostStatus,
   type ConnectedAccount,
 } from "@prisma/client";
+import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
 import { env, hasTokenEncryptionKeyConfigured, isProduction } from "@/lib/env";
+import {
+  FACEBOOK_SETTINGS_ACTION_URL,
+  createOrUpdateFacebookTokenNotification,
+  dismissProviderNotifications,
+} from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { APP_SETTING_KEYS, getAppSettingValue, getAppSettings, upsertAppSetting } from "@/lib/settings";
 import { ensureSafeAbsolutePath, resolveUploadBasePath } from "@/lib/uploads";
@@ -31,7 +38,7 @@ const FACEBOOK_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const FACEBOOK_DEBUG_TOKENS_MAX_AGE_SECONDS = 30 * 60;
 const FACEBOOK_OPTIONAL_DIAGNOSTIC_SCOPES = ["business_management"] as const;
 
-export type FacebookOauthMode = "connect" | "debug";
+export type FacebookOauthMode = "connect" | "reconnect" | "debug";
 
 export type FacebookRuntimeCheck = {
   key: string;
@@ -72,6 +79,7 @@ type PendingFacebookPageSelection = {
   pages: FacebookManagedPage[];
   scopes: string[];
   tokenExpiresAt: string | null;
+  mode: Exclude<FacebookOauthMode, "debug">;
 };
 
 export type FacebookOauthDebugResult = {
@@ -217,6 +225,8 @@ export type FacebookConnectionRecord = {
   scopes: string[];
   status: ConnectedAccountStatus;
   lastTestedAt: Date | null;
+  lastSuccessfulTestAt: Date | null;
+  lastFailedTestAt: Date | null;
   lastError: string | null;
   metadata: ConnectedAccount["metadata"];
   createdAt: Date;
@@ -242,6 +252,16 @@ export type FacebookConnectionTestResult = {
   pageName: string;
   pageUrl: string | null;
   testedAt: Date;
+};
+
+export type FacebookConnectionHealthResult = {
+  status: ConnectedAccountStatus;
+  pageId: string | null;
+  pageName: string | null;
+  pageUrl: string | null;
+  testedAt: Date | null;
+  message: string | null;
+  missingScopes: string[];
 };
 
 export type FacebookPublishResult = {
@@ -575,7 +595,11 @@ export async function consumeFacebookOauthMode(): Promise<FacebookOauthMode> {
   const mode = cookieStore.get(FACEBOOK_OAUTH_MODE_COOKIE_NAME)?.value;
   cookieStore.delete(FACEBOOK_OAUTH_MODE_COOKIE_NAME);
 
-  return mode === "debug" ? "debug" : "connect";
+  if (mode === "debug" || mode === "reconnect") {
+    return mode;
+  }
+
+  return "connect";
 }
 
 export async function setPendingFacebookPageSelection(payload: PendingFacebookPageSelection) {
@@ -609,7 +633,10 @@ export async function getPendingFacebookPageSelection() {
       return null;
     }
 
-    return parsed;
+    return {
+      ...parsed,
+      mode: parsed.mode === "reconnect" ? "reconnect" : "connect",
+    };
   } catch {
     return null;
   }
@@ -1483,7 +1510,8 @@ export async function saveFacebookConnectedPage(input: {
   scopes: string[];
   tokenExpiresAt?: Date | null;
 }) {
-  return prisma.connectedAccount.upsert({
+  const testedAt = new Date();
+  const connectedAccount = await prisma.connectedAccount.upsert({
     where: {
       platform: SocialPlatform.FACEBOOK,
     },
@@ -1496,6 +1524,9 @@ export async function saveFacebookConnectedPage(input: {
       tokenExpiresAt: input.tokenExpiresAt ?? null,
       scopes: input.scopes,
       status: ConnectedAccountStatus.CONNECTED,
+      lastTestedAt: testedAt,
+      lastSuccessfulTestAt: testedAt,
+      lastFailedTestAt: null,
       lastError: null,
       metadata: input.pageUrl
         ? {
@@ -1513,13 +1544,27 @@ export async function saveFacebookConnectedPage(input: {
       tokenExpiresAt: input.tokenExpiresAt ?? null,
       scopes: input.scopes,
       status: ConnectedAccountStatus.CONNECTED,
+      lastTestedAt: testedAt,
+      lastSuccessfulTestAt: testedAt,
+      lastFailedTestAt: null,
       metadata: input.pageUrl
         ? {
-            pageUrl: input.pageUrl,
-          }
+          pageUrl: input.pageUrl,
+        }
         : undefined,
     },
   });
+
+  await dismissProviderNotifications({
+    provider: SocialPlatform.FACEBOOK,
+    types: [
+      NotificationType.TOKEN_EXPIRED,
+      NotificationType.TOKEN_INVALID,
+      NotificationType.MISSING_SCOPE,
+    ],
+  });
+
+  return connectedAccount;
 }
 
 function toFacebookConnectionRecord(record: ConnectedAccount | null): FacebookConnectionRecord | null {
@@ -1538,6 +1583,8 @@ function toFacebookConnectionRecord(record: ConnectedAccount | null): FacebookCo
     scopes: normalizeFacebookScopes(record.scopes),
     status: record.status,
     lastTestedAt: record.lastTestedAt,
+    lastSuccessfulTestAt: record.lastSuccessfulTestAt,
+    lastFailedTestAt: record.lastFailedTestAt,
     lastError: record.lastError,
     metadata: record.metadata,
     createdAt: record.createdAt,
@@ -1555,7 +1602,7 @@ export async function getFacebookConnectionRecord() {
   return toFacebookConnectionRecord(record);
 }
 
-export async function getFacebookConnection(): Promise<FacebookConnection | null> {
+async function getStoredFacebookConnection(): Promise<FacebookConnection | null> {
   const record = await prisma.connectedAccount.findUnique({
     where: {
       platform: SocialPlatform.FACEBOOK,
@@ -1578,6 +1625,16 @@ export async function getFacebookConnection(): Promise<FacebookConnection | null
   };
 }
 
+export async function getFacebookConnection(): Promise<FacebookConnection | null> {
+  const connection = await getStoredFacebookConnection();
+
+  if (!connection || connection.status !== ConnectedAccountStatus.CONNECTED) {
+    return null;
+  }
+
+  return connection;
+}
+
 export async function disconnectFacebookConnection() {
   const record = await prisma.connectedAccount.findUnique({
     where: {
@@ -1589,7 +1646,7 @@ export async function disconnectFacebookConnection() {
     return null;
   }
 
-  return prisma.connectedAccount.update({
+  const disconnectedAccount = await prisma.connectedAccount.update({
     where: {
       platform: SocialPlatform.FACEBOOK,
     },
@@ -1603,17 +1660,232 @@ export async function disconnectFacebookConnection() {
       scopes: [],
       status: ConnectedAccountStatus.DISCONNECTED,
       lastTestedAt: null,
+      lastSuccessfulTestAt: null,
+      lastFailedTestAt: null,
       lastError: null,
       metadata: Prisma.JsonNull,
     },
   });
+
+  await dismissProviderNotifications({
+    provider: SocialPlatform.FACEBOOK,
+    types: [
+      NotificationType.TOKEN_EXPIRED,
+      NotificationType.TOKEN_INVALID,
+      NotificationType.MISSING_SCOPE,
+    ],
+  });
+
+  return disconnectedAccount;
 }
 
-export async function testFacebookConnection() {
-  const connection = await getFacebookConnection();
+function getMissingFacebookScopes(scopes: string[]) {
+  return FACEBOOK_REQUIRED_SCOPES.filter((scope) => !scopes.includes(scope));
+}
+
+function getFacebookStatusFromError(error: FacebookServiceError) {
+  if (error.code?.startsWith("190")) {
+    return error.message.toLowerCase().includes("expired")
+      ? ConnectedAccountStatus.EXPIRED
+      : ConnectedAccountStatus.INVALID;
+  }
+
+  if (
+    error.code === "10" ||
+    error.code === "200" ||
+    error.message.toLowerCase().includes("permission") ||
+    error.message.toLowerCase().includes("scope")
+  ) {
+    return ConnectedAccountStatus.MISSING_SCOPES;
+  }
+
+  if (
+    error.message.toLowerCase().includes("access token") ||
+    error.message.toLowerCase().includes("unsupported get request")
+  ) {
+    return ConnectedAccountStatus.INVALID;
+  }
+
+  return ConnectedAccountStatus.ERROR;
+}
+
+async function updateFacebookConnectionHealthState(input: {
+  status: ConnectedAccountStatus;
+  message: string | null;
+  pageName?: string | null;
+  pageUrl?: string | null;
+  testedAt: Date;
+}) {
+  return prisma.connectedAccount.updateMany({
+    where: {
+      platform: SocialPlatform.FACEBOOK,
+    },
+    data: {
+      status: input.status,
+      lastTestedAt: input.testedAt,
+      lastSuccessfulTestAt: input.status === ConnectedAccountStatus.CONNECTED ? input.testedAt : undefined,
+      lastFailedTestAt: input.status === ConnectedAccountStatus.CONNECTED ? null : input.testedAt,
+      lastError: input.status === ConnectedAccountStatus.CONNECTED ? null : input.message,
+      pageName: input.pageName ?? undefined,
+      metadata:
+        input.pageUrl !== undefined
+          ? input.pageUrl
+            ? {
+                pageUrl: input.pageUrl,
+              }
+            : Prisma.JsonNull
+          : undefined,
+    },
+  });
+}
+
+export async function refreshFacebookConnectionHealth(input?: {
+  createNotification?: boolean;
+  source?: string;
+}) {
+  const connection = await getStoredFacebookConnection();
 
   if (!connection) {
-    throw new Error("Connect a Facebook Page before testing the connection.");
+    return {
+      status: ConnectedAccountStatus.DISCONNECTED,
+      pageId: null,
+      pageName: null,
+      pageUrl: null,
+      testedAt: null,
+      message: "Connect a Facebook Page before publishing.",
+      missingScopes: [...FACEBOOK_REQUIRED_SCOPES],
+    } satisfies FacebookConnectionHealthResult;
+  }
+
+  const missingScopes = getMissingFacebookScopes(connection.scopes);
+  const testedAt = new Date();
+  const currentPageUrl =
+    connection.metadata && typeof connection.metadata === "object" && !Array.isArray(connection.metadata)
+      ? String((connection.metadata as Record<string, unknown>).pageUrl ?? "")
+      : null;
+
+  if (!connection.pageId || !connection.accessToken) {
+    const message = "Facebook needs to be reconnected before posting.";
+    await updateFacebookConnectionHealthState({
+      status: ConnectedAccountStatus.NEEDS_RECONNECT,
+      message,
+      testedAt,
+    });
+
+    if (input?.createNotification !== false) {
+      await createOrUpdateFacebookTokenNotification({
+        provider: SocialPlatform.FACEBOOK,
+        status: "invalid",
+      });
+    }
+
+    await createAuditLog({
+      action: AUDIT_ACTIONS.FACEBOOK_TOKEN_HEALTH_CHECK_FAILED,
+      targetType: "ConnectedAccount",
+      targetId: connection.id,
+      metadata: {
+        source: input?.source ?? "unknown",
+        status: ConnectedAccountStatus.NEEDS_RECONNECT,
+        message,
+      },
+    });
+
+    return {
+      status: ConnectedAccountStatus.NEEDS_RECONNECT,
+      pageId: connection.pageId,
+      pageName: connection.pageName,
+      pageUrl: currentPageUrl,
+      testedAt,
+      message,
+      missingScopes,
+    } satisfies FacebookConnectionHealthResult;
+  }
+
+  if (missingScopes.length > 0) {
+    const message = `Facebook is missing required scopes: ${missingScopes.join(", ")}. Reconnect Facebook to resume posting.`;
+    await updateFacebookConnectionHealthState({
+      status: ConnectedAccountStatus.MISSING_SCOPES,
+      message,
+      testedAt,
+      pageName: connection.pageName,
+      pageUrl: currentPageUrl,
+    });
+
+    if (input?.createNotification !== false) {
+      await createOrUpdateFacebookTokenNotification({
+        provider: SocialPlatform.FACEBOOK,
+        status: "missing_scopes",
+        detail: `Missing: ${missingScopes.join(", ")}.`,
+      });
+    }
+
+    await createAuditLog({
+      action: AUDIT_ACTIONS.FACEBOOK_TOKEN_HEALTH_CHECK_FAILED,
+      targetType: "ConnectedAccount",
+      targetId: connection.id,
+      metadata: {
+        source: input?.source ?? "unknown",
+        status: ConnectedAccountStatus.MISSING_SCOPES,
+        missingScopes,
+      },
+    });
+
+    return {
+      status: ConnectedAccountStatus.MISSING_SCOPES,
+      pageId: connection.pageId,
+      pageName: connection.pageName,
+      pageUrl: currentPageUrl,
+      testedAt,
+      message,
+      missingScopes,
+    } satisfies FacebookConnectionHealthResult;
+  }
+
+  if (connection.tokenExpiresAt && connection.tokenExpiresAt <= testedAt) {
+    const message = "Facebook needs to be reconnected before posting.";
+    await updateFacebookConnectionHealthState({
+      status: ConnectedAccountStatus.EXPIRED,
+      message,
+      testedAt,
+      pageName: connection.pageName,
+      pageUrl: currentPageUrl,
+    });
+
+    if (input?.createNotification !== false) {
+      await createOrUpdateFacebookTokenNotification({
+        provider: SocialPlatform.FACEBOOK,
+        status: "expired",
+      });
+    }
+
+    await createAuditLog({
+      action: AUDIT_ACTIONS.FACEBOOK_TOKEN_HEALTH_CHECK_FAILED,
+      targetType: "ConnectedAccount",
+      targetId: connection.id,
+      metadata: {
+        source: input?.source ?? "unknown",
+        status: ConnectedAccountStatus.EXPIRED,
+      },
+    });
+    await createAuditLog({
+      action: AUDIT_ACTIONS.FACEBOOK_TOKEN_EXPIRED,
+      targetType: "ConnectedAccount",
+      targetId: connection.id,
+      metadata: {
+        source: input?.source ?? "unknown",
+        expiresAt: connection.tokenExpiresAt.toISOString(),
+      },
+    });
+
+    return {
+      status: ConnectedAccountStatus.EXPIRED,
+      pageId: connection.pageId,
+      pageName: connection.pageName,
+      pageUrl: currentPageUrl,
+      testedAt,
+      message,
+      missingScopes,
+    } satisfies FacebookConnectionHealthResult;
   }
 
   try {
@@ -1621,54 +1893,123 @@ export async function testFacebookConnection() {
       access_token: connection.accessToken,
       fields: "id,name,link",
     });
-
     const page = await facebookGraphRequestJson<{
       id: string;
       name: string;
       link?: string;
     }>(url, { method: "GET" });
 
-    const testedAt = new Date();
-    await prisma.connectedAccount.update({
-      where: {
-        platform: SocialPlatform.FACEBOOK,
-      },
-      data: {
-        accountName: page.name || connection.accountName,
-        pageName: page.name || connection.pageName,
-        status: ConnectedAccountStatus.CONNECTED,
-        lastTestedAt: testedAt,
-        lastError: null,
-        metadata: page.link
-          ? {
-              pageUrl: page.link,
-            }
-          : undefined,
-      },
+    await updateFacebookConnectionHealthState({
+      status: ConnectedAccountStatus.CONNECTED,
+      message: null,
+      testedAt,
+      pageName: page.name || connection.pageName,
+      pageUrl: page.link ?? null,
     });
 
+    if (input?.createNotification !== false) {
+      await dismissProviderNotifications({
+        provider: SocialPlatform.FACEBOOK,
+        types: [
+          NotificationType.TOKEN_EXPIRED,
+          NotificationType.TOKEN_INVALID,
+          NotificationType.MISSING_SCOPE,
+        ],
+      });
+    }
+
     return {
+      status: ConnectedAccountStatus.CONNECTED,
       pageId: page.id,
       pageName: page.name,
       pageUrl: page.link ?? null,
       testedAt,
-    } satisfies FacebookConnectionTestResult;
+      message: null,
+      missingScopes,
+    } satisfies FacebookConnectionHealthResult;
   } catch (error) {
     const normalizedError = handleFacebookApiError(error);
+    const nextStatus = getFacebookStatusFromError(normalizedError);
 
-    await prisma.connectedAccount.updateMany({
-      where: {
-        platform: SocialPlatform.FACEBOOK,
-      },
-      data: {
-        status: ConnectedAccountStatus.ERROR,
-        lastTestedAt: new Date(),
-        lastError: normalizedError.message,
+    await updateFacebookConnectionHealthState({
+      status: nextStatus,
+      message: normalizedError.message,
+      testedAt,
+      pageName: connection.pageName,
+      pageUrl: currentPageUrl,
+    });
+
+    if (input?.createNotification !== false) {
+      await createOrUpdateFacebookTokenNotification({
+        provider: SocialPlatform.FACEBOOK,
+        status:
+          nextStatus === ConnectedAccountStatus.EXPIRED
+            ? "expired"
+            : nextStatus === ConnectedAccountStatus.MISSING_SCOPES
+              ? "missing_scopes"
+              : "invalid",
+        detail: normalizedError.message,
+      });
+    }
+
+    await createAuditLog({
+      action: AUDIT_ACTIONS.FACEBOOK_TOKEN_HEALTH_CHECK_FAILED,
+      targetType: "ConnectedAccount",
+      targetId: connection.id,
+      metadata: {
+        source: input?.source ?? "unknown",
+        status: nextStatus,
+        message: normalizedError.message,
+        code: normalizedError.code,
       },
     });
 
-    throw normalizedError;
+    if (nextStatus === ConnectedAccountStatus.EXPIRED) {
+      await createAuditLog({
+        action: AUDIT_ACTIONS.FACEBOOK_TOKEN_EXPIRED,
+        targetType: "ConnectedAccount",
+        targetId: connection.id,
+        metadata: {
+          source: input?.source ?? "unknown",
+          message: normalizedError.message,
+        },
+      });
+    }
+
+    return {
+      status: nextStatus,
+      pageId: connection.pageId,
+      pageName: connection.pageName,
+      pageUrl: currentPageUrl,
+      testedAt,
+      message: normalizedError.message,
+      missingScopes,
+    } satisfies FacebookConnectionHealthResult;
   }
+}
+
+export async function testFacebookConnection() {
+  const connection = await getStoredFacebookConnection();
+
+  if (!connection) {
+    throw new Error("Connect a Facebook Page before testing the connection.");
+  }
+
+  const result = await refreshFacebookConnectionHealth({
+    createNotification: true,
+    source: "manual_test",
+  });
+
+  if (result.status !== ConnectedAccountStatus.CONNECTED || !result.pageId || !result.pageName || !result.testedAt) {
+    throw new Error(result.message || "Facebook needs to be reconnected before posting.");
+  }
+
+  return {
+    pageId: result.pageId,
+    pageName: result.pageName,
+    pageUrl: result.pageUrl,
+    testedAt: result.testedAt,
+  } satisfies FacebookConnectionTestResult;
 }
 
 async function validateFacebookImageVariant(input: {
@@ -1732,6 +2073,13 @@ export async function validateFacebookPublishPrerequisites(input: {
     | undefined;
 }) {
   await assertFacebookRuntimeReady();
+  const health = await refreshFacebookConnectionHealth({
+    createNotification: true,
+    source: "publish_prerequisite_check",
+  });
+  if (health.status !== ConnectedAccountStatus.CONNECTED) {
+    throw new Error("Facebook needs to be reconnected before posting.");
+  }
 
   const connection = await getFacebookConnection();
   if (!connection?.pageId) {

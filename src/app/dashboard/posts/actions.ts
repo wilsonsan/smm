@@ -1,6 +1,6 @@
 "use server";
 
-import { Prisma, SocialPlatform, SocialPostStatus } from "@prisma/client";
+import { Prisma, PublishAttemptStatus, SocialPlatform, SocialPostStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { requireAdminUser } from "@/lib/auth/session";
@@ -109,8 +109,21 @@ function buildSubmittedPostValues(input: {
 async function markImmediatePublishFailure(input: {
   postId: string;
   message: string;
+  requestSummary?: Prisma.InputJsonValue;
 }) {
   await prisma.$transaction(async (tx) => {
+    const facebookPlatform = await tx.socialPostPlatform.findUnique({
+      where: {
+        socialPostId_platform: {
+          socialPostId: input.postId,
+          platform: SocialPlatform.FACEBOOK,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+
     await tx.socialPost.update({
       where: {
         id: input.postId,
@@ -131,6 +144,22 @@ async function markImmediatePublishFailure(input: {
         lastError: input.message,
       },
     });
+
+    if (facebookPlatform) {
+      await tx.publishAttempt.create({
+        data: {
+          socialPostId: input.postId,
+          socialPostPlatformId: facebookPlatform.id,
+          platform: SocialPlatform.FACEBOOK,
+          status: PublishAttemptStatus.FAILED,
+          requestSummary: input.requestSummary,
+          errorCode: "PRECHECK_FAILED",
+          errorMessage: input.message,
+          startedAt: new Date(),
+          finishedAt: new Date(),
+        },
+      });
+    }
   });
 }
 

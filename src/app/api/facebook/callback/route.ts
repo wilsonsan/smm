@@ -7,6 +7,7 @@ import {
   clearFacebookOauthDebugResult,
   clearPendingFacebookPageSelection,
   consumeFacebookOauthMode,
+  getFacebookConnectionRecord,
   getFacebookOauthDebugData,
   getFacebookOauthCallbackData,
   saveFacebookConnectedPage,
@@ -44,8 +45,10 @@ export async function GET(request: Request) {
     );
   }
 
+  let oauthMode: "connect" | "reconnect" | "debug" = "connect";
   try {
-    const oauthMode = await consumeFacebookOauthMode();
+    oauthMode = await consumeFacebookOauthMode();
+    const currentSession = await getCurrentAdminSession();
     await clearPendingFacebookPageSelection();
 
     if (oauthMode === "debug") {
@@ -62,6 +65,7 @@ export async function GET(request: Request) {
 
     await clearFacebookOauthDebugResult();
     const callbackData = await getFacebookOauthCallbackData({ code });
+    const existingConnection = await getFacebookConnectionRecord();
 
     if (callbackData.pages.length === 0) {
       const missingScopes = FACEBOOK_REQUIRED_SCOPES.filter((scope) => !callbackData.scopes.includes(scope));
@@ -73,6 +77,19 @@ export async function GET(request: Request) {
           : callbackData.diagnostics.rawAccountsCount > 0
             ? `Facebook returned ${callbackData.diagnostics.rawAccountsCount} Page record(s) for ${callbackData.accountName}, but none produced a usable Page access token. Facebook granted: ${grantedScopesLabel}. ${diagnosticsLabel} This is usually a token-issuance or app-access problem rather than a missing account. Run OAuth Debug from Facebook Settings to inspect the raw account data.`
             : `No manageable Facebook Pages were returned for ${callbackData.accountName}. Facebook granted: ${grantedScopesLabel}. ${diagnosticsLabel} This usually means that this Meta/Facebook account does not currently manage a Facebook Page, the app is still in Development mode and this account is not added as an app role, or the Page is owned through Business Manager without the needed Page access for this user.`;
+
+      if (oauthMode === "reconnect") {
+        await createAuditLog({
+          actorAdminUserId: currentSession?.adminUserId ?? null,
+          action: AUDIT_ACTIONS.FACEBOOK_RECONNECT_FAILED,
+          targetType: "ConnectedAccount",
+          targetId: existingConnection?.id ?? null,
+          metadata: {
+            reason: "NO_MANAGEABLE_PAGES",
+            diagnostics: callbackData.diagnostics,
+          },
+        });
+      }
 
       return NextResponse.redirect(
         await buildFacebookSettingsUrl(
@@ -95,10 +112,9 @@ export async function GET(request: Request) {
         tokenExpiresAt: callbackData.tokenExpiresAt,
       });
 
-      const currentSession = await getCurrentAdminSession();
       await createAuditLog({
         actorAdminUserId: currentSession?.adminUserId ?? null,
-        action: AUDIT_ACTIONS.FACEBOOK_CONNECTED,
+        action: oauthMode === "reconnect" ? AUDIT_ACTIONS.FACEBOOK_RECONNECT_SUCCEEDED : AUDIT_ACTIONS.FACEBOOK_CONNECTED,
         targetType: "ConnectedAccount",
         targetId: connectedAccount.id,
         metadata: {
@@ -110,8 +126,45 @@ export async function GET(request: Request) {
       });
 
       return NextResponse.redirect(
-        await buildFacebookSettingsUrl("success", `Connected Facebook Page: ${page.name}.`),
+        await buildFacebookSettingsUrl(
+          "success",
+          oauthMode === "reconnect" ? `Reconnected Facebook Page: ${page.name}.` : `Connected Facebook Page: ${page.name}.`,
+        ),
       );
+    }
+
+    if (oauthMode === "reconnect" && existingConnection?.pageId) {
+      const matchingPage = callbackData.pages.find((page) => page.id === existingConnection.pageId);
+
+      if (matchingPage) {
+        const connectedAccount = await saveFacebookConnectedPage({
+          accountId: callbackData.accountId,
+          accountName: callbackData.accountName,
+          pageId: matchingPage.id,
+          pageName: matchingPage.name,
+          pageAccessToken: matchingPage.accessToken,
+          pageUrl: matchingPage.link ?? null,
+          scopes: callbackData.scopes,
+          tokenExpiresAt: callbackData.tokenExpiresAt,
+        });
+
+        await createAuditLog({
+          actorAdminUserId: currentSession?.adminUserId ?? null,
+          action: AUDIT_ACTIONS.FACEBOOK_RECONNECT_SUCCEEDED,
+          targetType: "ConnectedAccount",
+          targetId: connectedAccount.id,
+          metadata: {
+            pageId: matchingPage.id,
+            pageName: matchingPage.name,
+            scopes: callbackData.scopes,
+            preservedExistingPageSelection: true,
+          },
+        });
+
+        return NextResponse.redirect(
+          await buildFacebookSettingsUrl("success", `Reconnected Facebook Page: ${matchingPage.name}.`),
+        );
+      }
     }
 
     await setPendingFacebookPageSelection({
@@ -120,16 +173,30 @@ export async function GET(request: Request) {
       pages: callbackData.pages,
       scopes: callbackData.scopes,
       tokenExpiresAt: callbackData.tokenExpiresAt?.toISOString() ?? null,
+      mode: oauthMode === "reconnect" ? "reconnect" : "connect",
     });
 
     return NextResponse.redirect(
       await buildFacebookSettingsUrl(
         "success",
-        "Facebook authorization succeeded. Choose which Page to connect below.",
+        oauthMode === "reconnect"
+          ? "Facebook reconnection succeeded. Choose which Page to keep connected below."
+          : "Facebook authorization succeeded. Choose which Page to connect below.",
       ),
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Facebook authorization failed.";
+    if (oauthMode === "reconnect") {
+      const currentSession = await getCurrentAdminSession();
+      await createAuditLog({
+        actorAdminUserId: currentSession?.adminUserId ?? null,
+        action: AUDIT_ACTIONS.FACEBOOK_RECONNECT_FAILED,
+        targetType: "ConnectedAccount",
+        metadata: {
+          message,
+        },
+      });
+    }
     return NextResponse.redirect(await buildFacebookSettingsUrl("error", message));
   }
 }

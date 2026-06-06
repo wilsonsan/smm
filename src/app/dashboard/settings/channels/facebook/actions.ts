@@ -133,7 +133,10 @@ export async function selectFacebookPageAction(formData: FormData) {
   await clearPendingFacebookPageSelection();
   await writeFacebookAuditLog({
     actorAdminUserId: adminUser.id,
-    action: AUDIT_ACTIONS.FACEBOOK_CONNECTED,
+    action:
+      pendingSelection.mode === "reconnect"
+        ? AUDIT_ACTIONS.FACEBOOK_RECONNECT_SUCCEEDED
+        : AUDIT_ACTIONS.FACEBOOK_CONNECTED,
     targetId: connectedAccount.id,
     metadata: {
       pageId: selectedPage.id,
@@ -145,7 +148,10 @@ export async function selectFacebookPageAction(formData: FormData) {
   redirect(
     buildFacebookSettingsHref({
       status: "success",
-      message: `Connected Facebook Page: ${selectedPage.name}.`,
+      message:
+        pendingSelection.mode === "reconnect"
+          ? `Reconnected Facebook Page: ${selectedPage.name}.`
+          : `Connected Facebook Page: ${selectedPage.name}.`,
     }),
   );
 }

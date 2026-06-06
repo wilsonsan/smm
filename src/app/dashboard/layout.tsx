@@ -1,10 +1,13 @@
 import { requireAdminUser } from "@/lib/auth/session";
-import { logoutAction } from "@/app/dashboard/actions";
+import { logoutAction, openNotificationAction } from "@/app/dashboard/actions";
 import Link from "next/link";
 import { DashboardSidebarNav } from "@/components/dashboard-sidebar-nav";
 import { ArrowRightIcon, LogoSparkIcon, UserIcon } from "@/components/dashboard-icons";
+import { DashboardNotificationMenu } from "@/components/dashboard-notification-menu";
 import { RoleBadge } from "@/components/role-badge";
 import { getBrandingSettings } from "@/lib/settings";
+import { getNotificationCenterSnapshot } from "@/lib/notifications";
+import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +17,11 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }>) {
   const adminUser = await requireAdminUser();
-  const branding = await getBrandingSettings();
+  const [branding, notificationCenter, timezone] = await Promise.all([
+    getBrandingSettings(),
+    getNotificationCenterSnapshot(),
+    getResolvedAppTimezone(),
+  ]);
   const avatarLabel = (adminUser.displayName || adminUser.username || "A")
     .split(/\s+/)
     .filter(Boolean)
@@ -65,7 +72,25 @@ export default async function DashboardLayout({
         </div>
       </aside>
 
-      <main className="main">{children}</main>
+      <main className="main">
+        <div className="dashboard-topbar">
+          <div className="dashboard-topbar-spacer" />
+          <DashboardNotificationMenu
+            unreadCount={notificationCenter.unreadCount}
+            notifications={notificationCenter.unreadNotifications.map((notification) => ({
+              id: notification.id,
+              title: notification.title,
+              message: notification.message,
+              actionUrl: notification.actionUrl,
+              provider: notification.provider,
+              severity: notification.severity,
+              createdLabel: formatDateTimeForTimezone(notification.createdAt, timezone),
+            }))}
+            openNotificationAction={openNotificationAction}
+          />
+        </div>
+        {children}
+      </main>
     </div>
   );
 }

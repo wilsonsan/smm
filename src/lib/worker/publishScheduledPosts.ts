@@ -1,6 +1,7 @@
 import { PublishAttemptStatus, SocialPlatform, SocialPostStatus } from "@prisma/client";
 import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
 import { claimFacebookPostForPublishing, executeFacebookPublish } from "@/lib/facebook";
+import { createOrUpdateWorkerErrorNotification, dismissWorkerErrorNotifications } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { recordWorkerRunStatus, WORKER_PUBLISH_TIMEOUT_MINUTES } from "@/lib/worker-status";
 
@@ -339,6 +340,10 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
       errorMessage: failedCount > 0 ? "One or more scheduled Facebook publishes failed." : null,
     });
 
+    if (failedCount === 0) {
+      await dismissWorkerErrorNotifications();
+    }
+
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Worker run failed.";
@@ -366,6 +371,9 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
       finishedAt,
       result,
       errorMessage: message,
+    });
+    await createOrUpdateWorkerErrorNotification({
+      message,
     });
 
     throw error;

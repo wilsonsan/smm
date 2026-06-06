@@ -31,8 +31,33 @@ enum PublishAttemptStatus {
 
 enum ConnectedAccountStatus {
   CONNECTED
+  NEEDS_RECONNECT
+  EXPIRED
+  INVALID
+  MISSING_SCOPES
   DISCONNECTED
   ERROR
+}
+
+enum NotificationType {
+  TOKEN_EXPIRED
+  TOKEN_INVALID
+  MISSING_SCOPE
+  PUBLISH_FAILED
+  WORKER_ERROR
+  INFO
+}
+
+enum NotificationSeverity {
+  INFO
+  WARNING
+  ERROR
+}
+
+enum NotificationStatus {
+  UNREAD
+  READ
+  DISMISSED
 }
 
 enum AdminUserRole {
@@ -62,6 +87,7 @@ model AdminUser {
   createdPosts   SocialPost[]   @relation("CreatedPosts")
   updatedPosts   SocialPost[]   @relation("UpdatedPosts")
   auditLogs      AuditLog[]
+  notificationsRead Notification[] @relation("NotificationReadBy")
 }
 
 model AdminSession {
@@ -220,10 +246,34 @@ model ConnectedAccount {
   scopes               Json?
   status               ConnectedAccountStatus @default(DISCONNECTED)
   lastTestedAt         DateTime?
+  lastSuccessfulTestAt DateTime?
+  lastFailedTestAt     DateTime?
   lastError            String?                @db.Text
   metadata             Json?
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
 
   @@index([platform, status])
+}
+
+model Notification {
+  id                String               @id @default(cuid())
+  type              NotificationType
+  provider          SocialPlatform?
+  severity          NotificationSeverity @default(INFO)
+  title             String
+  message           String               @db.Text
+  actionUrl         String?              @db.Text
+  status            NotificationStatus   @default(UNREAD)
+  readAt            DateTime?
+  dismissedAt       DateTime?
+  readByAdminUserId String?
+  metadata          Json?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  readByAdminUser   AdminUser?           @relation("NotificationReadBy", fields: [readByAdminUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([provider, type, status])
+  @@index([readByAdminUserId])
 }

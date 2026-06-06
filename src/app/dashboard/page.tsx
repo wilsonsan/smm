@@ -7,7 +7,6 @@ import { requireAdminUser } from "@/lib/auth/session";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import {
   ArrowRightIcon,
-  BellIcon,
   CalendarIcon,
   ClockIcon,
   ComposeIcon,
@@ -178,7 +177,7 @@ export default async function DashboardPage() {
       value: workerStatus.connectedPage?.pageName || "Not connected",
       supporting:
         workerStatus.connectedPage?.pageId
-          ? `Page ID ${workerStatus.connectedPage.pageId}`
+          ? `Page ID ${workerStatus.connectedPage.pageId}${workerStatus.connectedPage.lastTestedAt ? ` · Last checked ${formatDateTimeForTimezone(workerStatus.connectedPage.lastTestedAt, timezone)}` : ""}`
           : "Connect and test a Facebook Page before scheduling.",
       accentClass: "is-blue",
       Icon: FacebookIcon,
@@ -216,10 +215,6 @@ export default async function DashboardPage() {
             <CalendarIcon />
             <span>{formatDateRangeLabel(weekStart, weekEnd)}</span>
           </Link>
-
-          <button type="button" className="dashboard-toolbar-button dashboard-notification-button" aria-label="Notifications">
-            <BellIcon />
-          </button>
 
           <Link href="/dashboard/posts/new" className="primary-button dashboard-create-button">
             <ComposeIcon />
