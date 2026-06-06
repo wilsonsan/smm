@@ -15,7 +15,7 @@ import {
   testFacebookConnection,
 } from "@/lib/facebook";
 import { getRequestMetadata } from "@/lib/http";
-import { saveFacebookAppIdSetting } from "@/lib/settings";
+import { saveFacebookAppIdSetting, saveFacebookPageLookupSetting } from "@/lib/settings";
 import { facebookPageIdTestSchema, facebookPageSelectionSchema, facebookSettingsSchema } from "@/lib/validation";
 
 function buildFacebookSettingsHref(input?: { status?: "success" | "error"; message?: string }) {
@@ -56,23 +56,29 @@ export async function saveFacebookSettingsAction(formData: FormData) {
   const adminUser = await requireAdminUser();
   const parsed = facebookSettingsSchema.safeParse({
     facebookAppId: formData.get("facebookAppId"),
+    facebookPageLookupValue: formData.get("facebookPageLookupValue"),
   });
 
   if (!parsed.success) {
     redirect(
       buildFacebookSettingsHref({
         status: "error",
-        message: parsed.error.flatten().fieldErrors.facebookAppId?.[0] || "Enter a valid Facebook App ID.",
+        message:
+          parsed.error.flatten().fieldErrors.facebookAppId?.[0] ||
+          parsed.error.flatten().fieldErrors.facebookPageLookupValue?.[0] ||
+          "Enter valid Facebook settings.",
       }),
     );
   }
 
   await saveFacebookAppIdSetting(parsed.data.facebookAppId);
+  await saveFacebookPageLookupSetting(parsed.data.facebookPageLookupValue);
   await writeFacebookAuditLog({
     actorAdminUserId: adminUser.id,
     action: AUDIT_ACTIONS.FACEBOOK_SETTINGS_UPDATED,
     metadata: {
       hasFacebookAppId: Boolean(parsed.data.facebookAppId),
+      facebookPageLookupValue: parsed.data.facebookPageLookupValue,
     },
   });
 

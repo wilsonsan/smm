@@ -11,6 +11,7 @@ const envSchema = z.object({
   ADMIN_PASSWORD: z.string().min(12).optional().or(z.literal("")),
   FACEBOOK_APP_ID: z.string().optional().or(z.literal("")),
   FACEBOOK_APP_SECRET: z.string().optional().or(z.literal("")),
+  FACEBOOK_PAGE_LOOKUP_VALUE: z.string().optional().or(z.literal("")),
   TOKEN_ENCRYPTION_KEY: z.string().optional().or(z.literal("")),
 });
 
@@ -25,6 +26,7 @@ const serverEnvInput = {
   ADMIN_PASSWORD: process.env.ADMIN_PASSWORD,
   FACEBOOK_APP_ID: process.env.FACEBOOK_APP_ID,
   FACEBOOK_APP_SECRET: process.env.FACEBOOK_APP_SECRET,
+  FACEBOOK_PAGE_LOOKUP_VALUE: process.env.FACEBOOK_PAGE_LOOKUP_VALUE,
   TOKEN_ENCRYPTION_KEY: process.env.TOKEN_ENCRYPTION_KEY,
 };
 
@@ -39,6 +41,7 @@ const clientEnvFallback = {
   ADMIN_PASSWORD: "",
   FACEBOOK_APP_ID: "",
   FACEBOOK_APP_SECRET: "",
+  FACEBOOK_PAGE_LOOKUP_VALUE: "",
   TOKEN_ENCRYPTION_KEY: "",
 };
 

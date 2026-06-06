@@ -147,6 +147,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
       : "";
 
   const effectiveAppId = config.appId || "";
+  const preferredPageLookupValue = config.preferredPageLookupValue || "nctilepro";
   const hasBlockingSetupIssue = config.missingConfig.length > 0;
   const missingScopes = config.requiredScopes.filter((scope) => !connection?.scopes.includes(scope));
   const publicUrlMismatch =
@@ -214,6 +215,17 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                     placeholder="123456789012345"
                   />
                   <span className="hint">Saved here if you want an override. Leaving it blank falls back to `FACEBOOK_APP_ID` from the environment.</span>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="facebookPageLookupValue">Preferred Page lookup</label>
+                  <input
+                    id="facebookPageLookupValue"
+                    name="facebookPageLookupValue"
+                    defaultValue={preferredPageLookupValue}
+                    placeholder="nctilepro"
+                  />
+                  <span className="hint">When `/me/accounts` returns zero, the app will try this Page username or ID directly before giving up.</span>
                 </div>
 
                 <div className="field">

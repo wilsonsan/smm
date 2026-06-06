@@ -8,6 +8,7 @@ export const APP_SETTING_KEYS = {
   UPLOAD_DIRECTORY: "UPLOAD_DIRECTORY",
   APP_TIMEZONE: "APP_TIMEZONE",
   FACEBOOK_APP_ID: "FACEBOOK_APP_ID",
+  FACEBOOK_PAGE_LOOKUP_VALUE: "FACEBOOK_PAGE_LOOKUP_VALUE",
   FACEBOOK_DIAGNOSTIC_SNAPSHOT: "FACEBOOK_DIAGNOSTIC_SNAPSHOT",
   WORKER_LAST_RUN_AT: "WORKER_LAST_RUN_AT",
   WORKER_LAST_RESULT: "WORKER_LAST_RESULT",
@@ -35,6 +36,7 @@ export async function getAppSettings() {
     uploadDirectory: byKey.get(APP_SETTING_KEYS.UPLOAD_DIRECTORY) || env.UPLOAD_DIR,
     appTimezone: byKey.get(APP_SETTING_KEYS.APP_TIMEZONE) || "America/New_York",
     facebookAppId: byKey.get(APP_SETTING_KEYS.FACEBOOK_APP_ID) || "",
+    facebookPageLookupValue: byKey.get(APP_SETTING_KEYS.FACEBOOK_PAGE_LOOKUP_VALUE) || env.FACEBOOK_PAGE_LOOKUP_VALUE || "nctilepro",
   };
 }
 
@@ -84,6 +86,14 @@ export async function saveFacebookAppIdSetting(appId: string) {
     where: { key: APP_SETTING_KEYS.FACEBOOK_APP_ID },
     update: { value: appId },
     create: { key: APP_SETTING_KEYS.FACEBOOK_APP_ID, value: appId },
+  });
+}
+
+export async function saveFacebookPageLookupSetting(pageLookupValue: string) {
+  await prisma.appSetting.upsert({
+    where: { key: APP_SETTING_KEYS.FACEBOOK_PAGE_LOOKUP_VALUE },
+    update: { value: pageLookupValue },
+    create: { key: APP_SETTING_KEYS.FACEBOOK_PAGE_LOOKUP_VALUE, value: pageLookupValue },
   });
 }
 

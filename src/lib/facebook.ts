@@ -244,6 +244,7 @@ export type FacebookConfiguration = {
   optionalDiagnosticScopes: string[];
   missingConfig: string[];
   publicAppUrl: string;
+  preferredPageLookupValue: string;
   checks: FacebookRuntimeCheck[];
 };
 
@@ -504,6 +505,7 @@ export async function getFacebookConfiguration(): Promise<FacebookConfiguration>
     optionalDiagnosticScopes: [...FACEBOOK_OPTIONAL_DIAGNOSTIC_SCOPES],
     missingConfig,
     publicAppUrl,
+    preferredPageLookupValue: settings.facebookPageLookupValue || env.FACEBOOK_PAGE_LOOKUP_VALUE || "nctilepro",
     checks,
   };
 }
@@ -889,6 +891,57 @@ async function fetchFacebookPageAccessToken(input: {
   }>(url, { method: "GET" });
 }
 
+async function resolveFacebookPageWithTokenSources(input: {
+  pageLookupValue: string;
+  tokenSources: Array<{
+    tokenSource: "short_lived_user" | "long_lived_user";
+    accessToken: string;
+  }>;
+  grantedScopes: string[];
+}) {
+  let lastError: Error | null = null;
+
+  for (const token of input.tokenSources) {
+    try {
+      const page = await facebookGraphRequestJson<{
+        id: string;
+        name: string;
+        access_token?: string;
+        link?: string;
+      }>(
+        buildFacebookGraphUrl(`/${input.pageLookupValue}`, {
+          access_token: token.accessToken,
+          fields: "id,name,access_token,link",
+        }),
+        {
+          method: "GET",
+        },
+      );
+
+      if (!page.access_token) {
+        continue;
+      }
+
+      return {
+        pageId: page.id,
+        pageName: page.name,
+        pageAccessToken: page.access_token,
+        pageUrl: page.link ?? null,
+        tokenSource: token.tokenSource,
+        grantedScopes: input.grantedScopes,
+      };
+    } catch (error) {
+      lastError = handleFacebookApiError(error);
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  return null;
+}
+
 async function hydrateFacebookAccountsWithPageTokens(input: {
   accounts: FacebookRawPageAccount[];
   userAccessTokens: string[];
@@ -1054,6 +1107,7 @@ async function resolveFacebookOauthSession(input: { code: string }): Promise<Res
 }
 
 export async function getFacebookOauthCallbackData(input: { code: string }) {
+  const config = await getFacebookConfiguration();
   const session = await resolveFacebookOauthSession(input);
   const pages = session.accounts
     .filter((page) => page.accessToken)
@@ -1064,6 +1118,37 @@ export async function getFacebookOauthCallbackData(input: { code: string }) {
       link: page.link ?? null,
       tasks: page.tasks ?? [],
     })) satisfies FacebookManagedPage[];
+
+  if (pages.length === 0 && config.preferredPageLookupValue) {
+    const preferredPage = await resolveFacebookPageWithTokenSources({
+      pageLookupValue: config.preferredPageLookupValue,
+      tokenSources: [
+        ...(session.tokens.longLivedAccessToken
+          ? [
+              {
+                tokenSource: "long_lived_user" as const,
+                accessToken: session.tokens.longLivedAccessToken,
+              },
+            ]
+          : []),
+        {
+          tokenSource: "short_lived_user" as const,
+          accessToken: session.tokens.shortLivedAccessToken,
+        },
+      ],
+      grantedScopes: session.grantedScopes,
+    });
+
+    if (preferredPage) {
+      pages.push({
+        id: preferredPage.pageId,
+        name: preferredPage.pageName,
+        accessToken: preferredPage.pageAccessToken,
+        link: preferredPage.pageUrl,
+        tasks: [],
+      });
+    }
+  }
 
   return {
     accountId: session.profile.id,
@@ -1278,12 +1363,6 @@ async function buildFacebookOauthDebugSnapshotFromSession(input: {
           ].flatMap((token) => [
             runFacebookDiagnosticRequest({
               endpoint: `/${input.pageId}`,
-              fields: "id,name,tasks,access_token",
-              tokenSource: token.tokenSource,
-              accessToken: token.accessToken,
-            }),
-            runFacebookDiagnosticRequest({
-              endpoint: `/${input.pageId}`,
               fields: "id,name,access_token",
               tokenSource: token.tokenSource,
               accessToken: token.accessToken,
@@ -1344,6 +1423,7 @@ export async function getFacebookOauthDebugData(input: { code: string }): Promis
     session,
     redirectUri: config.redirectUri,
     appId: config.appId,
+    pageId: config.preferredPageLookupValue || null,
   });
   await setFacebookOauthDebugTokens({
     shortLivedAccessToken: session.tokens.shortLivedAccessToken,
@@ -1385,12 +1465,6 @@ export async function runStoredFacebookManualPageDiagnostics(input: { pageId: st
     ].flatMap((token) => [
       runFacebookDiagnosticRequest({
         endpoint: `/${input.pageId}`,
-        fields: "id,name,tasks,access_token",
-        tokenSource: token.tokenSource,
-        accessToken: token.accessToken,
-      }),
-      runFacebookDiagnosticRequest({
-        endpoint: `/${input.pageId}`,
         fields: "id,name,access_token",
         tokenSource: token.tokenSource,
         accessToken: token.accessToken,
@@ -1416,58 +1490,27 @@ async function resolveFacebookPageFromDiagnosticTokens(input: { pageId: string }
     throw new Error("Run Facebook Diagnostics first so the app has a fresh diagnostic user token to test against.");
   }
 
-  const tokenSources: Array<{
-    tokenSource: "short_lived_user" | "long_lived_user";
-    accessToken: string;
-  }> = [];
-
-  if (tokenBundle.longLivedAccessToken) {
-    tokenSources.push({
-      tokenSource: "long_lived_user",
-      accessToken: tokenBundle.longLivedAccessToken,
-    });
-  }
-
-  tokenSources.push({
-    tokenSource: "short_lived_user",
-    accessToken: tokenBundle.shortLivedAccessToken,
+  const resolvedPage = await resolveFacebookPageWithTokenSources({
+    pageLookupValue: input.pageId,
+    tokenSources: [
+      ...(tokenBundle.longLivedAccessToken
+        ? [
+            {
+              tokenSource: "long_lived_user" as const,
+              accessToken: tokenBundle.longLivedAccessToken,
+            },
+          ]
+        : []),
+      {
+        tokenSource: "short_lived_user" as const,
+        accessToken: tokenBundle.shortLivedAccessToken,
+      },
+    ],
+    grantedScopes: tokenBundle.grantedScopes,
   });
 
-  let lastError: Error | null = null;
-
-  for (const token of tokenSources) {
-    try {
-      const page = await facebookGraphRequestJson<{
-        id: string;
-        name: string;
-        access_token?: string;
-        link?: string;
-      }>(buildFacebookGraphUrl(`/${input.pageId}`, {
-        access_token: token.accessToken,
-        fields: "id,name,access_token,link",
-      }), {
-        method: "GET",
-      });
-
-      if (!page.access_token) {
-        continue;
-      }
-
-      return {
-        pageId: page.id,
-        pageName: page.name,
-        pageAccessToken: page.access_token,
-        pageUrl: page.link ?? null,
-        tokenSource: token.tokenSource,
-        grantedScopes: tokenBundle.grantedScopes,
-      };
-    } catch (error) {
-      lastError = handleFacebookApiError(error);
-    }
-  }
-
-  if (lastError) {
-    throw lastError;
+  if (resolvedPage) {
+    return resolvedPage;
   }
 
   throw new Error("Facebook could not resolve a usable Page access token from the manual Page test result.");

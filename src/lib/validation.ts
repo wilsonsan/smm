@@ -95,6 +95,12 @@ export const settingsSchema = z.object({
 
 export const facebookSettingsSchema = z.object({
   facebookAppId: z.string().trim().max(100, "Facebook App ID must be 100 characters or less."),
+  facebookPageLookupValue: z
+    .string()
+    .trim()
+    .min(1, "Enter a Facebook Page username or Page ID.")
+    .max(120, "Preferred Facebook Page lookup must be 120 characters or less.")
+    .regex(/^[a-zA-Z0-9._-]+$/, "Use a valid Facebook Page username or ID."),
 });
 
 export const facebookPageSelectionSchema = z.object({

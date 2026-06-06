@@ -34,7 +34,34 @@ function formatLocalDate(value: string | null, timezone: string) {
   }).format(new Date(value));
 }
 
-function buildCopyPayload(debugResult: FacebookOauthDebugResult) {
+function buildKeyFindings(debugResult: FacebookOauthDebugResult, manualResolvedPage: FacebookDiagnosticsPanelProps["manualResolvedPage"]) {
+  const findings = [
+    `OAuth user: ${debugResult.profile.name} (${debugResult.profile.id})`,
+    `Granted scopes: ${debugResult.grantedScopes.join(", ") || "None"}`,
+    `/me/accounts returned ${debugResult.diagnostics.rawAccountsCount} row(s) with ${debugResult.diagnostics.rawAccountsWithPageAccessTokenCount} page token row(s).`,
+  ];
+
+  if (manualResolvedPage) {
+    findings.push(
+      `Direct Page lookup succeeded for ${manualResolvedPage.pageName} (${manualResolvedPage.pageId}). This app can use the Page even though /me/accounts is empty.`,
+    );
+  } else if (debugResult.businessDiagnostics.businesses.length > 0) {
+    findings.push(
+      `Business fallback returned ${debugResult.businessDiagnostics.businesses.length} business row(s). This Page may need Business Manager discovery.`,
+    );
+  } else {
+    findings.push("No direct Page fallback is currently resolved from the saved diagnostics snapshot.");
+  }
+
+  return findings;
+}
+
+function buildCopyPayload(
+  debugResult: FacebookOauthDebugResult,
+  manualResolvedPage: FacebookDiagnosticsPanelProps["manualResolvedPage"],
+) {
+  const keyFindings = buildKeyFindings(debugResult, manualResolvedPage);
+
   return [
     "Facebook Diagnostics",
     `Run: ${debugResult.fetchedAt}`,
@@ -49,6 +76,9 @@ function buildCopyPayload(debugResult: FacebookOauthDebugResult) {
     `Raw rows with tokens: ${debugResult.diagnostics.rawAccountsWithPageAccessTokenCount}`,
     `Hydrated page tokens: ${debugResult.diagnostics.hydratedPageAccessTokenCount}`,
     `Summary: ${debugResult.summaryMessage}`,
+    "",
+    "Key Findings:",
+    ...keyFindings.map((finding) => `- ${finding}`),
     "",
     "Token Debug:",
     ...debugResult.tokenDebug.map((entry) =>
@@ -132,7 +162,8 @@ export function FacebookDiagnosticsPanel({
   onConnectResolvedPageAction,
 }: FacebookDiagnosticsPanelProps) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const copyPayload = useMemo(() => buildCopyPayload(debugResult), [debugResult]);
+  const keyFindings = useMemo(() => buildKeyFindings(debugResult, manualResolvedPage), [debugResult, manualResolvedPage]);
+  const copyPayload = useMemo(() => buildCopyPayload(debugResult, manualResolvedPage), [debugResult, manualResolvedPage]);
   const nextStep = useMemo(() => getNextStep(debugResult, manualResolvedPage), [debugResult, manualResolvedPage]);
 
   async function handleCopy() {
@@ -192,6 +223,19 @@ export function FacebookDiagnosticsPanel({
         <strong>What to send back</strong>
         <p>{nextStep}</p>
       </div>
+
+      <details className="facebook-diagnostics-section" open>
+        <summary>Key findings</summary>
+        <div className="facebook-diagnostics-section-body">
+          <div className="settings-subcard-list">
+            {keyFindings.map((finding, index) => (
+              <div key={`${finding}-${index}`} className="settings-nav-card">
+                <p>{finding}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </details>
 
       <details className="facebook-diagnostics-section" open>
         <summary>Top-line answers</summary>
