@@ -516,7 +516,9 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
           body: formData,
         });
 
-        const payload = (await response.json().catch(() => null)) as UploadApiPayload | null;
+        const payload = (await response
+          .json()
+          .catch(async () => ({ error: await response.text().catch(() => "Upload failed.") }))) as UploadApiPayload | null;
         if (!response.ok) {
           throw new Error(payload?.error || `Upload failed for ${queuedUpload.file.name}.`);
         }

@@ -19,6 +19,28 @@ export const APP_SETTING_KEYS = {
 export const DEFAULT_SITE_NAME = "Social Media Manager";
 export const DEFAULT_SITE_FAVICON_URL = "/social-media-favicon.svg";
 
+function normalizeUploadDirectoryForCurrentHost(configuredPath: string | undefined | null) {
+  const trimmedPath = configuredPath?.trim() || "";
+  if (!trimmedPath) {
+    return env.UPLOAD_DIR;
+  }
+
+  const isWindowsDrivePath = /^[a-zA-Z]:[\\/]/.test(trimmedPath);
+  const isWindowsUncPath = /^\\\\/.test(trimmedPath);
+
+  // Upload directory is a host-specific filesystem concern, so fall back to the
+  // environment-backed path when a saved path clearly belongs to a different OS.
+  if (process.platform !== "win32" && (isWindowsDrivePath || isWindowsUncPath)) {
+    return env.UPLOAD_DIR;
+  }
+
+  if (process.platform === "win32" && trimmedPath.startsWith("/app/")) {
+    return env.UPLOAD_DIR;
+  }
+
+  return trimmedPath;
+}
+
 export async function getAppSettings() {
   const settings = await prisma.appSetting.findMany({
     where: {
@@ -34,7 +56,7 @@ export async function getAppSettings() {
     siteName: byKey.get(APP_SETTING_KEYS.SITE_NAME) || DEFAULT_SITE_NAME,
     siteFaviconUrl: byKey.get(APP_SETTING_KEYS.SITE_FAVICON_URL) || DEFAULT_SITE_FAVICON_URL,
     publicAppUrl: byKey.get(APP_SETTING_KEYS.PUBLIC_APP_URL) || env.APP_URL,
-    uploadDirectory: byKey.get(APP_SETTING_KEYS.UPLOAD_DIRECTORY) || env.UPLOAD_DIR,
+    uploadDirectory: normalizeUploadDirectoryForCurrentHost(byKey.get(APP_SETTING_KEYS.UPLOAD_DIRECTORY)),
     appTimezone: byKey.get(APP_SETTING_KEYS.APP_TIMEZONE) || "America/New_York",
     facebookAppId: byKey.get(APP_SETTING_KEYS.FACEBOOK_APP_ID) || "",
     facebookAppSecretConfigured: Boolean(byKey.get(APP_SETTING_KEYS.FACEBOOK_APP_SECRET)?.trim()),

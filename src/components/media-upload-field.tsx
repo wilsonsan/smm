@@ -193,7 +193,9 @@ export function MediaUploadField({
           body: formData,
         });
 
-        const payload = (await response.json()) as {
+        const payload = (await response
+          .json()
+          .catch(async () => ({ error: await response.text().catch(() => "Upload failed.") }))) as {
           error?: string;
           status?: "uploaded" | "duplicate";
           mediaAsset?: MediaAssetSummary;
