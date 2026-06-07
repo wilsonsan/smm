@@ -146,7 +146,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
           <div className="settings-subcard-head">
             <div>
               <strong>Basic Setup</strong>
-              <p>Save the Meta app credentials here, then use Connect and Test Connection for the live Facebook Page link.</p>
+              <p>Save the Meta app credentials here first, then use Connect and Test Connection for the live Facebook Page link.</p>
             </div>
             <span className="settings-chip">Required</span>
           </div>
@@ -163,8 +163,9 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                     name="facebookAppId"
                     defaultValue={currentAppId}
                     placeholder="123456789012345"
+                    inputMode="numeric"
                   />
-                  <span className="hint">Shared Meta app ID used for Facebook and Instagram OAuth.</span>
+                  <span className="hint">Shared Meta app ID used for Facebook and Instagram OAuth. Numbers only.</span>
                 </div>
 
                 <div className="field">
@@ -230,6 +231,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                 Facebook setup is incomplete: {config.missingConfig.join(", ")}. Save the missing values here before starting OAuth.
               </p>
             ) : null}
+            <p className="hint">Connect uses the currently saved App ID and App Secret. If you changed either field, click Save before connecting.</p>
           </div>
         </section>
 

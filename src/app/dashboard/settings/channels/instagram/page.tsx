@@ -79,7 +79,7 @@ export default async function InstagramChannelSettingsPage({ searchParams }: Ins
           <div className="settings-subcard-head">
             <div>
               <strong>Basic Setup</strong>
-              <p>These shared Meta credentials power both Facebook and Instagram connection flows.</p>
+              <p>These shared Meta credentials power both Facebook and Instagram connection flows. Save them here first before connecting.</p>
             </div>
             <span className="settings-chip">Required</span>
           </div>
@@ -96,8 +96,9 @@ export default async function InstagramChannelSettingsPage({ searchParams }: Ins
                     name="facebookAppId"
                     defaultValue={config.appId}
                     placeholder="123456789012345"
+                    inputMode="numeric"
                   />
-                  <span className="hint">Shared Meta app ID.</span>
+                  <span className="hint">Shared Meta app ID. Numbers only.</span>
                 </div>
 
                 <div className="field">
@@ -140,6 +141,7 @@ export default async function InstagramChannelSettingsPage({ searchParams }: Ins
                 Meta setup is incomplete: {config.missingConfig.join(", ")}. Save the missing values before connecting Instagram.
               </p>
             ) : null}
+            <p className="hint">Connect Meta uses the currently saved App ID and App Secret. If you just changed either field, click Save first.</p>
           </div>
         </section>
 

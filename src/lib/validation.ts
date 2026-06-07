@@ -143,7 +143,11 @@ export const settingsSchema = z.object({
 });
 
 export const facebookSettingsSchema = z.object({
-  facebookAppId: z.string().trim().max(100, "Facebook App ID must be 100 characters or less."),
+  facebookAppId: z
+    .string()
+    .trim()
+    .max(100, "Facebook App ID must be 100 characters or less.")
+    .refine((value) => value.length === 0 || /^\d+$/.test(value), "Facebook App ID must contain numbers only."),
   facebookAppSecret: z.string().trim().max(200, "Facebook App Secret must be 200 characters or less.").optional().default(""),
   facebookPageLookupValue: z
     .string()
