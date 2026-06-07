@@ -62,7 +62,7 @@ enum NotificationStatus {
 
 enum AdminUserRole {
   ADMIN
-  USER
+  CREATOR
 }
 
 enum MediaVariantType {
@@ -74,6 +74,8 @@ enum MediaVariantType {
 
 model AdminUser {
   id             String         @id @default(cuid())
+  firstName      String?
+  lastName       String?
   username       String         @unique
   email          String         @unique
   passwordHash   String
@@ -116,6 +118,7 @@ model AppSetting {
 
 model MediaAsset {
   id                   String         @id @default(cuid())
+  contentHash          String?        @db.VarChar(64)
   originalFilename     String
   mimeType             String
   sizeBytes            BigInt
@@ -128,8 +131,10 @@ model MediaAsset {
   createdByAdminUser   AdminUser      @relation(fields: [createdByAdminUserId], references: [id], onDelete: Restrict)
   variants             MediaVariant[]
   posts                SocialPost[]
+  attachedToPosts      SocialPostMediaAsset[]
 
   @@index([createdByAdminUserId])
+  @@index([contentHash])
 }
 
 model MediaVariant {
@@ -168,11 +173,26 @@ model SocialPost {
   updatedByAdminUser   AdminUser            @relation("UpdatedPosts", fields: [updatedByAdminUserId], references: [id], onDelete: Restrict)
   platforms            SocialPostPlatform[]
   publishAttempts      PublishAttempt[]
+  attachedMedia        SocialPostMediaAsset[]
 
   @@index([status, scheduledAt])
   @@index([mediaAssetId])
   @@index([createdByAdminUserId])
   @@index([updatedByAdminUserId])
+}
+
+model SocialPostMediaAsset {
+  socialPostId String
+  mediaAssetId String
+  position     Int
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  socialPost   SocialPost @relation(fields: [socialPostId], references: [id], onDelete: Cascade)
+  mediaAsset   MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
+  @@id([socialPostId, mediaAssetId])
+  @@unique([socialPostId, position])
+  @@index([mediaAssetId])
 }
 
 model SocialPostPlatform {

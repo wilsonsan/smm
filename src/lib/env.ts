@@ -8,7 +8,7 @@ const envSchema = z.object({
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(26_214_400),
   SESSION_TTL_HOURS: z.coerce.number().int().positive().default(168),
   ADMIN_EMAIL: z.string().email().optional().or(z.literal("")),
-  ADMIN_PASSWORD: z.string().min(12).optional().or(z.literal("")),
+  ADMIN_PASSWORD: z.string().optional().or(z.literal("")),
   FACEBOOK_APP_ID: z.string().optional().or(z.literal("")),
   FACEBOOK_APP_SECRET: z.string().optional().or(z.literal("")),
   FACEBOOK_PAGE_LOOKUP_VALUE: z.string().optional().or(z.literal("")),
@@ -48,5 +48,12 @@ const clientEnvFallback = {
 export const env = envSchema.parse(typeof window === "undefined" ? serverEnvInput : clientEnvFallback);
 
 export const isProduction = env.NODE_ENV === "production";
+export const isSecureAppUrl = (() => {
+  try {
+    return new URL(env.APP_URL).protocol === "https:";
+  } catch {
+    return false;
+  }
+})();
 
 export const hasTokenEncryptionKeyConfigured = Boolean(env.TOKEN_ENCRYPTION_KEY?.trim());

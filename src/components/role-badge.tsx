@@ -5,5 +5,6 @@ type RoleBadgeProps = {
 };
 
 export function RoleBadge({ role }: RoleBadgeProps) {
-  return <span className={`role-badge is-${role.toLowerCase()}`.trim()}>{role}</span>;
+  const label = role === AdminUserRole.ADMIN ? "Admin" : "Creator";
+  return <span className={`role-badge is-${role.toLowerCase()}`.trim()}>{label}</span>;
 }

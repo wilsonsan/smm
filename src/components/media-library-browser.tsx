@@ -2,19 +2,17 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import Link from "next/link";
-import { useEffect, useMemo, useState, type SVGProps } from "react";
-import { CalendarIcon, ComposeIcon, FacebookIcon, GalleryIcon, SuccessIcon } from "@/components/dashboard-icons";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type SVGProps } from "react";
+import { createPortal } from "react-dom";
+import { CalendarIcon, ClockIcon, FacebookIcon, GalleryIcon, SuccessIcon } from "@/components/dashboard-icons";
 import {
   formatBytes,
   formatDimensions,
-  getAvailableVariantSummary,
-  getMediaVariantLabel,
+  getVariantByType,
   getMediaVariantUrl,
   getPreferredPreviewVariant,
-  getVariantByType,
   type MediaAssetGallerySummary,
-  type MediaVariantSummary,
 } from "@/lib/media-presentation";
 
 type MediaLibraryBrowserProps = {
@@ -33,6 +31,18 @@ type StatusFilterValue =
 
 type SortOrderValue = "NEWEST" | "OLDEST" | "FILENAME_ASC" | "FILENAME_DESC";
 type ViewModeValue = "GRID" | "LIST";
+
+type QueuedUpload = {
+  id: string;
+  file: File;
+  previewUrl: string;
+};
+
+type UploadApiPayload = {
+  error?: string;
+  status?: "uploaded" | "duplicate";
+  mediaAsset?: MediaAssetGallerySummary;
+};
 
 const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilterValue; label: string }> = [
   { value: "ALL", label: "All Status" },
@@ -152,31 +162,12 @@ function ChevronRightIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function VariantInfoRow({
-  label,
-  variant,
-  missingMessage = "Generated only when needed",
-}: {
-  label: string;
-  variant: MediaVariantSummary | null;
-  missingMessage?: string;
-}) {
-  if (!variant) {
-    return (
-      <div className="gallery-variant-row is-missing">
-        <strong>{label}</strong>
-        <span>{missingMessage}</span>
-      </div>
-    );
-  }
-
+function CloseIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <div className="gallery-variant-row">
-      <strong>{label}</strong>
-      <span>{formatDimensions(variant.width, variant.height)}</span>
-      <span>{formatBytes(variant.sizeBytes)}</span>
-      <span>{variant.mimeType}</span>
-    </div>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="m6 6 12 12" />
+      <path d="M18 6 6 18" />
+    </svg>
   );
 }
 
@@ -205,15 +196,12 @@ function getTypeFilterLabel(asset: MediaAssetGallerySummary) {
   if (asset.mimeType === "image/jpeg") {
     return "JPEG";
   }
-
   if (asset.mimeType === "image/png") {
     return "PNG";
   }
-
   if (asset.mimeType === "image/webp") {
     return "WebP";
   }
-
   if (asset.mimeType === "image/heic" || asset.mimeType === "image/heif") {
     return "HEIC / HEIF";
   }
@@ -283,8 +271,31 @@ function getPageNumbers(currentPage: number, totalPages: number) {
   return result;
 }
 
+function buildOverlayBadges(asset: MediaAssetGallerySummary) {
+  return [
+    asset.postedPlatforms.postedAnywhere
+      ? asset.postedPlatforms.publishedAnywhere
+        ? { key: "check", label: "Posted successfully", accentClass: "is-check", icon: <SuccessIcon /> }
+        : { key: "scheduled", label: "Scheduled to post", accentClass: "is-scheduled", icon: <ClockIcon /> }
+      : null,
+    asset.postedPlatforms.postedToFacebook
+      ? { key: "facebook", label: "Posted to Facebook", accentClass: "is-facebook", icon: <FacebookIcon /> }
+      : null,
+    asset.postedPlatforms.postedToInstagram
+      ? { key: "instagram", label: "Posted to Instagram", accentClass: "is-instagram", icon: <InstagramIcon /> }
+      : null,
+    asset.postedPlatforms.postedToGoogle
+      ? { key: "google", label: "Posted to Google", accentClass: "is-google", icon: <GoogleBusinessIcon /> }
+      : null,
+  ].filter(Boolean) as Array<{ key: string; label: string; accentClass: string; icon: ReactNode }>;
+}
+
 export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserProps) {
+  const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const queuedUploadsRef = useRef<QueuedUpload[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [hasMounted, setHasMounted] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>("ALL");
   const [typeFilter, setTypeFilter] = useState("ALL_TYPES");
   const [sortOrder, setSortOrder] = useState<SortOrderValue>("NEWEST");
@@ -292,6 +303,19 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
   const [itemsPerPage, setItemsPerPage] = useState(24);
   const [currentPage, setCurrentPage] = useState(1);
   const [openAssetId, setOpenAssetId] = useState<string | null>(null);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [queuedUploads, setQueuedUploads] = useState<QueuedUpload[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSummary, setUploadSummary] = useState<string | null>(null);
+  const [uploadProgressLabel, setUploadProgressLabel] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeleteConfirming, setIsDeleteConfirming] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   const typeOptions = useMemo(() => {
     const labels = Array.from(new Set(assets.map(getTypeFilterLabel))).sort((left, right) => left.localeCompare(right));
@@ -321,15 +345,6 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
     setCurrentPage(1);
   }, [searchTerm, statusFilter, typeFilter, sortOrder, itemsPerPage]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredAssets.length / itemsPerPage));
-  const clampedCurrentPage = Math.min(currentPage, totalPages);
-  const visibleAssets = filteredAssets.slice(
-    (clampedCurrentPage - 1) * itemsPerPage,
-    clampedCurrentPage * itemsPerPage,
-  );
-  const pageNumbers = getPageNumbers(clampedCurrentPage, totalPages);
-  const openAsset = assets.find((asset) => asset.id === openAssetId) ?? null;
-
   useEffect(() => {
     if (!openAssetId) {
       return;
@@ -345,56 +360,247 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [openAssetId]);
 
-  const stats = useMemo(
-    () => ({
-      allAssets: assets.length,
-      original: assets.filter((asset) => asset.variants.some((variant) => variant.variantType === "ORIGINAL")).length,
-      postedToFacebook: assets.filter((asset) => asset.postedPlatforms.postedToFacebook).length,
-      postedToInstagram: assets.filter((asset) => asset.postedPlatforms.postedToInstagram).length,
-      postedToGoogle: assets.filter((asset) => asset.postedPlatforms.postedToGoogle).length,
-      postedEverywhere: assets.filter((asset) => asset.postedPlatforms.postedEverywhere).length,
-    }),
-    [assets],
-  );
+  useEffect(() => {
+    if (!isUploadModalOpen) {
+      return;
+    }
 
-  const statCards = [
-    {
-      label: "All Assets",
-      count: stats.allAssets,
-      accentClass: "is-purple",
-      icon: <GalleryIcon />,
-    },
-    {
-      label: "Original",
-      count: stats.original,
-      accentClass: "is-violet",
-      icon: <FileIcon />,
-    },
-    {
-      label: "Posted to Facebook",
-      count: stats.postedToFacebook,
-      accentClass: "is-blue",
-      icon: <FacebookIcon />,
-    },
-    {
-      label: "Posted to Instagram",
-      count: stats.postedToInstagram,
-      accentClass: "is-magenta",
-      icon: <InstagramIcon />,
-    },
-    {
-      label: "Posted to Google",
-      count: stats.postedToGoogle,
-      accentClass: "is-google",
-      icon: <GoogleBusinessIcon />,
-    },
-    {
-      label: "Posted Everywhere",
-      count: stats.postedEverywhere,
-      accentClass: "is-green",
-      icon: <SuccessIcon />,
-    },
-  ];
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !isUploading) {
+        setIsUploadModalOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isUploadModalOpen, isUploading]);
+
+  useEffect(() => {
+    if (!isDeleteConfirming) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setIsDeleteConfirming(false), 5000);
+    return () => window.clearTimeout(timeoutId);
+  }, [isDeleteConfirming]);
+
+  useEffect(() => {
+    queuedUploadsRef.current = queuedUploads;
+  }, [queuedUploads]);
+
+  useEffect(() => {
+    if (!isUploadModalOpen && !openAssetId) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isUploadModalOpen, openAssetId]);
+
+  useEffect(() => {
+    return () => {
+      queuedUploadsRef.current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+    };
+  }, []);
+
+  const totalPages = Math.max(1, Math.ceil(filteredAssets.length / itemsPerPage));
+  const clampedCurrentPage = Math.min(currentPage, totalPages);
+  const visibleAssets = filteredAssets.slice(
+    (clampedCurrentPage - 1) * itemsPerPage,
+    clampedCurrentPage * itemsPerPage,
+  );
+  const pageNumbers = getPageNumbers(clampedCurrentPage, totalPages);
+  const openAsset = assets.find((asset) => asset.id === openAssetId) ?? null;
+  const openAssetOriginalVariant = openAsset ? getVariantByType(openAsset.variants, "ORIGINAL") : null;
+  const openAssetDisplayVariant =
+    openAssetOriginalVariant && openAssetOriginalVariant.mimeType !== "image/heic" && openAssetOriginalVariant.mimeType !== "image/heif"
+      ? openAssetOriginalVariant
+      : openAsset
+        ? getPreferredPreviewVariant(openAsset.variants)
+        : null;
+  const openAssetMediaUrl = openAssetDisplayVariant ? getMediaVariantUrl(openAssetDisplayVariant.id) : null;
+
+  function resetUploadState() {
+    queuedUploads.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+    setQueuedUploads([]);
+    setUploadError(null);
+    setUploadProgressLabel(null);
+    setIsUploading(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  function closeUploadModal() {
+    if (isUploading) {
+      return;
+    }
+
+    setIsUploadModalOpen(false);
+    resetUploadState();
+  }
+
+  function appendQueuedFiles(files: Iterable<File>) {
+    const newEntries: QueuedUpload[] = [];
+    const errors: string[] = [];
+
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) {
+        errors.push(`${file.name} is not a supported image file.`);
+        continue;
+      }
+
+      const duplicate = queuedUploads.some(
+        (item) => item.file.name === file.name && item.file.size === file.size && item.file.lastModified === file.lastModified,
+      );
+      if (duplicate) {
+        continue;
+      }
+
+      newEntries.push({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+      });
+    }
+
+    if (errors.length > 0) {
+      setUploadError(errors[0]);
+    } else {
+      setUploadError(null);
+    }
+
+    if (newEntries.length > 0) {
+      setQueuedUploads((current) => [...current, ...newEntries]);
+    }
+  }
+
+  function removeQueuedFile(uploadId: string) {
+    setQueuedUploads((current) => {
+      const next = current.filter((item) => item.id !== uploadId);
+      const removed = current.find((item) => item.id === uploadId);
+      if (removed) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      return next;
+    });
+  }
+
+  async function handleUploadConfirm() {
+    if (queuedUploads.length === 0) {
+      setUploadError("Select one or more images to upload.");
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+    setUploadSummary(null);
+
+    try {
+      let uploadedCount = 0;
+      let skippedDuplicateCount = 0;
+
+      for (let index = 0; index < queuedUploads.length; index += 1) {
+        const queuedUpload = queuedUploads[index];
+        setUploadProgressLabel(`Uploading ${index + 1} of ${queuedUploads.length}...`);
+
+        const formData = new FormData();
+        formData.append("file", queuedUpload.file);
+
+        const response = await fetch("/api/admin/uploads", {
+          method: "POST",
+          body: formData,
+        });
+
+        const payload = (await response.json().catch(() => null)) as UploadApiPayload | null;
+        if (!response.ok) {
+          throw new Error(payload?.error || `Upload failed for ${queuedUpload.file.name}.`);
+        }
+
+        if (payload?.status === "duplicate") {
+          skippedDuplicateCount += 1;
+        } else {
+          uploadedCount += 1;
+        }
+      }
+
+      setIsUploadModalOpen(false);
+      resetUploadState();
+      if (uploadedCount > 0 && skippedDuplicateCount > 0) {
+        setUploadSummary(
+          `Uploaded ${uploadedCount} image${uploadedCount === 1 ? "" : "s"} and skipped ${skippedDuplicateCount} duplicate${skippedDuplicateCount === 1 ? "" : "s"} already in the gallery.`,
+        );
+      } else if (uploadedCount > 0) {
+        setUploadSummary(`Uploaded ${uploadedCount} image${uploadedCount === 1 ? "" : "s"}.`);
+      } else if (skippedDuplicateCount > 0) {
+        setUploadSummary(
+          `Skipped ${skippedDuplicateCount} duplicate${skippedDuplicateCount === 1 ? "" : "s"} already in the gallery.`,
+        );
+      }
+      router.refresh();
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "Upload failed.");
+      setIsUploading(false);
+      setUploadProgressLabel(null);
+    }
+  }
+
+  async function handleDeleteAsset() {
+    if (!openAsset) {
+      return;
+    }
+
+    if (!isDeleteConfirming) {
+      setIsDeleteConfirming(true);
+      return;
+    }
+
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const response = await fetch(`/api/admin/media-assets/${openAsset.id}`, {
+        method: "DELETE",
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not delete this media asset.");
+      }
+
+      setOpenAssetId(null);
+      setIsDeleteConfirming(false);
+      router.refresh();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Could not delete this media asset.");
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
+  async function handlePostFromAsset() {
+    if (!openAsset) {
+      return;
+    }
+
+    void fetch("/api/admin/audit/gallery-post-click", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ mediaAssetId: openAsset.id }),
+      keepalive: true,
+    }).catch(() => undefined);
+
+    setOpenAssetId(null);
+    setDeleteError(null);
+    setIsDeleteConfirming(false);
+    router.push(`/dashboard/posts/new?mediaId=${encodeURIComponent(openAsset.id)}`);
+  }
 
   return (
     <>
@@ -407,18 +613,14 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
               </span>
               <div>
                 <h2>Gallery</h2>
-                <p>
-                  Each upload stays grouped as one media asset. Originals remain preserved locally while platform-ready
-                  images are generated temporarily at publish time to save storage.
-                </p>
               </div>
             </div>
           </div>
 
-          <Link href="/dashboard/posts/new" className="gallery-upload-button">
+          <button type="button" className="gallery-upload-button" onClick={() => setIsUploadModalOpen(true)}>
             <UploadIcon />
-            <span>Upload In Composer</span>
-          </Link>
+            <span>Upload</span>
+          </button>
         </header>
 
         <section className="gallery-toolbar panel">
@@ -490,17 +692,7 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
           </div>
         </section>
 
-        <section className="gallery-stats-grid">
-          {statCards.map((card) => (
-            <article key={card.label} className={`gallery-stat-card ${card.accentClass}`.trim()}>
-              <span className="gallery-stat-icon">{card.icon}</span>
-              <div className="gallery-stat-copy">
-                <span>{card.label}</span>
-                <strong>{card.count}</strong>
-              </div>
-            </article>
-          ))}
-        </section>
+        {uploadSummary ? <p className="success-text">{uploadSummary}</p> : null}
 
         {visibleAssets.length === 0 ? (
           <section className="panel">
@@ -511,35 +703,21 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
         ) : (
           <section className={`gallery-assets-grid ${viewMode === "LIST" ? "is-list" : ""}`.trim()}>
             {visibleAssets.map((asset) => {
-              const previewVariant = getPreferredPreviewVariant(asset.variants);
-              const overlayBadges = [
-                asset.postedPlatforms.postedAnywhere
-                  ? { key: "check", label: "Posted successfully", accentClass: "is-check", icon: <SuccessIcon /> }
-                  : null,
-                asset.postedPlatforms.postedToFacebook
-                  ? { key: "facebook", label: "Posted to Facebook", accentClass: "is-facebook", icon: <FacebookIcon /> }
-                  : null,
-                asset.postedPlatforms.postedToInstagram
-                  ? { key: "instagram", label: "Posted to Instagram", accentClass: "is-instagram", icon: <InstagramIcon /> }
-                  : null,
-                asset.postedPlatforms.postedToGoogle
-                  ? {
-                      key: "google",
-                      label: "Posted to Google",
-                      accentClass: "is-google",
-                      icon: <GoogleBusinessIcon />,
-                    }
-                  : null,
-              ].filter(Boolean) as Array<{ key: string; label: string; accentClass: string; icon: React.ReactNode }>;
+              const overlayBadges = buildOverlayBadges(asset);
+              const originalVariant = getVariantByType(asset.variants, "ORIGINAL");
+              const assetPreviewVariant =
+                originalVariant && originalVariant.mimeType !== "image/heic" && originalVariant.mimeType !== "image/heif"
+                  ? originalVariant
+                  : getPreferredPreviewVariant(asset.variants);
 
               return (
                 <article key={asset.id} className="gallery-asset-card">
                   <button type="button" className="gallery-asset-thumb-wrap" onClick={() => setOpenAssetId(asset.id)}>
-                    {previewVariant ? (
-                      <img
-                        src={getMediaVariantUrl(previewVariant.id)}
-                        alt={`${asset.originalFilename} preview`}
+                    {assetPreviewVariant ? (
+                      <span
+                        aria-hidden="true"
                         className="gallery-asset-thumb"
+                        style={{ backgroundImage: `url(${getMediaVariantUrl(assetPreviewVariant.id)})` }}
                       />
                     ) : (
                       <div className="gallery-asset-thumb-fallback">No preview</div>
@@ -548,7 +726,12 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
                     {overlayBadges.length > 0 ? (
                       <div className="gallery-posted-badges">
                         {overlayBadges.map((badge) => (
-                          <span key={badge.key} className={`gallery-posted-badge ${badge.accentClass}`.trim()} title={badge.label} aria-label={badge.label}>
+                          <span
+                            key={badge.key}
+                            className={`gallery-posted-badge ${badge.accentClass}`.trim()}
+                            title={badge.label}
+                            aria-label={badge.label}
+                          >
                             {badge.icon}
                           </span>
                         ))}
@@ -652,89 +835,213 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
         </section>
       </section>
 
-      {openAsset ? (
+      {isUploadModalOpen && hasMounted
+        ? createPortal(
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Upload media">
+          <button
+            type="button"
+            className="modal-dismiss-surface"
+            aria-label="Close upload modal"
+            onClick={closeUploadModal}
+          />
+          <div className="modal-card gallery-upload-modal">
+            <div className="preview-header">
+              <div>
+                <strong>Upload media</strong>
+                <p className="muted">Select one or more images, review them here, then confirm the upload.</p>
+              </div>
+              <button type="button" className="ghost-link-button" onClick={closeUploadModal} disabled={isUploading}>
+                Close
+              </button>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(event) => {
+                appendQueuedFiles(Array.from(event.target.files ?? []));
+                event.currentTarget.value = "";
+              }}
+            />
+
+            <button
+              type="button"
+              className="gallery-upload-dropzone"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                appendQueuedFiles(Array.from(event.dataTransfer.files ?? []));
+              }}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <span className="gallery-upload-dropzone-icon">
+                <UploadIcon />
+              </span>
+              <strong>Drag &amp; drop images here</strong>
+              <span>or click to browse files</span>
+            </button>
+
+            {queuedUploads.length > 0 ? (
+              <div className="gallery-upload-queue">
+                <div className="gallery-upload-queue-header">
+                  <strong>Ready to upload</strong>
+                  <span>{queuedUploads.length} file(s)</span>
+                </div>
+
+                <div className="gallery-upload-queue-grid">
+                  {queuedUploads.map((item) => (
+                    <article key={item.id} className="gallery-upload-queue-card">
+                      <div className="gallery-upload-queue-thumb-wrap">
+                        <img src={item.previewUrl} alt={`${item.file.name} preview`} className="gallery-upload-queue-thumb" />
+                        <button
+                          type="button"
+                          className="gallery-upload-queue-remove"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            removeQueuedFile(item.id);
+                          }}
+                          disabled={isUploading}
+                          aria-label={`Remove ${item.file.name}`}
+                        >
+                          <CloseIcon />
+                        </button>
+                      </div>
+                      <div className="gallery-upload-queue-meta">
+                        <strong title={item.file.name}>{item.file.name}</strong>
+                        <span>{formatBytes(item.file.size)}</span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="muted">No files selected yet.</p>
+            )}
+
+            {uploadError ? <p className="inline-error">{uploadError}</p> : null}
+            {uploadProgressLabel ? <p className="hint">{uploadProgressLabel}</p> : null}
+
+            <div className="gallery-upload-modal-actions">
+              <button type="button" className="secondary-button" onClick={closeUploadModal} disabled={isUploading}>
+                Cancel
+              </button>
+              <button type="button" className="gallery-upload-button" onClick={handleUploadConfirm} disabled={isUploading || queuedUploads.length === 0}>
+                <UploadIcon />
+                <span>{isUploading ? "Uploading..." : "Upload"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+          ,
+          document.body,
+        )
+        : null}
+
+      {openAsset && hasMounted
+        ? createPortal(
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`${openAsset.originalFilename} details`}>
           <button
             type="button"
             className="modal-dismiss-surface"
             aria-label="Close media details"
-            onClick={() => setOpenAssetId(null)}
+            onClick={() => {
+              setOpenAssetId(null);
+              setDeleteError(null);
+              setIsDeleteConfirming(false);
+            }}
           />
           <div className="modal-card media-modal-card">
             <div className="preview-header">
               <div>
                 <strong>{openAsset.originalFilename}</strong>
-                <p className="muted">
-                  Original image preview with publish-time optimization details for Facebook and Google.
-                </p>
+                <p className="muted">Original image details.</p>
               </div>
-              <button type="button" className="ghost-link-button" onClick={() => setOpenAssetId(null)}>
+              <button
+                type="button"
+                className="ghost-link-button"
+                onClick={() => {
+                  setOpenAssetId(null);
+                  setDeleteError(null);
+                  setIsDeleteConfirming(false);
+                }}
+              >
                 Close
               </button>
             </div>
 
-            <div className="media-modal-layout">
+              <div className="media-modal-layout">
               <div className="media-modal-preview">
-                {getPreferredPreviewVariant(openAsset.variants) ? (
-                  <img
-                    src={getMediaVariantUrl(getPreferredPreviewVariant(openAsset.variants)!.id)}
-                    alt={`${openAsset.originalFilename} original preview`}
-                    className="media-modal-image"
-                  />
+                {openAssetMediaUrl ? (
+                  <a
+                    href={openAssetMediaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="media-modal-image-link"
+                    title="Open original image in a new tab"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="media-modal-image"
+                      style={{ backgroundImage: `url(${openAssetMediaUrl})` }}
+                    />
+                  </a>
                 ) : (
                   <div className="gallery-asset-thumb-fallback">No preview available</div>
                 )}
               </div>
 
               <div className="media-modal-details">
-                <div className="media-modal-summary">
-                  <strong>Available versions</strong>
-                  <div className="inline-list">
-                    {getAvailableVariantSummary(openAsset.variants).map((item) => (
-                      <span key={item} className="badge">
-                        {item}
-                      </span>
-                    ))}
-                  </div>
+                <div className="media-variant-info-card">
+                  <strong>Filename</strong>
+                  <p>{openAsset.originalFilename}</p>
+                </div>
+                <div className="media-variant-info-card">
+                  <strong>Uploaded</strong>
+                  <p>{formatUploadDate(openAsset.createdAt, timezone)}</p>
+                </div>
+                <div className="media-variant-info-card">
+                  <strong>Dimensions</strong>
+                  <p>{formatDimensions(openAsset.width, openAsset.height)}</p>
+                </div>
+                <div className="media-variant-info-card">
+                  <strong>File size</strong>
+                  <p>{formatBytes(openAsset.sizeBytes)}</p>
+                </div>
+                <div className="media-variant-info-card">
+                  <strong>MIME type</strong>
+                  <p>{openAsset.mimeType}</p>
                 </div>
 
-                <div className="gallery-modal-posted-status">
-                  <strong>Posted Status</strong>
-                  <div className="inline-list">
-                    {openAsset.postedPlatforms.postedAnywhere ? <span className="badge is-published">Posted somewhere</span> : <span className="badge is-draft">Not posted</span>}
-                    {openAsset.postedPlatforms.postedToFacebook ? <span className="badge is-scheduled">Facebook</span> : null}
-                    {openAsset.postedPlatforms.postedToInstagram ? <span className="badge">Instagram</span> : null}
-                    {openAsset.postedPlatforms.postedToGoogle ? <span className="badge">Google</span> : null}
-                  </div>
-                </div>
+                {deleteError ? <p className="inline-error">{deleteError}</p> : null}
 
-                <div className="media-variant-info-grid">
-                  <VariantInfoRow
-                    label={getMediaVariantLabel("ORIGINAL")}
-                    variant={getVariantByType(openAsset.variants, "ORIGINAL")}
-                    missingMessage="Original record missing"
-                  />
-                  <VariantInfoRow
-                    label={getMediaVariantLabel("FACEBOOK_FEED")}
-                    variant={getVariantByType(openAsset.variants, "FACEBOOK_FEED")}
-                    missingMessage="Generated temporarily at Facebook publish time"
-                  />
-                  <VariantInfoRow
-                    label={getMediaVariantLabel("GOOGLE_BUSINESS_SAFE")}
-                    variant={getVariantByType(openAsset.variants, "GOOGLE_BUSINESS_SAFE")}
-                    missingMessage="Generated temporarily for future Google publishing"
-                  />
+                <div className="media-modal-actions">
+                  <button
+                    type="button"
+                    className="media-post-button"
+                    onClick={handlePostFromAsset}
+                  >
+                    Post
+                  </button>
+                  <button
+                    type="button"
+                    className={`media-delete-button${isDeleteConfirming ? " is-confirming" : ""}`.trim()}
+                    onClick={handleDeleteAsset}
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? "Deleting..." : isDeleteConfirming ? "Confirm Delete" : "Delete"}
+                  </button>
                 </div>
-
-                <p className="hint">
-                  Platform-optimized images are generated temporarily at publish time to save storage. The original
-                  upload remains preserved locally for future reuse.
-                </p>
               </div>
             </div>
           </div>
         </div>
-      ) : null}
+          ,
+          document.body,
+        )
+        : null}
     </>
   );
 }

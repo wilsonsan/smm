@@ -11,6 +11,11 @@ const SETTINGS_SECTIONS = [
         title: "Site Settings",
         description: "Site name, favicon, public URL, upload directory, and app timezone.",
       },
+      {
+        href: "/dashboard/settings/operations",
+        title: "System Status",
+        description: "Worker health, publish activity, connected Facebook Page, and operational checks.",
+      },
     ],
   },
   {
@@ -45,6 +50,9 @@ export default function SettingsPage() {
           <h2>Settings</h2>
           <p>Open a settings area below to manage system basics or future publishing channel configuration.</p>
         </div>
+        <Link href="/dashboard/settings/users" className="secondary-button">
+          Users
+        </Link>
       </header>
 
       <div className="settings-layout-grid">

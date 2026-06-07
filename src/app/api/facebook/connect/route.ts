@@ -6,7 +6,7 @@ import { requireAdminSessionFromRequest } from "@/lib/auth/session";
 
 export async function GET(request: Request) {
   assertSameOrigin(request);
-  const session = await requireAdminSessionFromRequest(request, { touch: false });
+  const session = await requireAdminSessionFromRequest(request, { touch: false, requireAdmin: true });
   const config = await getFacebookConfiguration();
   const requestUrl = new URL(request.url);
   const requestedMode = requestUrl.searchParams.get("mode");

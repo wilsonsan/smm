@@ -3,13 +3,19 @@
 import { Prisma, PublishAttemptStatus, SocialPlatform, SocialPostStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect, unstable_rethrow } from "next/navigation";
-import { requireAdminUser } from "@/lib/auth/session";
+import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
 import {
   claimFacebookPostForPublishing,
   executeFacebookPublish,
   validateFacebookPublishPrerequisites,
 } from "@/lib/facebook";
+import {
+  areSelectedPlatformsPublishableNow,
+  getPlatformMediaLimitMessage,
+  normalizeSelectedPlatforms,
+  getMaxMediaCountForPlatforms,
+} from "@/lib/platform-rules";
 import {
   buildInternalPostTitle,
   canCancelScheduled,
@@ -71,6 +77,17 @@ function buildPostDetailHref(
   return suffix ? `/dashboard/posts/${postId}?${suffix}` : `/dashboard/posts/${postId}`;
 }
 
+function buildCalendarHref(input?: { flash?: "draft" | "scheduled" | "published" }) {
+  const params = new URLSearchParams();
+
+  if (input?.flash) {
+    params.set("flash", input.flash);
+  }
+
+  const suffix = params.toString();
+  return suffix ? `/dashboard/calendar?${suffix}` : "/dashboard/calendar";
+}
+
 async function getExistingPost(postId: string) {
   return prisma.socialPost.findUnique({
     where: { id: postId },
@@ -81,8 +98,32 @@ async function getExistingPost(postId: string) {
           variants: true,
         },
       },
+      attachedMedia: {
+        orderBy: {
+          position: "asc",
+        },
+        include: {
+          mediaAsset: {
+            include: {
+              variants: true,
+            },
+          },
+        },
+      },
+      createdByAdminUser: {
+        select: {
+          id: true,
+        },
+      },
     },
   });
+}
+
+function assertPostAccess(
+  _adminUser: Awaited<ReturnType<typeof requireAuthenticatedUser>>,
+  post: { createdByAdminUserId: string },
+) {
+  void post;
 }
 
 function buildSubmittedPostValues(input: {
@@ -91,8 +132,9 @@ function buildSubmittedPostValues(input: {
   scheduledHour?: FormDataEntryValue | string | null;
   scheduledMinute?: FormDataEntryValue | string | null;
   scheduledMeridiem?: FormDataEntryValue | string | null;
-  mediaAssetId?: FormDataEntryValue | string | null;
-  platform?: FormDataEntryValue | string | null;
+  mediaAssetIds?: Array<FormDataEntryValue | string | null>;
+  platforms?: Array<FormDataEntryValue | string | null>;
+  mediaSelectionSource?: FormDataEntryValue | string | null;
 }) {
   return {
     caption: String(input.caption || ""),
@@ -100,8 +142,9 @@ function buildSubmittedPostValues(input: {
     scheduledHour: String(input.scheduledHour || "5"),
     scheduledMinute: String(input.scheduledMinute || "00"),
     scheduledMeridiem: String(input.scheduledMeridiem || "PM"),
-    mediaAssetId: String(input.mediaAssetId || ""),
-    platform: String(input.platform || "FACEBOOK"),
+    mediaAssetIds: (input.mediaAssetIds ?? []).map((value) => String(value || "")).filter(Boolean),
+    platforms: normalizeSelectedPlatforms((input.platforms ?? []).map((value) => String(value || ""))),
+    mediaSelectionSource: String(input.mediaSelectionSource || ""),
   };
 }
 
@@ -162,26 +205,38 @@ async function markImmediatePublishFailure(input: {
   });
 }
 
+function getDraftRedirectTarget(postId: string, scheduledAt: Date | null) {
+  if (scheduledAt) {
+    return buildCalendarHref({ flash: "draft" });
+  }
+
+  return buildPostDetailHref(postId, {
+    status: "success",
+    message: "Draft saved successfully.",
+  });
+}
+
 export async function savePostAction(_: FormState, formData: FormData): Promise<FormState> {
-  const adminUser = await requireAdminUser();
+  const adminUser = await requireAuthenticatedUser();
   const submittedValues = buildSubmittedPostValues({
     caption: formData.get("caption"),
     scheduledDate: formData.get("scheduledDate"),
     scheduledHour: formData.get("scheduledHour"),
     scheduledMinute: formData.get("scheduledMinute"),
     scheduledMeridiem: formData.get("scheduledMeridiem"),
-    mediaAssetId: formData.get("mediaAssetId"),
-    platform: formData.get("platform"),
+    mediaAssetIds: formData.getAll("mediaAssetIds"),
+    platforms: formData.getAll("platforms"),
+    mediaSelectionSource: formData.get("mediaSelectionSource"),
   });
   const parsed = postFormSchema.safeParse({
     postId: formData.get("postId"),
-    mediaAssetId: formData.get("mediaAssetId"),
+    mediaAssetIds: formData.getAll("mediaAssetIds"),
     caption: formData.get("caption"),
     scheduledDate: formData.get("scheduledDate"),
     scheduledHour: formData.get("scheduledHour"),
     scheduledMinute: formData.get("scheduledMinute"),
     scheduledMeridiem: formData.get("scheduledMeridiem"),
-    platform: formData.get("platform"),
+    platforms: formData.getAll("platforms"),
     intent: formData.get("intent"),
   });
 
@@ -207,19 +262,68 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
 
     const nextStatus =
       parsed.data.intent === "schedule" ? SocialPostStatus.SCHEDULED : SocialPostStatus.DRAFT;
-    const selectedMediaAsset = parsed.data.mediaAssetId
-      ? await prisma.mediaAsset.findUnique({
-          where: { id: parsed.data.mediaAssetId },
+    const selectedMediaAssets = parsed.data.mediaAssetIds.length
+      ? await prisma.mediaAsset.findMany({
+          where: {
+            id: {
+              in: parsed.data.mediaAssetIds,
+            },
+          },
           include: {
             variants: true,
           },
         })
-      : null;
+      : [];
+    const selectedMediaAssetMap = new Map(selectedMediaAssets.map((asset) => [asset.id, asset]));
+    const orderedSelectedMediaAssets = parsed.data.mediaAssetIds
+      .map((mediaAssetId) => selectedMediaAssetMap.get(mediaAssetId) ?? null)
+      .filter((asset): asset is NonNullable<(typeof selectedMediaAssets)[number]> => asset !== null);
+    // TODO: Publish every attached image when Facebook multi-photo publishing is implemented.
+    const primaryMediaAsset = orderedSelectedMediaAssets[0] ?? null;
 
-    if (parsed.data.mediaAssetId && !selectedMediaAsset) {
+    if (parsed.data.mediaAssetIds.length !== orderedSelectedMediaAssets.length) {
       return {
         ...initialFormState,
-        message: "Choose a valid uploaded media asset before saving.",
+        message: "Choose valid uploaded media assets before saving.",
+        submittedValues,
+      };
+    }
+
+    const maxMediaCount = getMaxMediaCountForPlatforms(parsed.data.platforms);
+    if (orderedSelectedMediaAssets.length > maxMediaCount) {
+      const message = getPlatformMediaLimitMessage(parsed.data.platforms);
+      if (submittedValues.mediaSelectionSource === "gallery") {
+        await createPostAuditLog({
+          actorAdminUserId: adminUser.id,
+          action: AUDIT_ACTIONS.POST_MEDIA_SELECTION_REJECTED,
+          targetId: parsed.data.postId || "new",
+          metadata: {
+            rejected: true,
+            reason: "PLATFORM_MEDIA_LIMIT",
+            source: "gallery",
+            selectedMediaAssetIds: submittedValues.mediaAssetIds,
+            platforms: parsed.data.platforms,
+          },
+        }).catch(() => undefined);
+      }
+
+      return {
+        ...initialFormState,
+        message,
+        fieldErrors: {
+          mediaAssetIds: [message],
+        },
+        submittedValues,
+      };
+    }
+
+    if ((parsed.data.intent === "schedule" || parsed.data.intent === "publish") && !areSelectedPlatformsPublishableNow(parsed.data.platforms)) {
+      return {
+        ...initialFormState,
+        message: "Only Facebook publishing is enabled right now. Remove Google or Instagram before scheduling or posting.",
+        fieldErrors: {
+          platforms: ["Only Facebook publishing is enabled right now. Remove Google or Instagram before scheduling or posting."],
+        },
         submittedValues,
       };
     }
@@ -231,31 +335,50 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
         status: nextStatus,
         scheduledAt: effectiveScheduledAt,
         failureReason: null,
-        mediaAssetId: parsed.data.mediaAssetId || null,
+        mediaAssetId: primaryMediaAsset?.id ?? null,
         updatedByAdminUserId: adminUser.id,
       };
 
       let savedPost;
-      let previousMediaAssetId: string | null = null;
+      let previousMediaAssetIds: string[] = [];
       let previousStatus: SocialPostStatus | null = null;
       let previousScheduledAt: Date | null = null;
+      let previousPlatforms: SocialPlatform[] = [];
 
       if (parsed.data.postId) {
         const existingPost = await tx.socialPost.findUnique({
           where: { id: parsed.data.postId },
+          include: {
+            attachedMedia: {
+              orderBy: {
+                position: "asc",
+              },
+              select: {
+                mediaAssetId: true,
+              },
+            },
+            platforms: {
+              select: {
+                platform: true,
+              },
+            },
+          },
         });
 
         if (!existingPost) {
           throw new Error("Post not found.");
         }
 
+        assertPostAccess(adminUser, existingPost);
+
         if (isReadOnlyPostStatus(existingPost.status)) {
           throw new Error("Publishing and published posts are read-only.");
         }
 
-        previousMediaAssetId = existingPost.mediaAssetId;
+        previousMediaAssetIds = existingPost.attachedMedia.map((item) => item.mediaAssetId);
         previousStatus = existingPost.status;
         previousScheduledAt = existingPost.scheduledAt;
+        previousPlatforms = existingPost.platforms.map((platform) => platform.platform);
 
         savedPost = await tx.socialPost.update({
           where: { id: parsed.data.postId },
@@ -270,34 +393,66 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
         });
       }
 
-      await tx.socialPostPlatform.upsert({
+      await tx.socialPostMediaAsset.deleteMany({
         where: {
-          socialPostId_platform: {
-            socialPostId: savedPost.id,
-            platform: SocialPlatform.FACEBOOK,
-          },
-        },
-        update: {
-          status: nextStatus,
-          scheduledAt: effectiveScheduledAt,
-          publishedAt: null,
-          platformPostId: null,
-          platformPostUrl: null,
-          lastError: null,
-        },
-        create: {
           socialPostId: savedPost.id,
-          platform: SocialPlatform.FACEBOOK,
-          status: nextStatus,
-          scheduledAt: effectiveScheduledAt,
         },
       });
 
+      if (orderedSelectedMediaAssets.length > 0) {
+        await tx.socialPostMediaAsset.createMany({
+          data: orderedSelectedMediaAssets.map((asset, index) => ({
+            socialPostId: savedPost.id,
+            mediaAssetId: asset.id,
+            position: index,
+          })),
+        });
+      }
+
+      await tx.socialPostPlatform.deleteMany({
+        where: {
+          socialPostId: savedPost.id,
+          platform: {
+            notIn: parsed.data.platforms,
+          },
+        },
+      });
+
+      for (const platform of parsed.data.platforms) {
+        await tx.socialPostPlatform.upsert({
+          where: {
+            socialPostId_platform: {
+              socialPostId: savedPost.id,
+              platform,
+            },
+          },
+          update: {
+            status: nextStatus,
+            scheduledAt: effectiveScheduledAt,
+            ...(platform === SocialPlatform.FACEBOOK
+              ? {
+                  publishedAt: null,
+                  platformPostId: null,
+                  platformPostUrl: null,
+                  lastError: null,
+                }
+              : {}),
+          },
+          create: {
+            socialPostId: savedPost.id,
+            platform,
+            status: nextStatus,
+            scheduledAt: effectiveScheduledAt,
+          },
+        });
+      }
+
       return {
         post: savedPost,
-        previousMediaAssetId,
+        previousMediaAssetIds,
         previousStatus,
         previousScheduledAt,
+        previousPlatforms,
       };
     });
 
@@ -307,9 +462,26 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       targetId: post.post.id,
       metadata: {
         status: nextStatus,
-        platform: SocialPlatform.FACEBOOK,
+        platforms: parsed.data.platforms,
+        createdFrom:
+          String(formData.get("createdFrom") || "") === "calendar-date"
+            ? "calendar-date"
+            : "standard",
       },
     });
+
+    if (!parsed.data.postId && String(formData.get("createdFrom") || "") === "calendar-date") {
+      await createPostAuditLog({
+        actorAdminUserId: adminUser.id,
+        action: AUDIT_ACTIONS.POST_CREATED_FROM_CALENDAR_DATE,
+        targetId: post.post.id,
+        metadata: {
+          scheduledAt: effectiveScheduledAt?.toISOString() ?? null,
+          timezone,
+          platforms: parsed.data.platforms,
+        },
+      });
+    }
 
     if (parsed.data.intent === "schedule" || parsed.data.intent === "draft") {
       await createPostAuditLog({
@@ -324,17 +496,66 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       });
     }
 
-    if ((post.previousMediaAssetId ?? null) !== (parsed.data.mediaAssetId || null)) {
+    if (
+      JSON.stringify(post.previousMediaAssetIds) !== JSON.stringify(parsed.data.mediaAssetIds)
+    ) {
+      const removedMediaAssetIds = post.previousMediaAssetIds.filter(
+        (mediaAssetId) => !parsed.data.mediaAssetIds.includes(mediaAssetId),
+      );
+      const addedMediaAssetIds = parsed.data.mediaAssetIds.filter(
+        (mediaAssetId) => !post.previousMediaAssetIds.includes(mediaAssetId),
+      );
+
       await createPostAuditLog({
         actorAdminUserId: adminUser.id,
         action:
-          post.previousMediaAssetId && !parsed.data.mediaAssetId
+          post.previousMediaAssetIds.length > 0 && parsed.data.mediaAssetIds.length === 0
             ? AUDIT_ACTIONS.POST_MEDIA_CLEARED
             : AUDIT_ACTIONS.POST_MEDIA_CHANGED,
         targetId: post.post.id,
         metadata: {
-          previousMediaAssetId: post.previousMediaAssetId,
-          nextMediaAssetId: parsed.data.mediaAssetId || null,
+          previousMediaAssetIds: post.previousMediaAssetIds,
+          nextMediaAssetIds: parsed.data.mediaAssetIds,
+          source: submittedValues.mediaSelectionSource || null,
+        },
+      });
+
+      if (removedMediaAssetIds.length > 0) {
+        await createPostAuditLog({
+          actorAdminUserId: adminUser.id,
+          action: AUDIT_ACTIONS.POST_MEDIA_REMOVED,
+          targetId: post.post.id,
+          metadata: {
+            removedMediaAssetIds,
+            remainingMediaAssetIds: parsed.data.mediaAssetIds,
+          },
+        });
+      }
+
+      if (
+        submittedValues.mediaSelectionSource === "gallery" &&
+        addedMediaAssetIds.length > 0
+      ) {
+        await createPostAuditLog({
+          actorAdminUserId: adminUser.id,
+          action: AUDIT_ACTIONS.POST_MEDIA_ATTACHED_FROM_GALLERY,
+          targetId: post.post.id,
+          metadata: {
+            addedMediaAssetIds,
+            nextMediaAssetIds: parsed.data.mediaAssetIds,
+          },
+        });
+      }
+    }
+
+    if (JSON.stringify(post.previousPlatforms) !== JSON.stringify(parsed.data.platforms)) {
+      await createPostAuditLog({
+        actorAdminUserId: adminUser.id,
+        action: AUDIT_ACTIONS.POST_UPDATED,
+        targetId: post.post.id,
+        metadata: {
+          previousPlatforms: post.previousPlatforms,
+          nextPlatforms: parsed.data.platforms,
         },
       });
     }
@@ -368,11 +589,11 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
     if (!isImmediatePublish) {
       revalidatePostViews(post.post.id);
 
-      if (parsed.data.intent === "schedule" || (parsed.data.intent === "draft" && effectiveScheduledAt)) {
-        redirect("/dashboard/calendar");
+      if (parsed.data.intent === "schedule") {
+        redirect(buildCalendarHref({ flash: "scheduled" }));
       }
 
-      redirect(`/dashboard/posts/${post.post.id}`);
+      redirect(getDraftRedirectTarget(post.post.id, effectiveScheduledAt));
     }
 
     await createPostAuditLog({
@@ -393,9 +614,10 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
     try {
       await validateFacebookPublishPrerequisites({
         caption: parsed.data.caption,
-        mediaAsset: selectedMediaAsset,
+        mediaAsset: primaryMediaAsset,
       });
     } catch (error) {
+      unstable_rethrow(error);
       const message = error instanceof Error ? error.message : "Facebook publishing prerequisites are not met.";
 
       await markImmediatePublishFailure({
@@ -536,8 +758,9 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       });
 
       revalidatePostViews(post.post.id);
-      redirect("/dashboard/calendar");
+      redirect(buildCalendarHref({ flash: "published" }));
     } catch (error) {
+      unstable_rethrow(error);
       const message = error instanceof Error ? error.message : "Facebook publishing failed.";
 
       await createPostAuditLog({
@@ -572,9 +795,6 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
         }),
       );
     }
-
-    revalidatePostViews(post.post.id);
-    redirect("/dashboard/calendar");
   } catch (error) {
     unstable_rethrow(error);
     const message = error instanceof Error ? error.message : "Could not save the post.";
@@ -587,13 +807,15 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
 }
 
 export async function deleteDraftPostAction(formData: FormData) {
-  const adminUser = await requireAdminUser();
+  const adminUser = await requireAuthenticatedUser();
   const postId = String(formData.get("postId") || "");
   const post = await getExistingPost(postId);
 
   if (!post) {
     throw new Error("Post not found.");
   }
+
+  assertPostAccess(adminUser, post);
 
   if (!canDeleteDraft(post.status)) {
     throw new Error("Only draft posts can be deleted.");
@@ -617,13 +839,15 @@ export async function deleteDraftPostAction(formData: FormData) {
 }
 
 export async function cancelScheduledPostAction(formData: FormData) {
-  const adminUser = await requireAdminUser();
+  const adminUser = await requireAuthenticatedUser();
   const postId = String(formData.get("postId") || "");
   const post = await getExistingPost(postId);
 
   if (!post) {
     throw new Error("Post not found.");
   }
+
+  assertPostAccess(adminUser, post);
 
   if (!canCancelScheduled(post.status)) {
     throw new Error("Only scheduled posts can be cancelled.");
@@ -671,13 +895,15 @@ export async function cancelScheduledPostAction(formData: FormData) {
 }
 
 export async function returnPostToDraftAction(formData: FormData) {
-  const adminUser = await requireAdminUser();
+  const adminUser = await requireAuthenticatedUser();
   const postId = String(formData.get("postId") || "");
   const post = await getExistingPost(postId);
 
   if (!post) {
     throw new Error("Post not found.");
   }
+
+  assertPostAccess(adminUser, post);
 
   if (!canReturnToDraft(post.status)) {
     throw new Error("This post cannot be returned to draft.");
@@ -726,7 +952,7 @@ export async function returnPostToDraftAction(formData: FormData) {
 }
 
 export async function publishPostNowAction(formData: FormData) {
-  const adminUser = await requireAdminUser();
+  const adminUser = await requireAuthenticatedUser();
   const postId = String(formData.get("postId") || "");
   const confirmImmediate = String(formData.get("confirmImmediate") || "") === "1";
   const existingPost = await getExistingPost(postId);
@@ -734,6 +960,8 @@ export async function publishPostNowAction(formData: FormData) {
   if (!existingPost) {
     throw new Error("Post not found.");
   }
+
+  assertPostAccess(adminUser, existingPost);
 
   const allowedStatuses: SocialPostStatus[] = [
     SocialPostStatus.DRAFT,
@@ -799,6 +1027,7 @@ export async function publishPostNowAction(formData: FormData) {
       mediaAsset: existingPost.mediaAsset,
     });
   } catch (error) {
+    unstable_rethrow(error);
     const message = error instanceof Error ? error.message : "Facebook publishing prerequisites are not met.";
 
     await markImmediatePublishFailure({
@@ -926,8 +1155,9 @@ export async function publishPostNowAction(formData: FormData) {
     });
 
     revalidatePostViews(postId);
-    redirect("/dashboard/calendar");
+    redirect(buildCalendarHref({ flash: "published" }));
   } catch (error) {
+    unstable_rethrow(error);
     const message = error instanceof Error ? error.message : "Facebook publishing failed.";
 
     await createPostAuditLog({

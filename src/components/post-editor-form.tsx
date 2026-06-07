@@ -1,7 +1,7 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element */
-import { useActionState, useEffect, useMemo, useState, type SVGProps } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState, type SVGProps } from "react";
 import { savePostAction } from "@/app/dashboard/posts/actions";
 import {
   CalendarIcon,
@@ -9,24 +9,23 @@ import {
   ComposeIcon,
   FacebookIcon,
   GalleryIcon,
-  SuccessIcon,
 } from "@/components/dashboard-icons";
 import { MediaUploadField } from "@/components/media-upload-field";
 import { SubmitButton } from "@/components/submit-button";
 import {
-  formatBytes,
-  formatDimensions,
   getMediaVariantUrl,
   getPreferredPreviewVariant,
-  getVariantByType,
   type MediaAssetSummary,
 } from "@/lib/media-presentation";
+import { getMaxMediaCountForPlatforms, getPlatformMediaLimitMessage } from "@/lib/platform-rules";
 import { getSchedulerTimezoneLabel, SCHEDULER_MINUTE_OPTIONS } from "@/lib/time";
 import { initialFormState } from "@/lib/validation";
 
 const HOUR_OPTIONS = Array.from({ length: 12 }, (_, index) => String(index + 1));
 const MERIDIEM_OPTIONS = ["AM", "PM"] as const;
 const FACEBOOK_PLATFORM = "FACEBOOK";
+const INSTAGRAM_PLATFORM = "INSTAGRAM";
+const GOOGLE_PLATFORM = "GOOGLE_BUSINESS";
 const CAPTION_LIMIT = 5000;
 
 type PostEditorFormProps = {
@@ -38,14 +37,20 @@ type PostEditorFormProps = {
     scheduledMinute: string;
     scheduledMeridiem: string;
     status: string;
-    mediaAsset?: MediaAssetSummary | null;
+    mediaAssets: MediaAssetSummary[];
+    platforms: string[];
+    createdFrom?: string;
+    createdByLabel?: string;
+    createdAtLabel?: string;
+    updatedByLabel?: string;
+    updatedAtLabel?: string;
   };
   recentMediaAssets: MediaAssetSummary[];
   timezone: string;
   isReadOnly?: boolean;
+  hideHeroCopy?: boolean;
 };
 
-type ComposerIntent = "draft" | "schedule" | "publish";
 type PreviewPlatform = "FACEBOOK" | "GOOGLE";
 
 function SparkleIcon(props: SVGProps<SVGSVGElement>) {
@@ -145,18 +150,6 @@ function TileIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function getInitialIntent(post?: PostEditorFormProps["post"]): ComposerIntent {
-  if (post?.status === "PUBLISHED" || post?.status === "PUBLISHING") {
-    return "publish";
-  }
-
-  if (post?.status === "SCHEDULED") {
-    return "schedule";
-  }
-
-  return "schedule";
-}
-
 function formatLocalScheduleLabel(input: {
   scheduledDate: string;
   scheduledHour: string;
@@ -189,60 +182,30 @@ function PlatformCard({
   label,
   tone,
   selected,
-  disabled = false,
   hint,
+  onClick,
 }: {
   icon: React.ReactNode;
   label: string;
   tone: "facebook" | "google" | "instagram";
   selected?: boolean;
-  disabled?: boolean;
   hint?: string;
+  onClick?: () => void;
 }) {
   return (
     <button
       type="button"
-      className={`composer-platform-card is-${tone}${selected ? " is-selected" : ""}${disabled ? " is-disabled" : ""}`.trim()}
-      disabled={disabled}
+      className={`composer-platform-card is-${tone}${selected ? " is-selected" : ""}`.trim()}
+      onClick={onClick}
       aria-pressed={selected}
-      aria-label={`${label}${disabled ? " coming soon" : ""}`}
+      aria-label={label}
     >
       <span className={`composer-platform-icon is-${tone}`.trim()}>{icon}</span>
       <span className="composer-platform-copy">
         <strong>{label}</strong>
-        <span>{hint ?? (selected ? "Selected for this post" : "Ready")}</span>
+        <span>{hint ?? (selected ? "Selected for this post" : "Tap to select")}</span>
       </span>
-      <span className="composer-platform-indicator">{selected ? "Selected" : disabled ? "Soon" : "Available"}</span>
-    </button>
-  );
-}
-
-function IntentPill({
-  intent,
-  activeIntent,
-  onClick,
-  disabled = false,
-}: {
-  intent: ComposerIntent;
-  activeIntent: ComposerIntent;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  const labels: Record<ComposerIntent, string> = {
-    draft: "Save Draft",
-    schedule: "Schedule",
-    publish: "Post Now",
-  };
-
-  return (
-    <button
-      type="button"
-      className={`composer-intent-pill${activeIntent === intent ? " is-active" : ""}`.trim()}
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={activeIntent === intent}
-    >
-      {labels[intent]}
+      <span className="composer-platform-indicator">{selected ? "Selected" : "Available"}</span>
     </button>
   );
 }
@@ -252,10 +215,11 @@ export function PostEditorForm({
   recentMediaAssets,
   timezone,
   isReadOnly = false,
+  hideHeroCopy = false,
 }: PostEditorFormProps) {
   const [state, formAction] = useActionState(savePostAction, initialFormState);
+  const formRef = useRef<HTMLFormElement | null>(null);
   const [previewPlatform, setPreviewPlatform] = useState<PreviewPlatform>("FACEBOOK");
-  const [activeIntent, setActiveIntent] = useState<ComposerIntent>(getInitialIntent(post));
   const timezoneLabel = getSchedulerTimezoneLabel(timezone);
 
   const fallbackValues = useMemo(
@@ -265,8 +229,9 @@ export function PostEditorForm({
       scheduledHour: post?.scheduledHour ?? "5",
       scheduledMinute: post?.scheduledMinute ?? "00",
       scheduledMeridiem: post?.scheduledMeridiem ?? "PM",
-      mediaAssetId: post?.mediaAsset?.id ?? "",
-      platform: FACEBOOK_PLATFORM,
+      mediaAssetIds: post?.mediaAssets.map((asset) => asset.id) ?? [],
+      platforms: post?.platforms.length ? post.platforms : [FACEBOOK_PLATFORM],
+      mediaSelectionSource: "",
     }),
     [post],
   );
@@ -278,7 +243,9 @@ export function PostEditorForm({
   const [scheduledHour, setScheduledHour] = useState(formValues.scheduledHour);
   const [scheduledMinute, setScheduledMinute] = useState(formValues.scheduledMinute);
   const [scheduledMeridiem, setScheduledMeridiem] = useState(formValues.scheduledMeridiem);
-  const [selectedMediaAssetId, setSelectedMediaAssetId] = useState(formValues.mediaAssetId);
+  const [selectedMediaAssetIds, setSelectedMediaAssetIds] = useState(formValues.mediaAssetIds);
+  const [selectedPlatforms, setSelectedPlatforms] = useState(formValues.platforms);
+  const [mediaSelectionSource, setMediaSelectionSource] = useState(formValues.mediaSelectionSource ?? "");
 
   useEffect(() => {
     setCaption(formValues.caption);
@@ -286,26 +253,46 @@ export function PostEditorForm({
     setScheduledHour(formValues.scheduledHour);
     setScheduledMinute(formValues.scheduledMinute);
     setScheduledMeridiem(formValues.scheduledMeridiem);
-    setSelectedMediaAssetId(formValues.mediaAssetId);
+    setSelectedMediaAssetIds(formValues.mediaAssetIds);
+    setSelectedPlatforms(formValues.platforms);
+    setMediaSelectionSource(formValues.mediaSelectionSource ?? "");
   }, [
     formValues.caption,
-    formValues.mediaAssetId,
+    formValues.mediaAssetIds,
+    formValues.mediaSelectionSource,
+    formValues.platforms,
     formValues.scheduledDate,
     formValues.scheduledHour,
     formValues.scheduledMeridiem,
     formValues.scheduledMinute,
   ]);
 
-  const resolvedSelectedMediaAsset = useMemo(() => {
-    if (!selectedMediaAssetId) {
-      return post?.mediaAsset ?? null;
+  useEffect(() => {
+    const hasFieldErrors = Boolean(state.fieldErrors && Object.keys(state.fieldErrors).length > 0);
+    const shouldScrollToTop = Boolean((state.message && !state.success) || hasFieldErrors);
+
+    if (!shouldScrollToTop) {
+      return;
     }
 
-    return (
-      recentMediaAssets.find((asset) => asset.id === selectedMediaAssetId) ??
-      (post?.mediaAsset?.id === selectedMediaAssetId ? post.mediaAsset : null)
-    );
-  }, [post?.mediaAsset, recentMediaAssets, selectedMediaAssetId]);
+    formRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, [state.fieldErrors, state.message, state.success]);
+
+  const resolvedSelectedMediaAssets = useMemo(
+    () =>
+      selectedMediaAssetIds
+        .map(
+          (selectedId) =>
+            recentMediaAssets.find((asset) => asset.id === selectedId) ??
+            post?.mediaAssets.find((asset) => asset.id === selectedId) ??
+            null,
+        )
+        .filter((asset): asset is MediaAssetSummary => asset !== null),
+    [post?.mediaAssets, recentMediaAssets, selectedMediaAssetIds],
+  );
 
   const minuteOptions = SCHEDULER_MINUTE_OPTIONS.includes(
     scheduledMinute as (typeof SCHEDULER_MINUTE_OPTIONS)[number],
@@ -313,49 +300,59 @@ export function PostEditorForm({
     ? [...SCHEDULER_MINUTE_OPTIONS]
     : [scheduledMinute || "00", ...SCHEDULER_MINUTE_OPTIONS];
 
-  const previewVariant = resolvedSelectedMediaAsset
-    ? getPreferredPreviewVariant(resolvedSelectedMediaAsset.variants)
+  const previewMediaAsset = resolvedSelectedMediaAssets[0] ?? null;
+  const previewVariant = previewMediaAsset
+    ? getPreferredPreviewVariant(previewMediaAsset.variants)
     : null;
-  const originalVariant = resolvedSelectedMediaAsset
-    ? getVariantByType(resolvedSelectedMediaAsset.variants, "ORIGINAL")
-    : null;
-
-  const selectedSummaryPlatform = FACEBOOK_PLATFORM;
+  const maxMediaCount = getMaxMediaCountForPlatforms(selectedPlatforms);
+  const mediaLimitMessage =
+    selectedMediaAssetIds.length > maxMediaCount ? getPlatformMediaLimitMessage(selectedPlatforms) : null;
   const captionPreview = caption.trim() || "Fresh tile install with clean lines and warm tones...";
-  const scheduledForLabel =
-    activeIntent === "publish"
-      ? "Publishes immediately"
-      : formatLocalScheduleLabel({
-          scheduledDate,
-          scheduledHour,
-          scheduledMinute,
-          scheduledMeridiem,
-          timezoneLabel,
-        });
-  const postTypeLabel = resolvedSelectedMediaAsset ? "Image post" : "Text-only post";
-  const mediaCountLabel = resolvedSelectedMediaAsset ? "1 image" : "0 media";
-  const statusMessage = resolvedSelectedMediaAsset
-    ? "Original stored. Facebook will generate a temporary optimized JPEG at publish time."
-    : "All systems ready! Your text-only post is good to go.";
-
+  const scheduledForLabel = formatLocalScheduleLabel({
+    scheduledDate,
+    scheduledHour,
+    scheduledMinute,
+    scheduledMeridiem,
+    timezoneLabel,
+  });
+  const postTypeLabel = resolvedSelectedMediaAssets.length > 0 ? "Image post" : "Text-only post";
+  const mediaCountLabel = `${resolvedSelectedMediaAssets.length} media`;
+  const googlePreviewDateLabel = post?.scheduledDate
+    ? new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      }).format(new Date(`${post.scheduledDate}T00:00:00Z`))
+    : new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }).format(new Date());
   return (
-    <form action={formAction} className="composer-shell">
+    <form ref={formRef} action={formAction} className="composer-shell">
       <input type="hidden" name="postId" value={post?.id ?? ""} />
-      <input type="hidden" name="platform" value={selectedSummaryPlatform} />
+      <input type="hidden" name="createdFrom" value={post?.createdFrom ?? ""} />
+      <input type="hidden" name="mediaSelectionSource" value={mediaSelectionSource} />
+      {selectedPlatforms.map((platform) => (
+        <input key={platform} type="hidden" name="platforms" value={platform} />
+      ))}
 
       <div className="composer-grid">
         <section className="composer-main-column">
           <header className="composer-hero">
-            <div className="composer-hero-copy">
-              <div className="composer-hero-title-row">
-                <span className="composer-hero-mark" aria-hidden="true">
-                  <SparkleIcon />
-                </span>
-                <div>
-                  <h1>{post?.id ? "Edit Post" : "New Post"}</h1>
+            {!hideHeroCopy ? (
+              <div className="composer-hero-copy">
+                <div className="composer-hero-title-row">
+                  <span className="composer-hero-mark" aria-hidden="true">
+                    <SparkleIcon />
+                  </span>
+                  <div>
+                    <h1>{post?.id ? "Edit Post" : "New Post"}</h1>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : null}
 
             {!isReadOnly ? (
               <div className="composer-hero-actions">
@@ -364,7 +361,7 @@ export function PostEditorForm({
                 </SubmitButton>
                 <SubmitButton className="composer-action-button is-blue" name="intent" value="schedule">
                   <CalendarIcon />
-                  <span>Schedule</span>
+                  <span>Schedule Post</span>
                 </SubmitButton>
                 <SubmitButton className="composer-action-button is-green" name="intent" value="publish">
                   <PaperPlaneIcon />
@@ -430,25 +427,46 @@ export function PostEditorForm({
                 icon={<FacebookIcon />}
                 label="Facebook"
                 tone="facebook"
-                selected
-                hint="Active in this phase"
+                selected={selectedPlatforms.includes(FACEBOOK_PLATFORM)}
+                hint="Available now"
+                onClick={() =>
+                  setSelectedPlatforms((current) =>
+                    current.includes(FACEBOOK_PLATFORM)
+                      ? current.filter((platform) => platform !== FACEBOOK_PLATFORM)
+                      : [...current, FACEBOOK_PLATFORM],
+                  )
+                }
               />
               <PlatformCard
                 icon={<GoogleIcon />}
                 label="Google"
                 tone="google"
-                disabled
-                hint="Future-ready"
+                selected={selectedPlatforms.includes(GOOGLE_PLATFORM)}
+                hint="Planning only"
+                onClick={() =>
+                  setSelectedPlatforms((current) =>
+                    current.includes(GOOGLE_PLATFORM)
+                      ? current.filter((platform) => platform !== GOOGLE_PLATFORM)
+                      : [...current, GOOGLE_PLATFORM],
+                  )
+                }
               />
               <PlatformCard
                 icon={<InstagramIcon />}
                 label="Instagram"
                 tone="instagram"
-                disabled
-                hint="Future-ready"
+                selected={selectedPlatforms.includes(INSTAGRAM_PLATFORM)}
+                hint="Planning only"
+                onClick={() =>
+                  setSelectedPlatforms((current) =>
+                    current.includes(INSTAGRAM_PLATFORM)
+                      ? current.filter((platform) => platform !== INSTAGRAM_PLATFORM)
+                      : [...current, INSTAGRAM_PLATFORM],
+                  )
+                }
               />
             </div>
-            {state.fieldErrors?.platform?.map((error) => (
+            {state.fieldErrors?.platforms?.map((error) => (
               <span key={error} className="error-text">
                 {error}
               </span>
@@ -464,12 +482,19 @@ export function PostEditorForm({
             </div>
 
             <MediaUploadField
-              initialAsset={resolvedSelectedMediaAsset}
-              recentAssets={recentMediaAssets}
-              selectedMediaAssetId={selectedMediaAssetId}
-              onSelectedMediaAssetIdChange={setSelectedMediaAssetId}
+              availableAssets={recentMediaAssets}
+              selectedMediaAssetIds={selectedMediaAssetIds}
+              onSelectedMediaAssetIdsChange={setSelectedMediaAssetIds}
+              onSelectionSourceChange={setMediaSelectionSource}
+              maxMediaCount={maxMediaCount}
+              mediaLimitMessage={mediaLimitMessage}
               disabled={isReadOnly}
             />
+            {state.fieldErrors?.mediaAssetIds?.map((error) => (
+              <span key={error} className="error-text">
+                {error}
+              </span>
+            ))}
           </section>
 
           <section className="composer-section-card">
@@ -480,13 +505,7 @@ export function PostEditorForm({
               </div>
             </div>
 
-            <div className="composer-intent-switcher" role="tablist" aria-label="Post action mode">
-              <IntentPill intent="draft" activeIntent={activeIntent} onClick={() => setActiveIntent("draft")} disabled={isReadOnly} />
-              <IntentPill intent="schedule" activeIntent={activeIntent} onClick={() => setActiveIntent("schedule")} disabled={isReadOnly} />
-              <IntentPill intent="publish" activeIntent={activeIntent} onClick={() => setActiveIntent("publish")} disabled={isReadOnly} />
-            </div>
-
-            <div className={`composer-schedule-fields${activeIntent === "schedule" ? " is-visible" : ""}`.trim()}>
+            <div className="composer-schedule-fields is-visible">
               <div className="composer-schedule-grid">
                 <div className="field">
                   <label htmlFor="scheduledDate">Date</label>
@@ -578,6 +597,22 @@ export function PostEditorForm({
               </div>
             </div>
           </section>
+
+          {!isReadOnly ? (
+            <div className="composer-hero-actions composer-bottom-actions">
+              <SubmitButton className="composer-action-button is-secondary" name="intent" value="draft">
+                Save Draft
+              </SubmitButton>
+              <SubmitButton className="composer-action-button is-blue" name="intent" value="schedule">
+                <CalendarIcon />
+                <span>Schedule Post</span>
+              </SubmitButton>
+              <SubmitButton className="composer-action-button is-green" name="intent" value="publish">
+                <PaperPlaneIcon />
+                <span>Post Now</span>
+              </SubmitButton>
+            </div>
+          ) : null}
         </section>
 
         <aside className="composer-preview-column">
@@ -636,7 +671,7 @@ export function PostEditorForm({
                   {previewVariant ? (
                     <div className="composer-social-media">
                       <img
-                        src={getMediaVariantUrl((originalVariant ?? previewVariant).id)}
+                        src={getMediaVariantUrl(previewVariant.id)}
                         alt="Selected media preview"
                         className="composer-social-image"
                       />
@@ -666,15 +701,36 @@ export function PostEditorForm({
               ) : (
                 <div className="composer-google-preview">
                   <div className="composer-google-preview-head">
-                    <GoogleIcon />
-                    <div>
-                      <strong>Google Business Preview</strong>
-                      <span>Future-ready visual placeholder</span>
+                    <div className="composer-google-preview-page">
+                      <div className="composer-social-avatar composer-social-avatar--tile">
+                        <TileIcon />
+                      </div>
+                      <div className="composer-google-preview-page-copy">
+                        <strong>NC Tile Pros</strong>
+                        <span>{googlePreviewDateLabel}</span>
+                      </div>
                     </div>
+                    <span className="composer-google-preview-more">⋮</span>
                   </div>
-                  <p>{captionPreview}</p>
-                  <div className="composer-google-preview-meta">
-                    <span>Google-safe images will be generated temporarily when Google publishing is added later.</span>
+                  {previewVariant ? (
+                    <div className="composer-google-preview-media">
+                      <img
+                        src={getMediaVariantUrl(previewVariant.id)}
+                        alt="Selected media preview"
+                        className="composer-google-preview-image"
+                      />
+                    </div>
+                  ) : (
+                    <div className="composer-google-preview-media composer-google-preview-media--empty">
+                      <UploadCloudIcon />
+                      <span>No media selected yet</span>
+                    </div>
+                  )}
+                  <div className="composer-google-preview-body">
+                    <p>{captionPreview}</p>
+                  </div>
+                  <div className="composer-google-preview-footer">
+                    <ShareIcon />
                   </div>
                 </div>
               )}
@@ -689,7 +745,19 @@ export function PostEditorForm({
                 <div className="composer-summary-row">
                   <span className="composer-summary-icon"><FacebookIcon /></span>
                   <span className="composer-summary-label">Platform(s)</span>
-                  <span className="composer-summary-value">Facebook</span>
+                  <span className="composer-summary-value">
+                    {selectedPlatforms.length > 0
+                      ? selectedPlatforms
+                          .map((platform) =>
+                            platform === FACEBOOK_PLATFORM
+                              ? "Facebook"
+                              : platform === INSTAGRAM_PLATFORM
+                                ? "Instagram"
+                                : "Google Business"
+                          )
+                          .join(", ")
+                      : "No platforms selected"}
+                  </span>
                 </div>
                 <div className="composer-summary-row">
                   <span className="composer-summary-icon"><CalendarIcon /></span>
@@ -706,30 +774,26 @@ export function PostEditorForm({
                   <span className="composer-summary-label">Media Count</span>
                   <span className="composer-summary-value">{mediaCountLabel}</span>
                 </div>
+                {post?.createdByLabel ? (
+                  <div className="composer-summary-row">
+                    <span className="composer-summary-icon"><ComposeIcon /></span>
+                    <span className="composer-summary-label">Created By</span>
+                    <span className="composer-summary-value">
+                      {post.createdByLabel}{post.createdAtLabel ? ` · ${post.createdAtLabel}` : ""}
+                    </span>
+                  </div>
+                ) : null}
+                {post?.updatedByLabel ? (
+                  <div className="composer-summary-row">
+                    <span className="composer-summary-icon"><ComposeIcon /></span>
+                    <span className="composer-summary-label">Last Edited</span>
+                    <span className="composer-summary-value">
+                      {post.updatedByLabel}{post.updatedAtLabel ? ` · ${post.updatedAtLabel}` : ""}
+                    </span>
+                  </div>
+                ) : null}
               </div>
 
-              {resolvedSelectedMediaAsset ? (
-                <div className="composer-summary-media-meta">
-                  <strong>{resolvedSelectedMediaAsset.originalFilename}</strong>
-                  <span>
-                    {formatDimensions(resolvedSelectedMediaAsset.width, resolvedSelectedMediaAsset.height)} · {formatBytes(resolvedSelectedMediaAsset.sizeBytes)}
-                  </span>
-                  <span>
-                    Facebook:{" "}
-                    Temporary optimized JPEG at publish time
-                  </span>
-                </div>
-              ) : null}
-            </section>
-
-            <section className="composer-ready-card">
-              <span className="composer-ready-icon">
-                <SuccessIcon />
-              </span>
-              <div>
-                <strong>All systems ready!</strong>
-                <p>{statusMessage}</p>
-              </div>
             </section>
           </div>
         </aside>

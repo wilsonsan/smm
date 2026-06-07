@@ -6,7 +6,7 @@ import { assertSameOrigin, getRequestMetadata } from "@/lib/http";
 
 export async function GET(request: Request) {
   assertSameOrigin(request);
-  const session = await requireAdminSessionFromRequest(request, { touch: false });
+  const session = await requireAdminSessionFromRequest(request, { touch: false, requireAdmin: true });
   const config = await getFacebookConfiguration();
 
   if (config.missingConfig.length > 0) {

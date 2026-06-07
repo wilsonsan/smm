@@ -11,7 +11,12 @@ type SubmitButtonProps = {
 };
 
 export function SubmitButton(props: SubmitButtonProps) {
-  const { pending } = useFormStatus();
+  const { pending, data } = useFormStatus();
+  const isTriggeredButton =
+    pending &&
+    props.name &&
+    props.value &&
+    data?.get(props.name)?.toString() === props.value;
 
   return (
     <button
@@ -21,7 +26,7 @@ export function SubmitButton(props: SubmitButtonProps) {
       name={props.name}
       value={props.value}
     >
-      {pending ? "Working..." : props.children}
+      {isTriggeredButton ? "Working..." : props.children}
     </button>
   );
 }

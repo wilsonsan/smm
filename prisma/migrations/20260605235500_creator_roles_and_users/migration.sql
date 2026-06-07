@@ -1,0 +1,10 @@
+ALTER TABLE `AdminUser`
+  ADD COLUMN `firstName` VARCHAR(191) NULL,
+  ADD COLUMN `lastName` VARCHAR(191) NULL;
+
+UPDATE `AdminUser`
+SET `role` = 'CREATOR'
+WHERE `role` = 'USER';
+
+ALTER TABLE `AdminUser`
+  MODIFY `role` ENUM('ADMIN', 'CREATOR') NOT NULL DEFAULT 'ADMIN';

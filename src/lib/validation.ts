@@ -1,5 +1,6 @@
 import { SocialPlatform } from "@prisma/client";
 import { z } from "zod";
+import { areSelectedPlatformsPublishableNow, getMaxMediaCountForPlatforms, normalizeSelectedPlatforms } from "@/lib/platform-rules";
 import { isValidTimezone } from "@/lib/time";
 
 export const loginSchema = z.object({
@@ -10,25 +11,51 @@ export const loginSchema = z.object({
 export const postFormSchema = z
   .object({
     postId: z.string().trim().optional().transform((value) => value || ""),
-    mediaAssetId: z.string().trim().optional().transform((value) => value || ""),
+    mediaAssetIds: z.array(z.string().trim()).default([]).transform((value) => value.filter(Boolean)),
     caption: z.string().trim().max(5000),
     scheduledDate: z.string().trim().optional().transform((value) => value || ""),
     scheduledHour: z.string().trim().optional().transform((value) => value || ""),
     scheduledMinute: z.string().trim().optional().transform((value) => value || "00"),
     scheduledMeridiem: z.string().trim().optional().transform((value) => value || "PM"),
-    platform: z.nativeEnum(SocialPlatform).refine((value) => value === SocialPlatform.FACEBOOK, {
-      message: "Only Facebook is enabled in this phase.",
-    }),
+    platforms: z.array(z.string().trim()).default([]).transform((value) => normalizeSelectedPlatforms(value)),
     intent: z.enum(["draft", "schedule", "publish"]),
   })
   .superRefine((value, ctx) => {
     const hasAnyTimePart = Boolean(value.scheduledHour);
+    const maxMediaCount = getMaxMediaCountForPlatforms(value.platforms);
 
     if ((value.intent === "schedule" || value.intent === "publish") && !value.caption) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: value.intent === "publish" ? "Caption is required before posting now." : "Caption is required when scheduling a post.",
         path: ["caption"],
+      });
+    }
+
+    if (value.platforms.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Select at least one platform.",
+        path: ["platforms"],
+      });
+    }
+
+    if (value.mediaAssetIds.length > maxMediaCount) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          maxMediaCount === 1
+            ? "Google Business posts can only use 1 image. Remove extra images or deselect Google."
+            : `You can attach up to ${maxMediaCount} images for the selected platforms.`,
+        path: ["mediaAssetIds"],
+      });
+    }
+
+    if ((value.intent === "schedule" || value.intent === "publish") && !areSelectedPlatformsPublishableNow(value.platforms)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Only Facebook publishing is enabled right now. Remove Google or Instagram before scheduling or posting.",
+        path: ["platforms"],
       });
     }
 
@@ -147,6 +174,45 @@ export const passwordChangeSchema = z
     }
   });
 
+export const userRoleSchema = z.enum(["ADMIN", "CREATOR"]);
+
+export const createUserSchema = z.object({
+  username: z
+    .string()
+    .trim()
+    .min(3, "Username must be at least 3 characters.")
+    .max(32, "Username must be 32 characters or less.")
+    .regex(/^[a-zA-Z0-9_-]+$/, "Use letters, numbers, dashes, or underscores only."),
+  email: z.string().trim().email("Enter a valid email address."),
+  password: z
+    .string()
+    .min(12, "Password must be at least 12 characters.")
+    .regex(/[a-z]/, "Password must include a lowercase letter.")
+    .regex(/[A-Z]/, "Password must include an uppercase letter.")
+    .regex(/[0-9]/, "Password must include a number."),
+  role: userRoleSchema,
+});
+
+export const updateManagedUserSchema = z.object({
+  userId: z.string().trim().min(1, "User ID is required."),
+  username: z
+    .string()
+    .trim()
+    .min(3, "Username must be at least 3 characters.")
+    .max(32, "Username must be 32 characters or less.")
+    .regex(/^[a-zA-Z0-9_-]+$/, "Use letters, numbers, dashes, or underscores only."),
+  email: z.string().trim().email("Enter a valid email address."),
+  password: z
+    .string()
+    .optional()
+    .transform((value) => value?.trim() || "")
+    .refine((value) => value.length === 0 || value.length >= 12, "Password must be at least 12 characters.")
+    .refine((value) => value.length === 0 || /[a-z]/.test(value), "Password must include a lowercase letter.")
+    .refine((value) => value.length === 0 || /[A-Z]/.test(value), "Password must include an uppercase letter.")
+    .refine((value) => value.length === 0 || /[0-9]/.test(value), "Password must include a number."),
+  role: userRoleSchema,
+});
+
 export type FormState = {
   success: boolean;
   message: string | null;
@@ -157,8 +223,9 @@ export type FormState = {
     scheduledHour: string;
     scheduledMinute: string;
     scheduledMeridiem: string;
-    mediaAssetId: string;
-    platform: string;
+    mediaAssetIds: string[];
+    platforms: string[];
+    mediaSelectionSource?: string;
   };
 };
 

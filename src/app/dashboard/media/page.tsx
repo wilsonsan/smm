@@ -16,7 +16,13 @@ export default async function MediaPage() {
           select: {
             platforms: {
               where: {
-                status: SocialPostStatus.PUBLISHED,
+                status: {
+                  in: [
+                    SocialPostStatus.SCHEDULED,
+                    SocialPostStatus.PUBLISHING,
+                    SocialPostStatus.PUBLISHED,
+                  ],
+                },
               },
               select: {
                 platform: true,

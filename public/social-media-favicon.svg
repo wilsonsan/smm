@@ -2,17 +2,17 @@
   <title>Social Media Manager</title>
   <defs>
     <linearGradient id="bg" x1="10%" y1="0%" x2="90%" y2="100%">
-      <stop offset="0%" stop-color="#d56a3b" />
-      <stop offset="100%" stop-color="#8f3f22" />
+      <stop offset="0%" stop-color="#8e5cff" />
+      <stop offset="100%" stop-color="#4168ff" />
     </linearGradient>
   </defs>
   <rect x="4" y="4" width="56" height="56" rx="18" fill="url(#bg)" />
   <path
     d="M20 20h24c3.314 0 6 2.686 6 6v12c0 3.314-2.686 6-6 6H33l-9 8v-8h-4c-3.314 0-6-2.686-6-6V26c0-3.314 2.686-6 6-6Z"
-    fill="#fff8f0"
+    fill="#f7f5ff"
     opacity="0.96"
   />
-  <circle cx="24" cy="32" r="3.2" fill="#b65128" />
-  <circle cx="32" cy="32" r="3.2" fill="#b65128" />
-  <circle cx="40" cy="32" r="3.2" fill="#b65128" />
+  <circle cx="24" cy="32" r="3.2" fill="#6a54ff" />
+  <circle cx="32" cy="32" r="3.2" fill="#6a54ff" />
+  <circle cx="40" cy="32" r="3.2" fill="#6a54ff" />
 </svg>

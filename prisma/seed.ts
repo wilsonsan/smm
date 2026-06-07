@@ -20,8 +20,13 @@ async function main() {
       passwordHash,
       username: "admin",
       role: "ADMIN",
+      firstName: "Admin",
+      lastName: null,
+      displayName: "Admin",
     },
     create: {
+      firstName: "Admin",
+      lastName: null,
       username: "admin",
       email: adminEmail,
       passwordHash,

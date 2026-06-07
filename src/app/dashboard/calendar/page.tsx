@@ -1,11 +1,15 @@
 import { DateTime } from "luxon";
 import { SocialPlatform, SocialPostStatus } from "@prisma/client";
 import { CalendarCommandCenter } from "@/components/calendar-command-center";
+import { openNotificationAction } from "@/app/dashboard/actions";
+import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { buildMonthGrid, formatMonthParam, shiftMonth } from "@/lib/calendar";
 import { getPostCaptionPreview, resolvePostCalendarAt } from "@/lib/posts";
 import { getMediaVariantUrl, getPreferredPreviewVariant } from "@/lib/media-presentation";
+import { getNotificationCenterSnapshot } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import {
+  formatDateTimeForTimezone,
   formatMonthLabel,
   getMonthRangeForTimezone,
   getResolvedAppTimezone,
@@ -15,6 +19,7 @@ type CalendarPageProps = {
   searchParams?: Promise<{
     month?: string;
     statuses?: string;
+    flash?: string;
   }>;
 };
 
@@ -49,19 +54,35 @@ function buildCalendarHref(month: DateTime) {
 }
 
 function buildNewPostHref(dateKey: string) {
-  const params = new URLSearchParams({ date: dateKey });
+  const params = new URLSearchParams({
+    date: dateKey,
+    hour: "6",
+    minute: "00",
+    ampm: "PM",
+    createdFrom: "calendar-date",
+  });
   return `/dashboard/posts/new?${params.toString()}`;
 }
 
 export default async function CalendarPage({ searchParams }: CalendarPageProps) {
+  await requireAuthenticatedUser();
   const resolvedSearchParams = await searchParams;
   const timezone = await getResolvedAppTimezone();
-  const { monthStart, monthEnd } = getMonthRangeForTimezone(resolvedSearchParams?.month, timezone);
+  const notificationCenter = await getNotificationCenterSnapshot();
+  const { monthStart } = getMonthRangeForTimezone(resolvedSearchParams?.month, timezone);
   const previousMonth = shiftMonth(monthStart, -1);
   const nextMonth = shiftMonth(monthStart, 1);
   const currentMonth = DateTime.now().setZone(timezone).startOf("month");
   const todayDateKey = DateTime.now().setZone(timezone).toFormat("yyyy-MM-dd");
   const initialStatusFilter = resolveInitialStatusFilter(resolvedSearchParams?.statuses);
+  const flashMessage =
+    resolvedSearchParams?.flash === "published"
+      ? "Post published successfully."
+      : resolvedSearchParams?.flash === "scheduled"
+        ? "Post scheduled successfully."
+        : resolvedSearchParams?.flash === "draft"
+          ? "Draft saved successfully."
+          : null;
 
   const posts = await prisma.socialPost.findMany({
     where: {
@@ -140,8 +161,20 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
       todayHref={buildCalendarHref(currentMonth)}
       newPostTodayHref={buildNewPostHref(todayDateKey)}
       initialStatusFilter={initialStatusFilter}
+      flashMessage={flashMessage}
       days={days}
       posts={calendarPosts}
+      unreadCount={notificationCenter.unreadCount}
+      notifications={notificationCenter.unreadNotifications.map((notification) => ({
+        id: notification.id,
+        title: notification.title,
+        message: notification.message,
+        actionUrl: notification.actionUrl,
+        provider: notification.provider,
+        severity: notification.severity,
+        createdLabel: formatDateTimeForTimezone(notification.createdAt, timezone),
+      }))}
+      openNotificationAction={openNotificationAction}
     />
   );
 }

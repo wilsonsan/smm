@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { updateAccountProfileAction } from "@/app/dashboard/account/actions";
 import { SubmitButton } from "@/components/submit-button";
 import { initialFormState } from "@/lib/validation";
@@ -11,7 +12,14 @@ type AccountProfileFormProps = {
 };
 
 export function AccountProfileForm({ username, email }: AccountProfileFormProps) {
+  const router = useRouter();
   const [state, formAction] = useActionState(updateAccountProfileAction, initialFormState);
+
+  useEffect(() => {
+    if (state.success) {
+      router.refresh();
+    }
+  }, [router, state.success]);
 
   return (
     <form action={formAction} className="form-grid">

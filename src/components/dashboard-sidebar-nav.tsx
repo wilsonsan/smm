@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { AdminUserRole } from "@prisma/client";
 import type { ComponentType, SVGProps } from "react";
 import {
   CalendarIcon,
@@ -48,20 +49,21 @@ const NAV_ITEMS: NavItem[] = [
     label: "Settings",
     icon: SettingsIcon,
     isActive: (pathname) =>
-      pathname === "/dashboard/settings" ||
-      pathname.startsWith("/dashboard/settings/channels/facebook") ||
-      pathname.startsWith("/dashboard/settings/site") ||
-      pathname.startsWith("/dashboard/settings/channels/google") ||
-      pathname.startsWith("/dashboard/settings/channels/instagram"),
+      pathname === "/dashboard/settings" || pathname.startsWith("/dashboard/settings/"),
   },
 ];
 
-export function DashboardSidebarNav() {
+type DashboardSidebarNavProps = {
+  role: AdminUserRole;
+};
+
+export function DashboardSidebarNav({ role }: DashboardSidebarNavProps) {
   const pathname = usePathname();
+  const visibleItems = role === AdminUserRole.ADMIN ? NAV_ITEMS : NAV_ITEMS.filter((item) => item.href !== "/dashboard/settings");
 
   return (
     <nav className="sidebar-nav" aria-label="Dashboard navigation">
-      {NAV_ITEMS.map((item) => {
+      {visibleItems.map((item) => {
         const active = item.isActive(pathname);
         const Icon = item.icon;
 

@@ -1,4 +1,4 @@
-import { requireAdminUser } from "@/lib/auth/session";
+import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
 import { AccountPasswordForm } from "@/components/account-password-form";
@@ -6,7 +6,7 @@ import { AccountProfileForm } from "@/components/account-profile-form";
 import { RoleBadge } from "@/components/role-badge";
 
 export default async function AccountPage() {
-  const adminUser = await requireAdminUser();
+  const adminUser = await requireAuthenticatedUser();
   const timezone = await getResolvedAppTimezone();
   const currentUser = await prisma.adminUser.findUnique({
     where: {

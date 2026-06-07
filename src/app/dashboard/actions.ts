@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireAdminUser } from "@/lib/auth/session";
+import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { logoutCurrentAdmin } from "@/lib/auth/session";
 import { markNotificationRead } from "@/lib/notifications";
 
@@ -12,7 +12,7 @@ export async function logoutAction() {
 }
 
 export async function openNotificationAction(formData: FormData) {
-  const adminUser = await requireAdminUser();
+  const adminUser = await requireAuthenticatedUser();
   const notificationId = String(formData.get("notificationId") || "").trim();
   const actionUrl = String(formData.get("actionUrl") || "").trim();
 

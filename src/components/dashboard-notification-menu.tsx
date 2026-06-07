@@ -97,8 +97,7 @@ export function DashboardNotificationMenu({
           <div className="dashboard-notification-list">
             {notifications.length === 0 ? (
               <div className="dashboard-notification-empty">
-                <strong>No unread notifications</strong>
-                <span>Facebook token issues and worker alerts will show up here.</span>
+                <strong>No notifications</strong>
               </div>
             ) : (
               notifications.map((notification) => (

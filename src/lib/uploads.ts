@@ -1,6 +1,6 @@
 import { access, mkdir, readdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { fileTypeFromBuffer } from "file-type";
 import { MediaVariantType } from "@prisma/client";
@@ -37,6 +37,13 @@ type OriginalUpload = StoredMediaFile & {
 
 type GeneratedVariant = StoredMediaFile;
 
+type ValidatedUpload = {
+  buffer: Buffer;
+  contentHash: string;
+  extension: string;
+  mimeType: string;
+};
+
 export type TemporaryPlatformImagePlatform = "FACEBOOK" | "GOOGLE_BUSINESS" | "INSTAGRAM";
 
 export type ValidatedStoredMediaFile = {
@@ -60,6 +67,19 @@ export type TemporaryMediaCleanupResult = {
   status: "deleted" | "missing" | "failed";
   message: string | null;
 };
+
+export type DeleteMediaAssetResult =
+  | {
+      status: "deleted";
+      mediaAssetId: string;
+      deletedFileCount: number;
+      missingFileCount: number;
+    }
+  | {
+      status: "blocked";
+      mediaAssetId: string;
+      blockingPostIds: string[];
+    };
 
 export function resolveUploadBasePath(configuredPath: string) {
   return path.isAbsolute(configuredPath)
@@ -161,9 +181,10 @@ async function validateUploadedFile(file: File) {
 
   return {
     buffer,
+    contentHash: createHash("sha256").update(buffer).digest("hex"),
     extension: detectedType.ext,
     mimeType: detectedType.mime,
-  };
+  } satisfies ValidatedUpload;
 }
 
 export async function getImageMetadata(buffer: Buffer, mimeType?: string) {
@@ -212,8 +233,9 @@ export async function saveOriginalUpload(input: {
   file: File;
   occurredAt?: Date;
   uploadBasePath?: string;
+  validatedUpload?: ValidatedUpload;
 }) {
-  const validatedFile = await validateUploadedFile(input.file);
+  const validatedFile = input.validatedUpload ?? (await validateUploadedFile(input.file));
   const occurredAt = input.occurredAt ?? new Date();
   const uploadBasePath =
     input.uploadBasePath ??
@@ -233,6 +255,71 @@ export async function saveOriginalUpload(input: {
     variantType: MediaVariantType.ORIGINAL,
     width: metadata.width,
   } satisfies OriginalUpload;
+}
+
+async function findExistingMediaAssetByContentHash(input: {
+  contentHash: string;
+  height: number;
+  mimeType: string;
+  sizeBytes: bigint;
+  width: number;
+}) {
+  const exactMatch = await prisma.mediaAsset.findFirst({
+    where: {
+      contentHash: input.contentHash,
+    },
+    include: {
+      variants: {
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const legacyCandidates = await prisma.mediaAsset.findMany({
+    where: {
+      contentHash: null,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      width: input.width,
+      height: input.height,
+    },
+    include: {
+      variants: {
+        orderBy: { createdAt: "asc" },
+      },
+    },
+    take: 25,
+  });
+
+  for (const candidate of legacyCandidates) {
+    try {
+      const { sourceBuffer } = await readStoredMediaBuffer(candidate.storagePath);
+      const candidateHash = createHash("sha256").update(sourceBuffer).digest("hex");
+      if (candidateHash !== input.contentHash) {
+        continue;
+      }
+
+      await prisma.mediaAsset
+        .update({
+          where: { id: candidate.id },
+          data: { contentHash: candidateHash },
+        })
+        .catch(() => undefined);
+
+      return {
+        ...candidate,
+        contentHash: candidateHash,
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
 }
 
 export async function generateFacebookVariant(input: {
@@ -629,6 +716,84 @@ export async function cleanupStoredPermanentMediaVariants(input?: {
   return summary;
 }
 
+export async function deleteStoredMediaAsset(input: {
+  mediaAssetId: string;
+  uploadBasePath?: string;
+}) {
+  const uploadBasePath =
+    input.uploadBasePath ??
+    resolveUploadBasePath((await getUploadDirectory()) || env.UPLOAD_DIR);
+
+  const mediaAsset = await prisma.mediaAsset.findUnique({
+    where: {
+      id: input.mediaAssetId,
+    },
+    include: {
+      variants: {
+        select: {
+          id: true,
+          storagePath: true,
+        },
+      },
+      attachedToPosts: {
+        select: {
+          socialPost: {
+            select: {
+              id: true,
+              status: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!mediaAsset) {
+    throw new Error("The selected media asset no longer exists.");
+  }
+
+  const blockingPosts = mediaAsset.attachedToPosts
+    .map((relation) => relation.socialPost)
+    .filter((post) => post.status !== "PUBLISHED");
+  if (blockingPosts.length > 0) {
+    return {
+      status: "blocked",
+      mediaAssetId: mediaAsset.id,
+      blockingPostIds: blockingPosts.map((post) => post.id),
+    } satisfies DeleteMediaAssetResult;
+  }
+
+  let deletedFileCount = 0;
+  let missingFileCount = 0;
+
+  for (const variant of mediaAsset.variants) {
+    const absolutePath = ensureSafeAbsolutePath(uploadBasePath, variant.storagePath);
+    try {
+      await unlink(absolutePath);
+      deletedFileCount += 1;
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+        missingFileCount += 1;
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  await prisma.mediaAsset.delete({
+    where: {
+      id: mediaAsset.id,
+    },
+  });
+
+  return {
+    status: "deleted",
+    mediaAssetId: mediaAsset.id,
+    deletedFileCount,
+    missingFileCount,
+  } satisfies DeleteMediaAssetResult;
+}
+
 export function buildMediaVariantUrl(variantId: string) {
   return `/api/admin/media/${variantId}`;
 }
@@ -642,15 +807,35 @@ export async function storeUploadedMedia(input: {
   const storedFiles: StoredMediaFile[] = [];
 
   try {
+    const validatedUpload = await validateUploadedFile(input.file);
+    const metadata = await getImageMetadata(validatedUpload.buffer, validatedUpload.mimeType);
+    const existingMediaAsset = await findExistingMediaAssetByContentHash({
+      contentHash: validatedUpload.contentHash,
+      mimeType: validatedUpload.mimeType,
+      sizeBytes: BigInt(validatedUpload.buffer.byteLength),
+      width: metadata.width,
+      height: metadata.height,
+    });
+
+    if (existingMediaAsset) {
+      return {
+        status: "duplicate" as const,
+        mediaAsset: existingMediaAsset,
+        variants: existingMediaAsset.variants,
+      };
+    }
+
     const originalUpload = await saveOriginalUpload({
       file: input.file,
       occurredAt,
       uploadBasePath,
+      validatedUpload,
     });
     storedFiles.push(originalUpload);
 
     const mediaAsset = await prisma.mediaAsset.create({
       data: {
+        contentHash: validatedUpload.contentHash,
         originalFilename: originalUpload.originalFilename,
         mimeType: originalUpload.mimeType,
         sizeBytes: originalUpload.sizeBytes,
@@ -679,6 +864,7 @@ export async function storeUploadedMedia(input: {
     });
 
     return {
+      status: "uploaded" as const,
       mediaAsset,
       variants: mediaAsset.variants,
     };

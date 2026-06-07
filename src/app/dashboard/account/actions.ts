@@ -1,7 +1,8 @@
 "use server";
 
 import bcrypt from "bcryptjs";
-import { requireAdminUser } from "@/lib/auth/session";
+import { revalidatePath } from "next/cache";
+import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
 import { getRequestMetadata } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
@@ -16,7 +17,7 @@ export async function updateAccountProfileAction(
   _: FormState,
   formData: FormData,
 ): Promise<FormState> {
-  const adminUser = await requireAdminUser();
+  const adminUser = await requireAuthenticatedUser();
   const parsed = accountProfileSchema.safeParse({
     username: formData.get("username"),
     email: formData.get("email"),
@@ -134,6 +135,8 @@ export async function updateAccountProfileAction(
     });
   }
 
+  revalidatePath("/dashboard/account");
+  revalidatePath("/dashboard");
   return {
     success: true,
     message: "Account profile updated.",
@@ -141,7 +144,7 @@ export async function updateAccountProfileAction(
 }
 
 export async function changePasswordAction(_: FormState, formData: FormData): Promise<FormState> {
-  const adminUser = await requireAdminUser();
+  const adminUser = await requireAuthenticatedUser();
   const parsed = passwordChangeSchema.safeParse({
     currentPassword: formData.get("currentPassword"),
     newPassword: formData.get("newPassword"),
@@ -196,7 +199,7 @@ export async function changePasswordAction(_: FormState, formData: FormData): Pr
   const { ipAddress, userAgent } = await getRequestMetadata();
   await createAuditLog({
     actorAdminUserId: adminUser.id,
-    action: AUDIT_ACTIONS.ACCOUNT_PASSWORD_CHANGED,
+    action: AUDIT_ACTIONS.USER_PASSWORD_CHANGED_BY_SELF,
     targetType: "AdminUser",
     targetId: adminUser.id,
     ipAddress,

@@ -2,11 +2,12 @@ import { randomBytes, createHash } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { AdminUser } from "@prisma/client";
-import { env, isProduction } from "@/lib/env";
+import { AdminUser, AdminUserRole, Prisma } from "@prisma/client";
+import { env, isSecureAppUrl } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { getRequestMetadata } from "@/lib/http";
 import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
+import { isDeletedArchiveUser } from "@/lib/managed-users";
 
 export const SESSION_COOKIE_NAME = "smm_admin_session";
 
@@ -23,7 +24,7 @@ async function setSessionCookie(token: string, expiresAt: Date) {
   cookieStore.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: isProduction,
+    secure: isSecureAppUrl,
     expires: expiresAt,
     path: "/",
   });
@@ -34,7 +35,7 @@ export async function clearSessionCookie() {
   cookieStore.set(SESSION_COOKIE_NAME, "", {
     httpOnly: true,
     sameSite: "lax",
-    secure: isProduction,
+    secure: isSecureAppUrl,
     expires: new Date(0),
     path: "/",
   });
@@ -74,6 +75,13 @@ export async function getAdminSessionByToken(
     return null;
   }
 
+  if (isDeletedArchiveUser(session.adminUser)) {
+    await prisma.adminSession.delete({
+      where: { id: session.id },
+    }).catch(() => undefined);
+    return null;
+  }
+
   if (session.expiresAt <= new Date()) {
     await prisma.adminSession.delete({
       where: { id: session.id },
@@ -103,7 +111,33 @@ export async function getCurrentAdminUser() {
   return session?.adminUser ?? null;
 }
 
-export async function requireAdminUser() {
+export function isAdminUserRole(role: AdminUserRole) {
+  return role === AdminUserRole.ADMIN;
+}
+
+export function canAccessOwnedResource(adminUser: Pick<AdminUser, "id" | "role">, ownerAdminUserId: string | null | undefined) {
+  return isAdminUserRole(adminUser.role) || ownerAdminUserId === adminUser.id;
+}
+
+async function logAdminAccessDenied(input: {
+  actorAdminUserId: string;
+  targetType?: string | null;
+  targetId?: string | null;
+  metadata?: Prisma.InputJsonValue;
+}) {
+  const { ipAddress, userAgent } = await getRequestMetadata();
+  await createAuditLog({
+    actorAdminUserId: input.actorAdminUserId,
+    action: AUDIT_ACTIONS.ADMIN_ACCESS_DENIED,
+    targetType: input.targetType ?? "AdminOnlyResource",
+    targetId: input.targetId ?? null,
+    ipAddress,
+    userAgent,
+    metadata: input.metadata,
+  }).catch(() => undefined);
+}
+
+export async function requireAuthenticatedUser() {
   const session = await getCurrentAdminSession();
 
   if (!session) {
@@ -113,10 +147,38 @@ export async function requireAdminUser() {
   return session.adminUser;
 }
 
+export async function requireAdminUser(input?: {
+  redirectTo?: string;
+  targetType?: string;
+  targetId?: string | null;
+}) {
+  const adminUser = await requireAuthenticatedUser();
+
+  if (!isAdminUserRole(adminUser.role)) {
+    await logAdminAccessDenied({
+      actorAdminUserId: adminUser.id,
+      targetType: input?.targetType,
+      targetId: input?.targetId,
+      metadata: {
+        requiredRole: AdminUserRole.ADMIN,
+        actualRole: adminUser.role,
+      },
+    });
+    redirect(input?.redirectTo || "/dashboard");
+  }
+
+  return adminUser;
+}
+
+export async function requireCreatorOrAdminUser() {
+  return requireAuthenticatedUser();
+}
+
 export async function requireAdminSessionFromRequest(
   request: Request,
   options?: {
     touch?: boolean;
+    requireAdmin?: boolean;
   },
 ) {
   const token = getSessionTokenFromCookieHeader(request.headers.get("cookie"));
@@ -124,6 +186,23 @@ export async function requireAdminSessionFromRequest(
 
   if (!session) {
     throw new Response("Unauthorized.", { status: 401 });
+  }
+
+  if (options?.requireAdmin && !isAdminUserRole(session.adminUser.role)) {
+    await createAuditLog({
+      actorAdminUserId: session.adminUserId,
+      action: AUDIT_ACTIONS.ADMIN_ACCESS_DENIED,
+      targetType: "AdminOnlyRoute",
+      ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null,
+      userAgent: request.headers.get("user-agent"),
+      metadata: {
+        requiredRole: AdminUserRole.ADMIN,
+        actualRole: session.adminUser.role,
+        method: request.method,
+        url: request.url,
+      },
+    }).catch(() => undefined);
+    throw new Response("Forbidden.", { status: 403 });
   }
 
   return session;
@@ -156,6 +235,10 @@ export async function authenticateAdmin(email: string, password: string): Promis
     return null;
   }
 
+  if (isDeletedArchiveUser(adminUser)) {
+    return null;
+  }
+
   const passwordMatches = await bcrypt.compare(password, adminUser.passwordHash);
   if (!passwordMatches) {
     return null;
@@ -165,6 +248,10 @@ export async function authenticateAdmin(email: string, password: string): Promis
 }
 
 export async function loginAdminUser(adminUser: AdminUser) {
+  if (isDeletedArchiveUser(adminUser)) {
+    return;
+  }
+
   await prisma.adminUser.update({
     where: { id: adminUser.id },
     data: { lastLoginAt: new Date() },

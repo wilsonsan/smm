@@ -29,6 +29,7 @@ export type MediaAssetPostedPlatformFlags = {
   postedToGoogle: boolean;
   postedAnywhere: boolean;
   postedEverywhere: boolean;
+  publishedAnywhere: boolean;
 };
 
 export type MediaAssetGallerySummary = MediaAssetSummary & {
@@ -171,17 +172,20 @@ export function toMediaAssetSummary(asset: {
 }
 
 export function resolvePostedPlatformFlags(platforms: Array<{ platform: string; status: string }>) {
+  const activePostingStatuses = new Set(["SCHEDULED", "PUBLISHING", "PUBLISHED"]);
+  const publishedStatuses = new Set(["PUBLISHED"]);
   const postedToFacebook = platforms.some(
-    (platform) => platform.platform === "FACEBOOK" && platform.status === "PUBLISHED",
+    (platform) => platform.platform === "FACEBOOK" && activePostingStatuses.has(platform.status),
   );
   const postedToInstagram = platforms.some(
-    (platform) => platform.platform === "INSTAGRAM" && platform.status === "PUBLISHED",
+    (platform) => platform.platform === "INSTAGRAM" && activePostingStatuses.has(platform.status),
   );
   const postedToGoogle = platforms.some(
-    (platform) => platform.platform === "GOOGLE_BUSINESS" && platform.status === "PUBLISHED",
+    (platform) => platform.platform === "GOOGLE_BUSINESS" && activePostingStatuses.has(platform.status),
   );
   const postedAnywhere = postedToFacebook || postedToInstagram || postedToGoogle;
   const postedEverywhere = postedToFacebook && postedToInstagram && postedToGoogle;
+  const publishedAnywhere = platforms.some((platform) => publishedStatuses.has(platform.status));
 
   return {
     postedToFacebook,
@@ -189,6 +193,7 @@ export function resolvePostedPlatformFlags(platforms: Array<{ platform: string; 
     postedToGoogle,
     postedAnywhere,
     postedEverywhere,
+    publishedAnywhere,
   };
 }
 

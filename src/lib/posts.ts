@@ -101,7 +101,7 @@ export async function validateAndResolveScheduledAt(input: {
   }
 
   if (input.intent === "schedule" && scheduledAt.getTime() <= Date.now()) {
-    throw new Error("Choose a future Eastern Time for scheduled posts.");
+    throw new Error("Choose a future time for scheduled posts.");
   }
 
   return {
