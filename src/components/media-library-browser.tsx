@@ -508,12 +508,14 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
         const queuedUpload = queuedUploads[index];
         setUploadProgressLabel(`Uploading ${index + 1} of ${queuedUploads.length}...`);
 
-        const formData = new FormData();
-        formData.append("file", queuedUpload.file);
-
         const response = await fetch("/api/admin/uploads", {
           method: "POST",
-          body: formData,
+          headers: {
+            "Content-Type": queuedUpload.file.type || "application/octet-stream",
+            "X-Upload-Filename": encodeURIComponent(queuedUpload.file.name),
+            "X-Upload-Mime-Type": queuedUpload.file.type || "application/octet-stream",
+          },
+          body: queuedUpload.file,
         });
 
         const payload = (await response

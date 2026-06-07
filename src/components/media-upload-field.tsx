@@ -185,12 +185,14 @@ export function MediaUploadField({
 
     try {
       for (const file of files) {
-        const formData = new FormData();
-        formData.append("file", file);
-
         const response = await fetch("/api/admin/uploads", {
           method: "POST",
-          body: formData,
+          headers: {
+            "Content-Type": file.type || "application/octet-stream",
+            "X-Upload-Filename": encodeURIComponent(file.name),
+            "X-Upload-Mime-Type": file.type || "application/octet-stream",
+          },
+          body: file,
         });
 
         const payload = (await response
