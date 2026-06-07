@@ -15,7 +15,7 @@ export async function DELETE(request: Request, context: RouteContext) {
   let actorAdminUserId: string | null = null;
 
   try {
-    assertSameOrigin(request);
+    await assertSameOrigin(request);
     const session = await requireAdminSessionFromRequest(request);
     actorAdminUserId = session.adminUserId;
     const { mediaAssetId } = await context.params;

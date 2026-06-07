@@ -5,7 +5,7 @@ import { getRequestMetadata, assertSameOrigin } from "@/lib/http";
 import { requireAdminSessionFromRequest } from "@/lib/auth/session";
 
 export async function GET(request: Request) {
-  assertSameOrigin(request);
+  await assertSameOrigin(request);
   const session = await requireAdminSessionFromRequest(request, { touch: false, requireAdmin: true });
   const config = await getFacebookConfiguration();
   const requestUrl = new URL(request.url);

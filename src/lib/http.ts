@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { env } from "@/lib/env";
+import { getAppSettings } from "@/lib/settings";
 
 function normalizeOrigin(value: string) {
   return value.replace(/\/+$/, "");
@@ -17,8 +18,9 @@ export async function getRequestMetadata() {
   };
 }
 
-export function assertSameOrigin(request: Request) {
-  const expectedOrigin = normalizeOrigin(env.APP_URL);
+export async function assertSameOrigin(request: Request) {
+  const settings = await getAppSettings();
+  const expectedOrigin = normalizeOrigin(settings.publicAppUrl || env.APP_URL);
   const origin = request.headers.get("origin");
   const referer = request.headers.get("referer");
 
@@ -30,4 +32,3 @@ export function assertSameOrigin(request: Request) {
     throw new Response("Invalid referer.", { status: 403 });
   }
 }
-
