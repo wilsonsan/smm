@@ -10,6 +10,9 @@ export const APP_SETTING_KEYS = {
   FACEBOOK_APP_ID: "FACEBOOK_APP_ID",
   FACEBOOK_APP_SECRET: "FACEBOOK_APP_SECRET",
   FACEBOOK_PAGE_LOOKUP_VALUE: "FACEBOOK_PAGE_LOOKUP_VALUE",
+  GOOGLE_CLIENT_ID: "GOOGLE_CLIENT_ID",
+  GOOGLE_CLIENT_SECRET: "GOOGLE_CLIENT_SECRET",
+  GOOGLE_DIAGNOSTIC_SNAPSHOT: "GOOGLE_DIAGNOSTIC_SNAPSHOT",
   FACEBOOK_DIAGNOSTIC_SNAPSHOT: "FACEBOOK_DIAGNOSTIC_SNAPSHOT",
   WORKER_LAST_RUN_AT: "WORKER_LAST_RUN_AT",
   WORKER_LAST_RESULT: "WORKER_LAST_RESULT",
@@ -61,6 +64,8 @@ export async function getAppSettings() {
     facebookAppId: byKey.get(APP_SETTING_KEYS.FACEBOOK_APP_ID) || "",
     facebookAppSecretConfigured: Boolean(byKey.get(APP_SETTING_KEYS.FACEBOOK_APP_SECRET)?.trim()),
     facebookPageLookupValue: byKey.get(APP_SETTING_KEYS.FACEBOOK_PAGE_LOOKUP_VALUE) || env.FACEBOOK_PAGE_LOOKUP_VALUE || "nctilepro",
+    googleClientId: byKey.get(APP_SETTING_KEYS.GOOGLE_CLIENT_ID) || env.GOOGLE_CLIENT_ID || "",
+    googleClientSecretConfigured: Boolean(byKey.get(APP_SETTING_KEYS.GOOGLE_CLIENT_SECRET)?.trim()) || Boolean(env.GOOGLE_CLIENT_SECRET),
   };
 }
 
@@ -126,6 +131,19 @@ export async function upsertAppSetting(key: string, value: string) {
     where: { key },
     update: { value },
     create: { key, value },
+  });
+}
+
+export async function getGoogleClientIdSetting() {
+  const settings = await getAppSettings();
+  return settings.googleClientId || env.GOOGLE_CLIENT_ID || "";
+}
+
+export async function saveGoogleClientIdSetting(clientId: string) {
+  await prisma.appSetting.upsert({
+    where: { key: APP_SETTING_KEYS.GOOGLE_CLIENT_ID },
+    update: { value: clientId },
+    create: { key: APP_SETTING_KEYS.GOOGLE_CLIENT_ID, value: clientId },
   });
 }
 

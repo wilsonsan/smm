@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PostEditorForm } from "@/components/post-editor-form";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
+import { getGoogleFoundationState } from "@/lib/google";
 import { getInstagramFoundationState } from "@/lib/instagram";
 import {
   canCancelScheduled,
@@ -34,7 +35,7 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
   const adminUser = await requireAuthenticatedUser();
   const { postId } = await params;
   const resolvedSearchParams = await searchParams;
-  const [post, recentMediaAssets, timezone, instagramFoundation] = await Promise.all([
+  const [post, recentMediaAssets, timezone, instagramFoundation, googleFoundation] = await Promise.all([
     prisma.socialPost.findUnique({
       where: { id: postId },
       include: {
@@ -82,6 +83,7 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
     }),
     getResolvedAppTimezone(),
     getInstagramFoundationState({ refreshHealth: true }),
+    getGoogleFoundationState({ refreshHealth: true }),
   ]);
 
   if (!post) {
@@ -125,6 +127,7 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
         recentMediaAssets={recentMediaAssets.map((asset) => toMediaAssetSummary(asset))}
         timezone={timezone}
         instagramFoundation={instagramFoundation}
+        googleFoundation={googleFoundation}
         isReadOnly={isReadOnly}
         hideHeroCopy
       />

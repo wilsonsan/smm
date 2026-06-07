@@ -54,11 +54,17 @@ export function areSelectedPlatformsPublishableNow(
   const normalizedPlatforms = normalizeSelectedPlatforms(platforms.map((platform) => String(platform)));
 
   if (intent === "schedule") {
-    return normalizedPlatforms.length > 0 && normalizedPlatforms.every((platform) => platform === SocialPlatform.FACEBOOK);
+    return (
+      normalizedPlatforms.length === 1 &&
+      (normalizedPlatforms[0] === SocialPlatform.FACEBOOK ||
+        normalizedPlatforms[0] === SocialPlatform.GOOGLE_BUSINESS)
+    );
   }
 
   return (
-    (normalizedPlatforms.length > 0 && normalizedPlatforms.every((platform) => platform === SocialPlatform.FACEBOOK)) ||
-    (normalizedPlatforms.length === 1 && normalizedPlatforms[0] === SocialPlatform.INSTAGRAM)
+    normalizedPlatforms.length === 1 &&
+    (normalizedPlatforms[0] === SocialPlatform.FACEBOOK ||
+      normalizedPlatforms[0] === SocialPlatform.INSTAGRAM ||
+      normalizedPlatforms[0] === SocialPlatform.GOOGLE_BUSINESS)
   );
 }

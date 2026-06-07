@@ -12,6 +12,8 @@ const envSchema = z.object({
   FACEBOOK_APP_ID: z.string().optional().or(z.literal("")),
   FACEBOOK_APP_SECRET: z.string().optional().or(z.literal("")),
   FACEBOOK_PAGE_LOOKUP_VALUE: z.string().optional().or(z.literal("")),
+  GOOGLE_CLIENT_ID: z.string().optional().or(z.literal("")),
+  GOOGLE_CLIENT_SECRET: z.string().optional().or(z.literal("")),
   TOKEN_ENCRYPTION_KEY: z.string().optional().or(z.literal("")),
 });
 
@@ -27,6 +29,8 @@ const serverEnvInput = {
   FACEBOOK_APP_ID: process.env.FACEBOOK_APP_ID,
   FACEBOOK_APP_SECRET: process.env.FACEBOOK_APP_SECRET,
   FACEBOOK_PAGE_LOOKUP_VALUE: process.env.FACEBOOK_PAGE_LOOKUP_VALUE,
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
   TOKEN_ENCRYPTION_KEY: process.env.TOKEN_ENCRYPTION_KEY,
 };
 
@@ -42,6 +46,8 @@ const clientEnvFallback = {
   FACEBOOK_APP_ID: "",
   FACEBOOK_APP_SECRET: "",
   FACEBOOK_PAGE_LOOKUP_VALUE: "",
+  GOOGLE_CLIENT_ID: "",
+  GOOGLE_CLIENT_SECRET: "",
   TOKEN_ENCRYPTION_KEY: "",
 };
 

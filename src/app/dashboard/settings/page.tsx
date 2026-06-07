@@ -21,7 +21,7 @@ const SETTINGS_SECTIONS = [
   {
     eyebrow: "Channel Settings",
     title: "Social Connections & Publishing",
-    description: "Future channel connection points for Facebook first, with Instagram and Google kept ready.",
+    description: "Manage the live Facebook, Instagram, and Google Business Profile publishing connections.",
     items: [
       {
         href: "/dashboard/settings/channels/facebook",
@@ -36,7 +36,7 @@ const SETTINGS_SECTIONS = [
       {
         href: "/dashboard/settings/channels/google",
         title: "Google",
-        description: "Placeholder page for future Google Business Profile connection settings.",
+        description: "Google OAuth credentials, Business Profile connection controls, and quick location health checks.",
       },
     ],
   },

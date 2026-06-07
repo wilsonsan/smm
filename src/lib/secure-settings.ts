@@ -46,9 +46,9 @@ function decryptSettingValue(value: string) {
   ]).toString("utf8");
 }
 
-export async function getFacebookAppSecretSetting() {
+async function getSecureSettingValue(key: string, fallbackValue = "") {
   const setting = await prisma.appSetting.findUnique({
-    where: { key: APP_SETTING_KEYS.FACEBOOK_APP_SECRET },
+    where: { key },
     select: { value: true },
   });
 
@@ -56,19 +56,35 @@ export async function getFacebookAppSecretSetting() {
     return decryptSettingValue(setting.value);
   }
 
-  return env.FACEBOOK_APP_SECRET || "";
+  return fallbackValue;
 }
 
-export async function saveFacebookAppSecretSetting(appSecret: string) {
-  const trimmedSecret = appSecret.trim();
+async function saveSecureSettingValue(key: string, value: string) {
+  const trimmedValue = value.trim();
 
-  if (!trimmedSecret) {
+  if (!trimmedValue) {
     return;
   }
 
   await prisma.appSetting.upsert({
-    where: { key: APP_SETTING_KEYS.FACEBOOK_APP_SECRET },
-    update: { value: encryptSettingValue(trimmedSecret) },
-    create: { key: APP_SETTING_KEYS.FACEBOOK_APP_SECRET, value: encryptSettingValue(trimmedSecret) },
+    where: { key },
+    update: { value: encryptSettingValue(trimmedValue) },
+    create: { key, value: encryptSettingValue(trimmedValue) },
   });
+}
+
+export async function getFacebookAppSecretSetting() {
+  return getSecureSettingValue(APP_SETTING_KEYS.FACEBOOK_APP_SECRET, env.FACEBOOK_APP_SECRET || "");
+}
+
+export async function saveFacebookAppSecretSetting(appSecret: string) {
+  await saveSecureSettingValue(APP_SETTING_KEYS.FACEBOOK_APP_SECRET, appSecret);
+}
+
+export async function getGoogleClientSecretSetting() {
+  return getSecureSettingValue(APP_SETTING_KEYS.GOOGLE_CLIENT_SECRET, env.GOOGLE_CLIENT_SECRET || "");
+}
+
+export async function saveGoogleClientSecretSetting(clientSecret: string) {
+  await saveSecureSettingValue(APP_SETTING_KEYS.GOOGLE_CLIENT_SECRET, clientSecret);
 }

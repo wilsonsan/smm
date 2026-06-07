@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
 
 export const FACEBOOK_SETTINGS_ACTION_URL = "/dashboard/settings/channels/facebook";
+export const GOOGLE_SETTINGS_ACTION_URL = "/dashboard/settings/channels/google";
 
 const TOKEN_NOTIFICATION_TYPES = [
   NotificationType.TOKEN_EXPIRED,
@@ -150,6 +151,19 @@ export async function createOrUpdateNotification(input: UpsertNotificationInput)
 }
 
 export async function createOrUpdateFacebookTokenNotification(input: ProviderNotificationInput) {
+  return createOrUpdateProviderTokenNotification({
+    ...input,
+    actionUrl: FACEBOOK_SETTINGS_ACTION_URL,
+    providerLabel: "Facebook",
+  });
+}
+
+export async function createOrUpdateProviderTokenNotification(
+  input: ProviderNotificationInput & {
+    actionUrl: string;
+    providerLabel: string;
+  },
+) {
   const type =
     input.status === "expired"
       ? NotificationType.TOKEN_EXPIRED
@@ -158,16 +172,16 @@ export async function createOrUpdateFacebookTokenNotification(input: ProviderNot
         : NotificationType.TOKEN_INVALID;
   const title =
     input.status === "expired"
-      ? "Facebook token expired"
+      ? `${input.providerLabel} token expired`
       : input.status === "missing_scopes"
-        ? "Facebook permissions need attention"
-        : "Facebook needs to be reconnected";
+        ? `${input.providerLabel} permissions need attention`
+        : `${input.providerLabel} needs to be reconnected`;
   const message =
     input.status === "expired"
-      ? "Reconnect Facebook to resume scheduled posting."
+      ? `Reconnect ${input.providerLabel} to resume scheduled posting.`
       : input.status === "missing_scopes"
-        ? "Reconnect Facebook and approve the required Page permissions to keep posting."
-        : "Reconnect Facebook to resume scheduled posting.";
+        ? `Reconnect ${input.providerLabel} and approve the required permissions to keep posting.`
+        : `Reconnect ${input.providerLabel} to resume scheduled posting.`;
 
   const existing = await prisma.notification.findFirst({
     where: {
@@ -197,7 +211,7 @@ export async function createOrUpdateFacebookTokenNotification(input: ProviderNot
         severity: NotificationSeverity.ERROR,
         title,
         message: nextMessage,
-        actionUrl: FACEBOOK_SETTINGS_ACTION_URL,
+        actionUrl: input.actionUrl,
         status: shouldRealert ? NotificationStatus.UNREAD : existing.status,
         readAt: shouldRealert ? null : existing.readAt,
         readByAdminUserId: shouldRealert ? null : existing.readByAdminUserId,
@@ -217,12 +231,55 @@ export async function createOrUpdateFacebookTokenNotification(input: ProviderNot
     severity: NotificationSeverity.ERROR,
     title,
     message: input.detail ? `${message} ${input.detail}` : message,
-    actionUrl: FACEBOOK_SETTINGS_ACTION_URL,
+    actionUrl: input.actionUrl,
     metadata: input.detail
       ? {
           detail: input.detail,
         }
       : undefined,
+  });
+}
+
+export async function createOrUpdateGoogleTokenNotification(input: ProviderNotificationInput) {
+  return createOrUpdateProviderTokenNotification({
+    ...input,
+    actionUrl: GOOGLE_SETTINGS_ACTION_URL,
+    providerLabel: "Google Business",
+  });
+}
+
+export async function createOrUpdateGooglePublishFailedNotification(input: {
+  actorAdminUserId?: string | null;
+  message: string;
+  detail?: string | null;
+}) {
+  return createOrUpdateNotification({
+    actorAdminUserId: input.actorAdminUserId,
+    type: NotificationType.PUBLISH_FAILED,
+    provider: SocialPlatform.GOOGLE_BUSINESS,
+    severity: NotificationSeverity.ERROR,
+    title: "Google Business publish failed",
+    message: input.detail ? `${input.message} ${input.detail}` : input.message,
+    actionUrl: GOOGLE_SETTINGS_ACTION_URL,
+    metadata: input.detail ? { detail: input.detail } : undefined,
+  });
+}
+
+export async function createOrUpdateGoogleDisconnectedNotification(input?: {
+  actorAdminUserId?: string | null;
+  detail?: string | null;
+}) {
+  return createOrUpdateNotification({
+    actorAdminUserId: input?.actorAdminUserId,
+    type: NotificationType.INFO,
+    provider: SocialPlatform.GOOGLE_BUSINESS,
+    severity: NotificationSeverity.WARNING,
+    title: "Google Business disconnected",
+    message: input?.detail
+      ? `Reconnect Google Business to resume posting. ${input.detail}`
+      : "Reconnect Google Business to resume posting.",
+    actionUrl: GOOGLE_SETTINGS_ACTION_URL,
+    metadata: input?.detail ? { detail: input.detail } : undefined,
   });
 }
 

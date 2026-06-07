@@ -20,6 +20,7 @@ import {
 import { getMaxMediaCountForPlatforms, getPlatformMediaLimitMessage } from "@/lib/platform-rules";
 import { getSchedulerTimezoneLabel, SCHEDULER_MINUTE_OPTIONS } from "@/lib/time";
 import { initialFormState } from "@/lib/validation";
+import type { GoogleFoundationState } from "@/lib/google";
 import type { InstagramFoundationState } from "@/lib/instagram";
 
 const HOUR_OPTIONS = Array.from({ length: 12 }, (_, index) => String(index + 1));
@@ -49,6 +50,7 @@ type PostEditorFormProps = {
   recentMediaAssets: MediaAssetSummary[];
   timezone: string;
   instagramFoundation?: InstagramFoundationState;
+  googleFoundation?: GoogleFoundationState;
   isReadOnly?: boolean;
   hideHeroCopy?: boolean;
 };
@@ -222,6 +224,7 @@ export function PostEditorForm({
   recentMediaAssets,
   timezone,
   instagramFoundation,
+  googleFoundation,
   isReadOnly = false,
   hideHeroCopy = false,
 }: PostEditorFormProps) {
@@ -454,7 +457,8 @@ export function PostEditorForm({
                 label="Google"
                 tone="google"
                 selected={selectedPlatforms.includes(GOOGLE_PLATFORM)}
-                hint="Planning only"
+                hint={googleFoundation?.status === "READY" ? "Available now" : googleFoundation?.message || "Connect Google Business first"}
+                disabled={googleFoundation?.status !== "READY"}
                 onClick={() =>
                   setSelectedPlatforms((current) =>
                     current.includes(GOOGLE_PLATFORM)

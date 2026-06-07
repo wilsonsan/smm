@@ -11,6 +11,12 @@ import {
   validateFacebookPublishPrerequisites,
 } from "@/lib/facebook";
 import {
+  claimGooglePostForPublishing,
+  executeGooglePublish,
+  getGoogleFoundationState,
+  validateGooglePublishPrerequisites,
+} from "@/lib/google";
+import {
   claimInstagramPostForPublishing,
   executeInstagramPublish,
   getInstagramFoundationState,
@@ -219,6 +225,10 @@ function resolveImmediatePublishPlatform(platforms: SocialPlatform[]) {
     return SocialPlatform.INSTAGRAM;
   }
 
+  if (platforms.length === 1 && platforms[0] === SocialPlatform.GOOGLE_BUSINESS) {
+    return SocialPlatform.GOOGLE_BUSINESS;
+  }
+
   return SocialPlatform.FACEBOOK;
 }
 
@@ -245,6 +255,13 @@ async function validateImmediatePublishPrerequisites(input: {
     });
   }
 
+  if (input.platform === SocialPlatform.GOOGLE_BUSINESS) {
+    return validateGooglePublishPrerequisites({
+      caption: input.caption,
+      mediaAsset: input.primaryMediaAsset,
+    });
+  }
+
   return validateFacebookPublishPrerequisites({
     caption: input.caption,
     mediaAsset: input.primaryMediaAsset,
@@ -260,6 +277,10 @@ async function claimImmediatePublish(input: {
     return claimInstagramPostForPublishing(input);
   }
 
+  if (input.platform === SocialPlatform.GOOGLE_BUSINESS) {
+    return claimGooglePostForPublishing(input);
+  }
+
   return claimFacebookPostForPublishing(input);
 }
 
@@ -270,6 +291,10 @@ async function executeImmediatePublish(input: {
 }) {
   if (input.platform === SocialPlatform.INSTAGRAM) {
     return executeInstagramPublish(input);
+  }
+
+  if (input.platform === SocialPlatform.GOOGLE_BUSINESS) {
+    return executeGooglePublish(input);
   }
 
   return executeFacebookPublish(input);
@@ -413,12 +438,26 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       }
     }
 
+    if (parsed.data.platforms.includes(SocialPlatform.GOOGLE_BUSINESS)) {
+      const googleFoundation = await getGoogleFoundationState({ refreshHealth: true });
+      if (googleFoundation.status !== "READY") {
+        return {
+          ...initialFormState,
+          message: googleFoundation.message,
+          fieldErrors: {
+            platforms: [googleFoundation.message],
+          },
+          submittedValues,
+        };
+      }
+    }
+
     if (parsed.data.intent === "schedule" && !areSelectedPlatformsPublishableNow(parsed.data.platforms, "schedule")) {
       return {
         ...initialFormState,
-        message: "Only Facebook scheduling is enabled right now. Remove Instagram or Google before scheduling.",
+        message: "Scheduling currently supports Facebook-only or Google-only posts. Remove other platforms before scheduling.",
         fieldErrors: {
-          platforms: ["Only Facebook scheduling is enabled right now. Remove Instagram or Google before scheduling."],
+          platforms: ["Scheduling currently supports Facebook-only or Google-only posts. Remove other platforms before scheduling."],
         },
         submittedValues,
       };
@@ -427,9 +466,9 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
     if (parsed.data.intent === "publish" && !areSelectedPlatformsPublishableNow(parsed.data.platforms, "publish")) {
       return {
         ...initialFormState,
-        message: "Post Now currently supports Facebook or Instagram only. Remove other platforms before publishing.",
+        message: "Post Now currently supports single-platform Facebook, Instagram, or Google posts. Remove extra platforms before publishing.",
         fieldErrors: {
-          platforms: ["Post Now currently supports Facebook or Instagram only. Remove other platforms before publishing."],
+          platforms: ["Post Now currently supports single-platform Facebook, Instagram, or Google posts. Remove extra platforms before publishing."],
         },
         submittedValues,
       };
@@ -536,7 +575,7 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
           update: {
             status: nextStatus,
             scheduledAt: effectiveScheduledAt,
-            ...(platform === SocialPlatform.FACEBOOK
+            ...((platform === SocialPlatform.FACEBOOK || platform === SocialPlatform.GOOGLE_BUSINESS)
               ? {
                   publishedAt: null,
                   platformPostId: null,
@@ -742,7 +781,9 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
           ? error.message
           : immediatePlatform === SocialPlatform.INSTAGRAM
             ? "Instagram publishing prerequisites are not met."
-            : "Facebook publishing prerequisites are not met.";
+            : immediatePlatform === SocialPlatform.GOOGLE_BUSINESS
+              ? "Google Business publishing prerequisites are not met."
+              : "Facebook publishing prerequisites are not met.";
 
       await markImmediatePublishFailure({
         postId: post.post.id,
@@ -894,7 +935,9 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
           ? error.message
           : immediatePlatform === SocialPlatform.INSTAGRAM
             ? "Instagram publishing failed."
-            : "Facebook publishing failed.";
+            : immediatePlatform === SocialPlatform.GOOGLE_BUSINESS
+              ? "Google Business publishing failed."
+              : "Facebook publishing failed.";
 
       await createPostAuditLog({
         actorAdminUserId: adminUser.id,

@@ -35,4 +35,3 @@ export async function GET(request: Request) {
     return new NextResponse("Media could not be served.", { status: 404 });
   }
 }
-

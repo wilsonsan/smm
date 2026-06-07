@@ -262,6 +262,7 @@ model ConnectedAccount {
   pageId               String?
   pageName             String?
   accessTokenEncrypted String?                @db.LongText
+  refreshTokenEncrypted String?               @db.LongText
   tokenExpiresAt       DateTime?
   scopes               Json?
   status               ConnectedAccountStatus @default(DISCONNECTED)

@@ -68,7 +68,7 @@ export const postFormSchema = z
     if (value.intent === "schedule" && !areSelectedPlatformsPublishableNow(value.platforms, "schedule")) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Only Facebook scheduling is enabled right now. Remove Instagram or Google before scheduling.",
+        message: "Scheduling currently supports Facebook-only or Google-only posts. Remove other platforms before scheduling.",
         path: ["platforms"],
       });
     }
@@ -76,7 +76,7 @@ export const postFormSchema = z
     if (value.intent === "publish" && !areSelectedPlatformsPublishableNow(value.platforms, "publish")) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Post Now currently supports Facebook or Instagram only. Remove other platforms before publishing.",
+        message: "Post Now currently supports single-platform Facebook, Instagram, or Google posts. Remove extra platforms before publishing.",
         path: ["platforms"],
       });
     }
@@ -182,6 +182,36 @@ export const facebookPageIdTestSchema = z.object({
     .min(1, "Enter a Facebook Page ID.")
     .max(100, "Facebook Page ID must be 100 characters or less.")
     .regex(/^[a-zA-Z0-9_]+$/, "Use a valid Facebook Page ID."),
+});
+
+export const googleSettingsSchema = z.object({
+  googleClientId: z
+    .string()
+    .trim()
+    .min(1, "Google Client ID is required.")
+    .max(200, "Google Client ID must be 200 characters or less."),
+  googleClientSecret: z
+    .string()
+    .trim()
+    .max(200, "Google Client Secret must be 200 characters or less.")
+    .optional()
+    .default(""),
+  returnTo: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => value || "")
+    .refine(
+      (value) =>
+        value.length === 0 ||
+        value === "/dashboard/settings/channels/google" ||
+        value === "/dashboard/settings/channels/google/advanced",
+      "Invalid return destination.",
+    ),
+});
+
+export const googleLocationSelectionSchema = z.object({
+  locationName: z.string().trim().min(1, "Choose a Google Business Profile location."),
 });
 
 export const accountProfileSchema = z.object({

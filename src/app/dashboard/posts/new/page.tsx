@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import { PostEditorForm } from "@/components/post-editor-form";
 import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
+import { getGoogleFoundationState } from "@/lib/google";
 import { getInstagramFoundationState } from "@/lib/instagram";
 import { toMediaAssetSummary } from "@/lib/media-presentation";
 import { prisma } from "@/lib/prisma";
@@ -22,7 +23,7 @@ type NewPostPageProps = {
 export default async function NewPostPage({ searchParams }: NewPostPageProps) {
   const adminUser = await requireAuthenticatedUser();
   const resolvedSearchParams = await searchParams;
-  const [recentMediaAssets, timezone, instagramFoundation] = await Promise.all([
+  const [recentMediaAssets, timezone, instagramFoundation, googleFoundation] = await Promise.all([
     prisma.mediaAsset.findMany({
       orderBy: {
         createdAt: "desc",
@@ -33,6 +34,7 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
     }),
     getResolvedAppTimezone(),
     getInstagramFoundationState({ refreshHealth: true }),
+    getGoogleFoundationState({ refreshHealth: true }),
   ]);
   const requestedDate = resolvedSearchParams?.date?.trim() ?? "";
   const requestedTime = resolvedSearchParams?.time?.trim() ?? "";
@@ -91,6 +93,7 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
         recentMediaAssets={recentMediaAssets.map((asset) => toMediaAssetSummary(asset))}
         timezone={timezone}
         instagramFoundation={instagramFoundation}
+        googleFoundation={googleFoundation}
       />
     </section>
   );

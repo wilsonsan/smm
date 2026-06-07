@@ -3,7 +3,7 @@ import { URLSearchParams } from "node:url";
 import { env, hasTokenEncryptionKeyConfigured } from "@/lib/env";
 import { getAppSettings } from "@/lib/settings";
 
-export type PublicPlatformMediaPlatform = "INSTAGRAM";
+export type PublicPlatformMediaPlatform = "INSTAGRAM" | "GOOGLE_BUSINESS";
 
 function buildSigningKey() {
   if (!hasTokenEncryptionKeyConfigured || !env.TOKEN_ENCRYPTION_KEY) {
@@ -26,6 +26,10 @@ function buildSignature(input: {
 function isSafePublicStoragePath(platform: PublicPlatformMediaPlatform, storagePath: string) {
   if (platform === "INSTAGRAM") {
     return storagePath.startsWith("tmp/instagram/");
+  }
+
+  if (platform === "GOOGLE_BUSINESS") {
+    return storagePath.startsWith("tmp/google/");
   }
 
   return false;
@@ -61,7 +65,7 @@ export async function createSignedPublicPlatformMediaUrl(input: {
   const settings = await getAppSettings();
   const publicBaseUrl = settings.publicAppUrl || env.APP_URL;
   if (!isPublicBaseUrlReachable(publicBaseUrl)) {
-    throw new Error("Instagram publishing requires APP_URL to be a public https URL reachable by Meta.");
+    throw new Error("Platform media publishing requires APP_URL to be a public https URL reachable by the destination platform.");
   }
 
   const expiresAt = new Date(Date.now() + (input.expiresInMinutes ?? 30) * 60 * 1000).toISOString();
@@ -88,13 +92,14 @@ export function validateSignedPublicPlatformMediaRequest(input: {
   expiresAt: string | null;
   signature: string | null;
 }) {
-  if (
-    input.platform !== "INSTAGRAM" ||
-    !input.storagePath ||
-    !input.expiresAt ||
-    !input.signature ||
-    !isSafePublicStoragePath("INSTAGRAM", input.storagePath)
-  ) {
+  if (!input.platform || (input.platform !== "INSTAGRAM" && input.platform !== "GOOGLE_BUSINESS")) {
+    return {
+      ok: false as const,
+      reason: "invalid_request",
+    };
+  }
+
+  if (!input.storagePath || !input.expiresAt || !input.signature || !isSafePublicStoragePath(input.platform, input.storagePath)) {
     return {
       ok: false as const,
       reason: "invalid_request",
@@ -110,7 +115,7 @@ export function validateSignedPublicPlatformMediaRequest(input: {
   }
 
   const expectedSignature = buildSignature({
-    platform: "INSTAGRAM",
+    platform: input.platform,
     storagePath: input.storagePath,
     expiresAt: input.expiresAt,
   });
@@ -126,8 +131,7 @@ export function validateSignedPublicPlatformMediaRequest(input: {
 
   return {
     ok: true as const,
-    platform: "INSTAGRAM" as const,
+    platform: input.platform,
     storagePath: input.storagePath,
   };
 }
-
