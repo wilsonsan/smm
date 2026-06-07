@@ -12,7 +12,10 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const mode = (url.searchParams.get("mode") === "reconnect" ? "reconnect" : "connect") as GoogleOauthMode;
-    const connectUrl = await beginGoogleOauth({ mode });
+    const connectUrl = await beginGoogleOauth({
+      mode,
+      publicAppUrlOverride: url.origin,
+    });
     return NextResponse.redirect(connectUrl);
   } catch (error) {
     const fallback = new URL(buildSettingsRedirect(error instanceof Error ? error.message : "Google OAuth could not be started."), request.url);

@@ -111,6 +111,10 @@ export type GoogleConfiguration = {
   publicAppUrl: string;
 };
 
+function buildGoogleRedirectUri(publicAppUrl: string) {
+  return new URL("/api/google/callback", publicAppUrl).toString();
+}
+
 export type GoogleConnectionRecord = {
   id: string;
   platform: SocialPlatform;
@@ -478,7 +482,7 @@ export async function getGoogleConfiguration(): Promise<GoogleConfiguration> {
       ? "environment"
       : "missing";
   const publicAppUrl = settings.publicAppUrl || env.APP_URL;
-  const redirectUri = new URL("/api/google/callback", publicAppUrl).toString();
+  const redirectUri = buildGoogleRedirectUri(publicAppUrl);
   const missingConfig: string[] = [];
 
   if (!clientId) {
@@ -500,7 +504,7 @@ export async function getGoogleConfiguration(): Promise<GoogleConfiguration> {
   };
 }
 
-export async function beginGoogleOauth(input: { mode: GoogleOauthMode }) {
+export async function beginGoogleOauth(input: { mode: GoogleOauthMode; publicAppUrlOverride?: string }) {
   const config = await getGoogleConfiguration();
 
   if (config.missingConfig.length > 0) {
@@ -513,7 +517,7 @@ export async function beginGoogleOauth(input: { mode: GoogleOauthMode }) {
 
   return buildGoogleOAuthAuthorizeUrl({
     clientId: config.clientId,
-    redirectUri: config.redirectUri,
+    redirectUri: input.publicAppUrlOverride ? buildGoogleRedirectUri(input.publicAppUrlOverride) : config.redirectUri,
     state,
   });
 }
@@ -536,14 +540,17 @@ export async function consumeGoogleOauthState(input: { state: string | null }) {
   return (mode === "reconnect" ? "reconnect" : "connect") as GoogleOauthMode;
 }
 
-export async function exchangeGoogleAuthorizationCode(code: string) {
+export async function exchangeGoogleAuthorizationCode(code: string, input?: { publicAppUrlOverride?: string }) {
   const config = await getGoogleConfiguration();
   const clientSecret = await getGoogleClientSecretSetting();
+  const redirectUri = input?.publicAppUrlOverride
+    ? buildGoogleRedirectUri(input.publicAppUrlOverride)
+    : config.redirectUri;
   const body = new URLSearchParams({
     code,
     client_id: config.clientId,
     client_secret: clientSecret,
-    redirect_uri: config.redirectUri,
+    redirect_uri: redirectUri,
     grant_type: "authorization_code",
   });
 

@@ -31,7 +31,9 @@ export async function GET(request: Request) {
 
   try {
     const mode = await consumeGoogleOauthState({ state });
-    const exchanged = await exchangeGoogleAuthorizationCode(code);
+    const exchanged = await exchangeGoogleAuthorizationCode(code, {
+      publicAppUrlOverride: url.origin,
+    });
     const pendingSelection = await buildGooglePendingSelectionFromCodeExchange({
       mode,
       accessToken: exchanged.accessToken,
