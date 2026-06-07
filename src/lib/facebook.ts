@@ -42,6 +42,7 @@ const FACEBOOK_STATE_MAX_AGE_SECONDS = 10 * 60;
 const FACEBOOK_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const FACEBOOK_DEBUG_TOKENS_MAX_AGE_SECONDS = 30 * 60;
 const FACEBOOK_OPTIONAL_DIAGNOSTIC_SCOPES = ["business_management"] as const;
+const INSTAGRAM_FOUNDATION_SCOPES = ["instagram_basic", "instagram_content_publish"] as const;
 
 export type FacebookOauthMode = "connect" | "reconnect" | "debug";
 
@@ -270,6 +271,21 @@ export type FacebookConnectionHealthResult = {
   missingScopes: string[];
 };
 
+export type FacebookLinkedInstagramAccountMetadata = {
+  status: "READY" | "NOT_LINKED" | "LOOKUP_ERROR";
+  accountId: string | null;
+  username: string | null;
+  profilePictureUrl: string | null;
+  source: "instagram_business_account" | "connected_instagram_account" | null;
+  lastCheckedAt: string;
+  errorMessage: string | null;
+};
+
+type FacebookConnectionMetadata = {
+  pageUrl: string | null;
+  instagram: FacebookLinkedInstagramAccountMetadata | null;
+};
+
 export type FacebookPublishResult = {
   platformPostId: string;
   platformPostUrl: string | null;
@@ -368,6 +384,173 @@ function normalizeFacebookScopes(scopes: unknown) {
   return scopes
     .map((scope) => String(scope).trim())
     .filter(Boolean);
+}
+
+function normalizeFacebookConnectionMetadata(metadata: ConnectedAccount["metadata"]): FacebookConnectionMetadata {
+  const fallback: FacebookConnectionMetadata = {
+    pageUrl: null,
+    instagram: null,
+  };
+
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return fallback;
+  }
+
+  const raw = metadata as Record<string, unknown>;
+  const rawInstagram =
+    raw.instagram && typeof raw.instagram === "object" && !Array.isArray(raw.instagram)
+      ? (raw.instagram as Record<string, unknown>)
+      : null;
+
+  return {
+    pageUrl: typeof raw.pageUrl === "string" && raw.pageUrl.trim().length > 0 ? raw.pageUrl : null,
+    instagram: rawInstagram
+      ? {
+          status:
+            rawInstagram.status === "READY" ||
+            rawInstagram.status === "NOT_LINKED" ||
+            rawInstagram.status === "LOOKUP_ERROR"
+              ? rawInstagram.status
+              : "NOT_LINKED",
+          accountId:
+            typeof rawInstagram.accountId === "string" && rawInstagram.accountId.trim().length > 0
+              ? rawInstagram.accountId
+              : null,
+          username:
+            typeof rawInstagram.username === "string" && rawInstagram.username.trim().length > 0
+              ? rawInstagram.username
+              : null,
+          profilePictureUrl:
+            typeof rawInstagram.profilePictureUrl === "string" && rawInstagram.profilePictureUrl.trim().length > 0
+              ? rawInstagram.profilePictureUrl
+              : null,
+          source:
+            rawInstagram.source === "instagram_business_account" || rawInstagram.source === "connected_instagram_account"
+              ? rawInstagram.source
+              : null,
+          lastCheckedAt:
+            typeof rawInstagram.lastCheckedAt === "string" && rawInstagram.lastCheckedAt.trim().length > 0
+              ? rawInstagram.lastCheckedAt
+              : new Date(0).toISOString(),
+          errorMessage:
+            typeof rawInstagram.errorMessage === "string" && rawInstagram.errorMessage.trim().length > 0
+              ? rawInstagram.errorMessage
+              : null,
+        }
+      : null,
+  };
+}
+
+function buildFacebookConnectionMetadata(input: {
+  existingMetadata?: ConnectedAccount["metadata"];
+  pageUrl?: string | null;
+  instagram?: FacebookLinkedInstagramAccountMetadata | null;
+}) {
+  const existing = normalizeFacebookConnectionMetadata(input.existingMetadata ?? null);
+  const next: FacebookConnectionMetadata = {
+    pageUrl: input.pageUrl !== undefined ? input.pageUrl : existing.pageUrl,
+    instagram: input.instagram !== undefined ? input.instagram : existing.instagram,
+  };
+
+  if (!next.pageUrl && !next.instagram) {
+    return Prisma.JsonNull;
+  }
+
+  return {
+    ...(next.pageUrl ? { pageUrl: next.pageUrl } : {}),
+    ...(next.instagram ? { instagram: next.instagram } : {}),
+  } satisfies Prisma.InputJsonObject;
+}
+
+async function resolveLinkedInstagramAccount(input: {
+  pageId: string;
+  accessToken: string;
+}): Promise<FacebookLinkedInstagramAccountMetadata> {
+  const base = {
+    accountId: null,
+    username: null,
+    profilePictureUrl: null,
+    lastCheckedAt: new Date().toISOString(),
+  } as const;
+
+  try {
+    const businessResponse = await facebookGraphRequestJson<{
+      instagram_business_account?: {
+        id?: string;
+        username?: string;
+        profile_picture_url?: string;
+      } | null;
+    }>(
+      buildFacebookGraphUrl(`/${input.pageId}`, {
+        access_token: input.accessToken,
+        fields: "instagram_business_account{id,username,profile_picture_url}",
+      }),
+      { method: "GET" },
+    );
+
+    if (businessResponse.instagram_business_account?.id) {
+      return {
+        ...base,
+        status: "READY",
+        accountId: businessResponse.instagram_business_account.id,
+        username: businessResponse.instagram_business_account.username ?? null,
+        profilePictureUrl: businessResponse.instagram_business_account.profile_picture_url ?? null,
+        source: "instagram_business_account",
+        errorMessage: null,
+      };
+    }
+  } catch (error) {
+    const normalizedError = handleFacebookApiError(error);
+    return {
+      ...base,
+      status: "LOOKUP_ERROR",
+      source: "instagram_business_account",
+      errorMessage: normalizedError.message,
+    };
+  }
+
+  try {
+    const connectedResponse = await facebookGraphRequestJson<{
+      connected_instagram_account?: {
+        id?: string;
+        username?: string;
+        profile_picture_url?: string;
+      } | null;
+    }>(
+      buildFacebookGraphUrl(`/${input.pageId}`, {
+        access_token: input.accessToken,
+        fields: "connected_instagram_account{id,username,profile_picture_url}",
+      }),
+      { method: "GET" },
+    );
+
+    if (connectedResponse.connected_instagram_account?.id) {
+      return {
+        ...base,
+        status: "READY",
+        accountId: connectedResponse.connected_instagram_account.id,
+        username: connectedResponse.connected_instagram_account.username ?? null,
+        profilePictureUrl: connectedResponse.connected_instagram_account.profile_picture_url ?? null,
+        source: "connected_instagram_account",
+        errorMessage: null,
+      };
+    }
+  } catch (error) {
+    const normalizedError = handleFacebookApiError(error);
+    return {
+      ...base,
+      status: "LOOKUP_ERROR",
+      source: "connected_instagram_account",
+      errorMessage: normalizedError.message,
+    };
+  }
+
+  return {
+    ...base,
+    status: "NOT_LINKED",
+    source: null,
+    errorMessage: null,
+  };
 }
 
 function sanitizeFacebookDiagnosticJson(value: unknown): Prisma.JsonValue {
@@ -530,10 +713,11 @@ export async function buildFacebookConnectUrl(input?: { mode?: FacebookOauthMode
   const config = await getFacebookConfiguration();
   const state = await createFacebookOauthState(input?.mode ?? "connect");
   const url = new URL(`https://www.facebook.com/${FACEBOOK_GRAPH_VERSION}/dialog/oauth`);
+  const requestedScopes = Array.from(new Set([...config.requiredScopes, ...INSTAGRAM_FOUNDATION_SCOPES]));
   url.searchParams.set("client_id", config.appId);
   url.searchParams.set("redirect_uri", config.redirectUri);
   url.searchParams.set("state", state);
-  url.searchParams.set("scope", config.requiredScopes.join(","));
+  url.searchParams.set("scope", requestedScopes.join(","));
   url.searchParams.set("response_type", "code");
 
   return url.toString();
@@ -1541,6 +1725,10 @@ export async function saveFacebookConnectedPage(input: {
   tokenExpiresAt?: Date | null;
 }) {
   const testedAt = new Date();
+  const metadata = buildFacebookConnectionMetadata({
+    pageUrl: input.pageUrl ?? null,
+    instagram: null,
+  });
   const connectedAccount = await prisma.connectedAccount.upsert({
     where: {
       platform: SocialPlatform.FACEBOOK,
@@ -1558,11 +1746,7 @@ export async function saveFacebookConnectedPage(input: {
       lastSuccessfulTestAt: testedAt,
       lastFailedTestAt: null,
       lastError: null,
-      metadata: input.pageUrl
-        ? {
-            pageUrl: input.pageUrl,
-          }
-        : undefined,
+      metadata,
     },
     create: {
       platform: SocialPlatform.FACEBOOK,
@@ -1577,11 +1761,7 @@ export async function saveFacebookConnectedPage(input: {
       lastTestedAt: testedAt,
       lastSuccessfulTestAt: testedAt,
       lastFailedTestAt: null,
-      metadata: input.pageUrl
-        ? {
-          pageUrl: input.pageUrl,
-        }
-        : undefined,
+      metadata,
     },
   });
 
@@ -1744,6 +1924,8 @@ async function updateFacebookConnectionHealthState(input: {
   message: string | null;
   pageName?: string | null;
   pageUrl?: string | null;
+  existingMetadata?: ConnectedAccount["metadata"];
+  instagram?: FacebookLinkedInstagramAccountMetadata | null;
   testedAt: Date;
 }) {
   return prisma.connectedAccount.updateMany({
@@ -1757,14 +1939,11 @@ async function updateFacebookConnectionHealthState(input: {
       lastFailedTestAt: input.status === ConnectedAccountStatus.CONNECTED ? null : input.testedAt,
       lastError: input.status === ConnectedAccountStatus.CONNECTED ? null : input.message,
       pageName: input.pageName ?? undefined,
-      metadata:
-        input.pageUrl !== undefined
-          ? input.pageUrl
-            ? {
-                pageUrl: input.pageUrl,
-              }
-            : Prisma.JsonNull
-          : undefined,
+      metadata: buildFacebookConnectionMetadata({
+        existingMetadata: input.existingMetadata,
+        pageUrl: input.pageUrl,
+        instagram: input.instagram,
+      }),
     },
   });
 }
@@ -1799,6 +1978,7 @@ export async function refreshFacebookConnectionHealth(input?: {
     await updateFacebookConnectionHealthState({
       status: ConnectedAccountStatus.NEEDS_RECONNECT,
       message,
+      existingMetadata: connection.metadata,
       testedAt,
     });
 
@@ -1839,6 +2019,7 @@ export async function refreshFacebookConnectionHealth(input?: {
       testedAt,
       pageName: connection.pageName,
       pageUrl: currentPageUrl,
+      existingMetadata: connection.metadata,
     });
 
     if (input?.createNotification !== false) {
@@ -1879,6 +2060,7 @@ export async function refreshFacebookConnectionHealth(input?: {
       testedAt,
       pageName: connection.pageName,
       pageUrl: currentPageUrl,
+      existingMetadata: connection.metadata,
     });
 
     if (input?.createNotification !== false) {
@@ -1919,6 +2101,10 @@ export async function refreshFacebookConnectionHealth(input?: {
   }
 
   try {
+    const instagram = await resolveLinkedInstagramAccount({
+      pageId: connection.pageId,
+      accessToken: connection.accessToken,
+    });
     const url = buildFacebookGraphUrl(`/${connection.pageId}`, {
       access_token: connection.accessToken,
       fields: "id,name,link",
@@ -1935,6 +2121,8 @@ export async function refreshFacebookConnectionHealth(input?: {
       testedAt,
       pageName: page.name || connection.pageName,
       pageUrl: page.link ?? null,
+      existingMetadata: connection.metadata,
+      instagram,
     });
 
     if (input?.createNotification !== false) {
@@ -1967,6 +2155,7 @@ export async function refreshFacebookConnectionHealth(input?: {
       testedAt,
       pageName: connection.pageName,
       pageUrl: currentPageUrl,
+      existingMetadata: connection.metadata,
     });
 
     if (input?.createNotification !== false) {

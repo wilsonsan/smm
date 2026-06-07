@@ -32,8 +32,33 @@ export function getPlatformMediaLimitMessage(platforms: Array<SocialPlatform | s
   return `You can attach up to ${MULTI_IMAGE_PLATFORM_LIMIT} images for the selected platforms.`;
 }
 
-export function areSelectedPlatformsPublishableNow(platforms: Array<SocialPlatform | string>) {
+export function doSelectedPlatformsRequireMedia(platforms: Array<SocialPlatform | string>) {
+  const normalizedPlatforms = normalizeSelectedPlatforms(platforms.map((platform) => String(platform)));
+  return normalizedPlatforms.includes(SocialPlatform.INSTAGRAM);
+}
+
+export function getRequiredMediaMessageForPlatforms(platforms: Array<SocialPlatform | string>) {
   const normalizedPlatforms = normalizeSelectedPlatforms(platforms.map((platform) => String(platform)));
 
-  return normalizedPlatforms.length > 0 && normalizedPlatforms.every((platform) => platform === SocialPlatform.FACEBOOK);
+  if (normalizedPlatforms.includes(SocialPlatform.INSTAGRAM)) {
+    return "Instagram posts require at least 1 image. Add media or remove Instagram.";
+  }
+
+  return "Add at least 1 image for the selected platforms.";
+}
+
+export function areSelectedPlatformsPublishableNow(
+  platforms: Array<SocialPlatform | string>,
+  intent: "schedule" | "publish" = "publish",
+) {
+  const normalizedPlatforms = normalizeSelectedPlatforms(platforms.map((platform) => String(platform)));
+
+  if (intent === "schedule") {
+    return normalizedPlatforms.length > 0 && normalizedPlatforms.every((platform) => platform === SocialPlatform.FACEBOOK);
+  }
+
+  return (
+    (normalizedPlatforms.length > 0 && normalizedPlatforms.every((platform) => platform === SocialPlatform.FACEBOOK)) ||
+    (normalizedPlatforms.length === 1 && normalizedPlatforms[0] === SocialPlatform.INSTAGRAM)
+  );
 }

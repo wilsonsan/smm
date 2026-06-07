@@ -20,6 +20,7 @@ import {
 import { getMaxMediaCountForPlatforms, getPlatformMediaLimitMessage } from "@/lib/platform-rules";
 import { getSchedulerTimezoneLabel, SCHEDULER_MINUTE_OPTIONS } from "@/lib/time";
 import { initialFormState } from "@/lib/validation";
+import type { InstagramFoundationState } from "@/lib/instagram";
 
 const HOUR_OPTIONS = Array.from({ length: 12 }, (_, index) => String(index + 1));
 const MERIDIEM_OPTIONS = ["AM", "PM"] as const;
@@ -47,6 +48,7 @@ type PostEditorFormProps = {
   };
   recentMediaAssets: MediaAssetSummary[];
   timezone: string;
+  instagramFoundation?: InstagramFoundationState;
   isReadOnly?: boolean;
   hideHeroCopy?: boolean;
 };
@@ -183,6 +185,7 @@ function PlatformCard({
   tone,
   selected,
   hint,
+  disabled,
   onClick,
 }: {
   icon: React.ReactNode;
@@ -190,22 +193,26 @@ function PlatformCard({
   tone: "facebook" | "google" | "instagram";
   selected?: boolean;
   hint?: string;
+  disabled?: boolean;
   onClick?: () => void;
 }) {
   return (
     <button
       type="button"
-      className={`composer-platform-card is-${tone}${selected ? " is-selected" : ""}`.trim()}
-      onClick={onClick}
+      className={`composer-platform-card is-${tone}${selected ? " is-selected" : ""}${disabled ? " is-disabled" : ""}`.trim()}
+      onClick={disabled && !selected ? undefined : onClick}
       aria-pressed={selected}
       aria-label={label}
+      disabled={disabled && !selected}
     >
       <span className={`composer-platform-icon is-${tone}`.trim()}>{icon}</span>
       <span className="composer-platform-copy">
         <strong>{label}</strong>
-        <span>{hint ?? (selected ? "Selected for this post" : "Tap to select")}</span>
+        <span>{hint ?? (selected ? "Selected for this post" : disabled ? "Not available yet" : "Tap to select")}</span>
       </span>
-      <span className="composer-platform-indicator">{selected ? "Selected" : "Available"}</span>
+      <span className="composer-platform-indicator">
+        {selected ? "Selected" : disabled ? "Locked" : "Available"}
+      </span>
     </button>
   );
 }
@@ -214,6 +221,7 @@ export function PostEditorForm({
   post,
   recentMediaAssets,
   timezone,
+  instagramFoundation,
   isReadOnly = false,
   hideHeroCopy = false,
 }: PostEditorFormProps) {
@@ -329,6 +337,10 @@ export function PostEditorForm({
         day: "numeric",
         year: "numeric",
       }).format(new Date());
+  const instagramHint =
+    instagramFoundation?.status === "READY"
+      ? `Linked as @${instagramFoundation.username || "instagram"}`
+      : instagramFoundation?.message || "Link a connected Instagram Business account first";
   return (
     <form ref={formRef} action={formAction} className="composer-shell">
       <input type="hidden" name="postId" value={post?.id ?? ""} />
@@ -456,7 +468,8 @@ export function PostEditorForm({
                 label="Instagram"
                 tone="instagram"
                 selected={selectedPlatforms.includes(INSTAGRAM_PLATFORM)}
-                hint="Planning only"
+                hint={instagramHint}
+                disabled={instagramFoundation?.status !== "READY"}
                 onClick={() =>
                   setSelectedPlatforms((current) =>
                     current.includes(INSTAGRAM_PLATFORM)

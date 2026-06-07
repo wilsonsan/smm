@@ -1,6 +1,12 @@
 import { SocialPlatform } from "@prisma/client";
 import { z } from "zod";
-import { areSelectedPlatformsPublishableNow, getMaxMediaCountForPlatforms, normalizeSelectedPlatforms } from "@/lib/platform-rules";
+import {
+  areSelectedPlatformsPublishableNow,
+  doSelectedPlatformsRequireMedia,
+  getMaxMediaCountForPlatforms,
+  getRequiredMediaMessageForPlatforms,
+  normalizeSelectedPlatforms,
+} from "@/lib/platform-rules";
 import { isValidTimezone } from "@/lib/time";
 
 export const loginSchema = z.object({
@@ -51,10 +57,26 @@ export const postFormSchema = z
       });
     }
 
-    if ((value.intent === "schedule" || value.intent === "publish") && !areSelectedPlatformsPublishableNow(value.platforms)) {
+    if (doSelectedPlatformsRequireMedia(value.platforms) && value.mediaAssetIds.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Only Facebook publishing is enabled right now. Remove Google or Instagram before scheduling or posting.",
+        message: getRequiredMediaMessageForPlatforms(value.platforms),
+        path: ["mediaAssetIds"],
+      });
+    }
+
+    if (value.intent === "schedule" && !areSelectedPlatformsPublishableNow(value.platforms, "schedule")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Only Facebook scheduling is enabled right now. Remove Instagram or Google before scheduling.",
+        path: ["platforms"],
+      });
+    }
+
+    if (value.intent === "publish" && !areSelectedPlatformsPublishableNow(value.platforms, "publish")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Post Now currently supports Facebook or Instagram only. Remove other platforms before publishing.",
         path: ["platforms"],
       });
     }

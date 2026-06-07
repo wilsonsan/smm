@@ -11,8 +11,16 @@ import {
   validateFacebookPublishPrerequisites,
 } from "@/lib/facebook";
 import {
+  claimInstagramPostForPublishing,
+  executeInstagramPublish,
+  getInstagramFoundationState,
+  validateInstagramPublishPrerequisites,
+} from "@/lib/instagram";
+import {
   areSelectedPlatformsPublishableNow,
+  doSelectedPlatformsRequireMedia,
   getPlatformMediaLimitMessage,
+  getRequiredMediaMessageForPlatforms,
   normalizeSelectedPlatforms,
   getMaxMediaCountForPlatforms,
 } from "@/lib/platform-rules";
@@ -151,14 +159,15 @@ function buildSubmittedPostValues(input: {
 async function markImmediatePublishFailure(input: {
   postId: string;
   message: string;
+  platform: SocialPlatform;
   requestSummary?: Prisma.InputJsonValue;
 }) {
   await prisma.$transaction(async (tx) => {
-    const facebookPlatform = await tx.socialPostPlatform.findUnique({
+    const platformRecord = await tx.socialPostPlatform.findUnique({
       where: {
         socialPostId_platform: {
           socialPostId: input.postId,
-          platform: SocialPlatform.FACEBOOK,
+          platform: input.platform,
         },
       },
       select: {
@@ -179,7 +188,7 @@ async function markImmediatePublishFailure(input: {
     await tx.socialPostPlatform.updateMany({
       where: {
         socialPostId: input.postId,
-        platform: SocialPlatform.FACEBOOK,
+        platform: input.platform,
       },
       data: {
         status: SocialPostStatus.FAILED,
@@ -187,12 +196,12 @@ async function markImmediatePublishFailure(input: {
       },
     });
 
-    if (facebookPlatform) {
+    if (platformRecord) {
       await tx.publishAttempt.create({
         data: {
           socialPostId: input.postId,
-          socialPostPlatformId: facebookPlatform.id,
-          platform: SocialPlatform.FACEBOOK,
+          socialPostPlatformId: platformRecord.id,
+          platform: input.platform,
           status: PublishAttemptStatus.FAILED,
           requestSummary: input.requestSummary,
           errorCode: "PRECHECK_FAILED",
@@ -203,6 +212,67 @@ async function markImmediatePublishFailure(input: {
       });
     }
   });
+}
+
+function resolveImmediatePublishPlatform(platforms: SocialPlatform[]) {
+  if (platforms.length === 1 && platforms[0] === SocialPlatform.INSTAGRAM) {
+    return SocialPlatform.INSTAGRAM;
+  }
+
+  return SocialPlatform.FACEBOOK;
+}
+
+async function validateImmediatePublishPrerequisites(input: {
+  platform: SocialPlatform;
+  caption: string;
+  primaryMediaAsset: {
+    id: string;
+    mimeType: string;
+    storagePath: string;
+    variants?: unknown;
+  } | null;
+  mediaAssets: Array<{
+    id: string;
+    mimeType: string;
+    storagePath: string;
+    variants?: unknown;
+  }>;
+}) {
+  if (input.platform === SocialPlatform.INSTAGRAM) {
+    return validateInstagramPublishPrerequisites({
+      caption: input.caption,
+      mediaAssets: input.mediaAssets,
+    });
+  }
+
+  return validateFacebookPublishPrerequisites({
+    caption: input.caption,
+    mediaAsset: input.primaryMediaAsset,
+  });
+}
+
+async function claimImmediatePublish(input: {
+  platform: SocialPlatform;
+  socialPostId: string;
+  allowedStatuses: SocialPostStatus[];
+}) {
+  if (input.platform === SocialPlatform.INSTAGRAM) {
+    return claimInstagramPostForPublishing(input);
+  }
+
+  return claimFacebookPostForPublishing(input);
+}
+
+async function executeImmediatePublish(input: {
+  platform: SocialPlatform;
+  socialPostId: string;
+  socialPostPlatformId: string;
+}) {
+  if (input.platform === SocialPlatform.INSTAGRAM) {
+    return executeInstagramPublish(input);
+  }
+
+  return executeFacebookPublish(input);
 }
 
 function getDraftRedirectTarget(postId: string, scheduledAt: Date | null) {
@@ -317,12 +387,49 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       };
     }
 
-    if ((parsed.data.intent === "schedule" || parsed.data.intent === "publish") && !areSelectedPlatformsPublishableNow(parsed.data.platforms)) {
+    if (doSelectedPlatformsRequireMedia(parsed.data.platforms) && orderedSelectedMediaAssets.length === 0) {
+      const message = getRequiredMediaMessageForPlatforms(parsed.data.platforms);
       return {
         ...initialFormState,
-        message: "Only Facebook publishing is enabled right now. Remove Google or Instagram before scheduling or posting.",
+        message,
         fieldErrors: {
-          platforms: ["Only Facebook publishing is enabled right now. Remove Google or Instagram before scheduling or posting."],
+          mediaAssetIds: [message],
+        },
+        submittedValues,
+      };
+    }
+
+    if (parsed.data.platforms.includes(SocialPlatform.INSTAGRAM)) {
+      const instagramFoundation = await getInstagramFoundationState({ refreshHealth: true });
+      if (instagramFoundation.status !== "READY") {
+        return {
+          ...initialFormState,
+          message: instagramFoundation.message,
+          fieldErrors: {
+            platforms: [instagramFoundation.message],
+          },
+          submittedValues,
+        };
+      }
+    }
+
+    if (parsed.data.intent === "schedule" && !areSelectedPlatformsPublishableNow(parsed.data.platforms, "schedule")) {
+      return {
+        ...initialFormState,
+        message: "Only Facebook scheduling is enabled right now. Remove Instagram or Google before scheduling.",
+        fieldErrors: {
+          platforms: ["Only Facebook scheduling is enabled right now. Remove Instagram or Google before scheduling."],
+        },
+        submittedValues,
+      };
+    }
+
+    if (parsed.data.intent === "publish" && !areSelectedPlatformsPublishableNow(parsed.data.platforms, "publish")) {
+      return {
+        ...initialFormState,
+        message: "Post Now currently supports Facebook or Instagram only. Remove other platforms before publishing.",
+        fieldErrors: {
+          platforms: ["Post Now currently supports Facebook or Instagram only. Remove other platforms before publishing."],
         },
         submittedValues,
       };
@@ -436,6 +543,14 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
                   platformPostUrl: null,
                   lastError: null,
                 }
+              : platform === SocialPlatform.INSTAGRAM
+                ? {
+                    // TODO: reset Instagram publish placeholders when real publish support lands.
+                    publishedAt: null,
+                    platformPostId: null,
+                    platformPostUrl: null,
+                    lastError: null,
+                  }
               : {}),
           },
           create: {
@@ -596,6 +711,8 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       redirect(getDraftRedirectTarget(post.post.id, effectiveScheduledAt));
     }
 
+    const immediatePlatform = resolveImmediatePublishPlatform(parsed.data.platforms);
+
     await createPostAuditLog({
       actorAdminUserId: adminUser.id,
       action:
@@ -607,22 +724,30 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
         previousStatus: post.previousStatus ?? nextStatus,
         requestedStatus: SocialPostStatus.PUBLISHING,
         mode: "manual-form",
-        platform: SocialPlatform.FACEBOOK,
+        platform: immediatePlatform,
       },
     });
 
     try {
-      await validateFacebookPublishPrerequisites({
+      await validateImmediatePublishPrerequisites({
+        platform: immediatePlatform,
         caption: parsed.data.caption,
-        mediaAsset: primaryMediaAsset,
+        primaryMediaAsset,
+        mediaAssets: orderedSelectedMediaAssets,
       });
     } catch (error) {
       unstable_rethrow(error);
-      const message = error instanceof Error ? error.message : "Facebook publishing prerequisites are not met.";
+      const message =
+        error instanceof Error
+          ? error.message
+          : immediatePlatform === SocialPlatform.INSTAGRAM
+            ? "Instagram publishing prerequisites are not met."
+            : "Facebook publishing prerequisites are not met.";
 
       await markImmediatePublishFailure({
         postId: post.post.id,
         message,
+        platform: immediatePlatform,
       });
 
       await createPostAuditLog({
@@ -633,7 +758,7 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
           previousStatus: nextStatus,
           nextStatus: SocialPostStatus.FAILED,
           mode: "manual-form",
-          platform: SocialPlatform.FACEBOOK,
+          platform: immediatePlatform,
           message,
         },
       });
@@ -658,7 +783,8 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       );
     }
 
-    const claim = await claimFacebookPostForPublishing({
+    const claim = await claimImmediatePublish({
+      platform: immediatePlatform,
       socialPostId: post.post.id,
       allowedStatuses: [SocialPostStatus.DRAFT, SocialPostStatus.SCHEDULED, SocialPostStatus.FAILED],
     });
@@ -667,6 +793,7 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       await markImmediatePublishFailure({
         postId: post.post.id,
         message: claim.message,
+        platform: immediatePlatform,
       });
 
       await createPostAuditLog({
@@ -677,7 +804,7 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
           previousStatus: nextStatus,
           nextStatus: SocialPostStatus.FAILED,
           mode: "manual-form",
-          platform: SocialPlatform.FACEBOOK,
+          platform: immediatePlatform,
           message: claim.message,
         },
       });
@@ -710,7 +837,7 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
         previousStatus: nextStatus,
         nextStatus: SocialPostStatus.PUBLISHING,
         mode: "manual-form",
-        platform: SocialPlatform.FACEBOOK,
+        platform: immediatePlatform,
       },
     });
 
@@ -726,7 +853,8 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
     });
 
     try {
-      const result = await executeFacebookPublish({
+      const result = await executeImmediatePublish({
+        platform: immediatePlatform,
         socialPostId: claim.socialPostId,
         socialPostPlatformId: claim.socialPostPlatformId,
       });
@@ -740,7 +868,7 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
           nextStatus: SocialPostStatus.PUBLISHED,
           mode: "manual-form",
           publishedAt: result.finishedAt.toISOString(),
-          platform: SocialPlatform.FACEBOOK,
+          platform: immediatePlatform,
           platformPostId: result.result.platformPostId,
           platformPostUrl: result.result.platformPostUrl,
         },
@@ -761,7 +889,12 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       redirect(buildCalendarHref({ flash: "published" }));
     } catch (error) {
       unstable_rethrow(error);
-      const message = error instanceof Error ? error.message : "Facebook publishing failed.";
+      const message =
+        error instanceof Error
+          ? error.message
+          : immediatePlatform === SocialPlatform.INSTAGRAM
+            ? "Instagram publishing failed."
+            : "Facebook publishing failed.";
 
       await createPostAuditLog({
         actorAdminUserId: adminUser.id,
@@ -771,7 +904,7 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
           previousStatus: SocialPostStatus.PUBLISHING,
           nextStatus: SocialPostStatus.FAILED,
           mode: "manual-form",
-          platform: SocialPlatform.FACEBOOK,
+          platform: immediatePlatform,
           message,
         },
       });
@@ -987,6 +1120,17 @@ export async function publishPostNowAction(formData: FormData) {
     );
   }
 
+  const platforms = existingPost.platforms.map((platformRecord) => platformRecord.platform);
+  if (!areSelectedPlatformsPublishableNow(platforms, "publish")) {
+    redirect(
+      buildPostDetailHref(postId, {
+        status: "error",
+        message: "Post Now currently supports Facebook or Instagram only. Remove other platforms before publishing.",
+      }),
+    );
+  }
+
+  const immediatePlatform = resolveImmediatePublishPlatform(platforms);
   const publishNowAt = new Date();
   if ((existingPost.scheduledAt?.toISOString() ?? null) !== publishNowAt.toISOString()) {
     await prisma.$transaction(async (tx) => {
@@ -1001,7 +1145,7 @@ export async function publishPostNowAction(formData: FormData) {
       await tx.socialPostPlatform.updateMany({
         where: {
           socialPostId: existingPost.id,
-          platform: SocialPlatform.FACEBOOK,
+          platform: immediatePlatform,
         },
         data: {
           scheduledAt: publishNowAt,
@@ -1022,17 +1166,25 @@ export async function publishPostNowAction(formData: FormData) {
   }
 
   try {
-    await validateFacebookPublishPrerequisites({
+    await validateImmediatePublishPrerequisites({
+      platform: immediatePlatform,
       caption: existingPost.caption,
-      mediaAsset: existingPost.mediaAsset,
+      primaryMediaAsset: existingPost.mediaAsset,
+      mediaAssets: existingPost.attachedMedia.map((item) => item.mediaAsset),
     });
   } catch (error) {
     unstable_rethrow(error);
-    const message = error instanceof Error ? error.message : "Facebook publishing prerequisites are not met.";
+    const message =
+      error instanceof Error
+        ? error.message
+        : immediatePlatform === SocialPlatform.INSTAGRAM
+          ? "Instagram publishing prerequisites are not met."
+          : "Facebook publishing prerequisites are not met.";
 
     await markImmediatePublishFailure({
       postId,
       message,
+      platform: immediatePlatform,
     });
 
     await createPostAuditLog({
@@ -1043,7 +1195,7 @@ export async function publishPostNowAction(formData: FormData) {
         previousStatus: existingPost.status,
         nextStatus: SocialPostStatus.FAILED,
         mode: "manual",
-        platform: SocialPlatform.FACEBOOK,
+        platform: immediatePlatform,
         message,
       },
     });
@@ -1068,7 +1220,8 @@ export async function publishPostNowAction(formData: FormData) {
     );
   }
 
-  const claim = await claimFacebookPostForPublishing({
+  const claim = await claimImmediatePublish({
+    platform: immediatePlatform,
     socialPostId: postId,
     allowedStatuses,
   });
@@ -1094,7 +1247,7 @@ export async function publishPostNowAction(formData: FormData) {
       previousStatus: existingPost.status,
       requestedStatus: SocialPostStatus.PUBLISHING,
       mode: "manual",
-      platform: SocialPlatform.FACEBOOK,
+      platform: immediatePlatform,
       confirmImmediate,
     },
   });
@@ -1107,7 +1260,7 @@ export async function publishPostNowAction(formData: FormData) {
       previousStatus: existingPost.status,
       nextStatus: SocialPostStatus.PUBLISHING,
       mode: "manual",
-      platform: SocialPlatform.FACEBOOK,
+      platform: immediatePlatform,
     },
   });
 
@@ -1123,7 +1276,8 @@ export async function publishPostNowAction(formData: FormData) {
   });
 
   try {
-    const result = await executeFacebookPublish({
+    const result = await executeImmediatePublish({
+      platform: immediatePlatform,
       socialPostId: claim.socialPostId,
       socialPostPlatformId: claim.socialPostPlatformId,
     });
@@ -1137,7 +1291,7 @@ export async function publishPostNowAction(formData: FormData) {
         nextStatus: SocialPostStatus.PUBLISHED,
         mode: "manual",
         publishedAt: result.finishedAt.toISOString(),
-        platform: SocialPlatform.FACEBOOK,
+        platform: immediatePlatform,
         platformPostId: result.result.platformPostId,
         platformPostUrl: result.result.platformPostUrl,
       },
@@ -1158,7 +1312,12 @@ export async function publishPostNowAction(formData: FormData) {
     redirect(buildCalendarHref({ flash: "published" }));
   } catch (error) {
     unstable_rethrow(error);
-    const message = error instanceof Error ? error.message : "Facebook publishing failed.";
+    const message =
+      error instanceof Error
+        ? error.message
+        : immediatePlatform === SocialPlatform.INSTAGRAM
+          ? "Instagram publishing failed."
+          : "Facebook publishing failed.";
 
     await createPostAuditLog({
       actorAdminUserId: adminUser.id,
@@ -1168,7 +1327,7 @@ export async function publishPostNowAction(formData: FormData) {
         previousStatus: SocialPostStatus.PUBLISHING,
         nextStatus: SocialPostStatus.FAILED,
         mode: "manual",
-        platform: SocialPlatform.FACEBOOK,
+        platform: immediatePlatform,
         message,
       },
     });

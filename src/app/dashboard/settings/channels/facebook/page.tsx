@@ -18,6 +18,7 @@ import {
   getFacebookOauthDebugResult,
   getPendingFacebookPageSelection,
 } from "@/lib/facebook";
+import { getInstagramFoundationStateFromConnection } from "@/lib/instagram";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
 import { FacebookDiagnosticsPanel } from "@/components/facebook-diagnostics-panel";
 
@@ -161,6 +162,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
     connection?.status === ConnectedAccountStatus.MISSING_SCOPES ||
     connection?.status === ConnectedAccountStatus.ERROR;
   const hasConnectedPage = Boolean(connection?.pageId);
+  const instagramFoundation = getInstagramFoundationStateFromConnection(connection);
 
   return (
     <section className="section-stack">
@@ -440,6 +442,23 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                   readOnly
                 />
               </div>
+
+              <div className="field">
+                <label>Linked Instagram status</label>
+                <input value={instagramFoundation.status} readOnly />
+              </div>
+
+              <div className="field">
+                <label>Linked Instagram account</label>
+                <input
+                  value={
+                    instagramFoundation.username
+                      ? `@${instagramFoundation.username}${instagramFoundation.accountId ? ` (${instagramFoundation.accountId})` : ""}`
+                      : "No linked Instagram account detected"
+                  }
+                  readOnly
+                />
+              </div>
             </div>
 
             {pageUrl ? (
@@ -450,6 +469,10 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                 </a>
               </p>
             ) : null}
+
+            <p className={instagramFoundation.status === "READY" ? "success-text" : "hint"}>
+              {instagramFoundation.message}
+            </p>
 
             {connection?.lastError ? <p className="error-text">{connection.lastError}</p> : null}
             {needsReconnect ? (
