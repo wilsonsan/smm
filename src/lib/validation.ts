@@ -144,12 +144,27 @@ export const settingsSchema = z.object({
 
 export const facebookSettingsSchema = z.object({
   facebookAppId: z.string().trim().max(100, "Facebook App ID must be 100 characters or less."),
+  facebookAppSecret: z.string().trim().max(200, "Facebook App Secret must be 200 characters or less.").optional().default(""),
   facebookPageLookupValue: z
     .string()
     .trim()
     .min(1, "Enter a Facebook Page username or Page ID.")
     .max(120, "Preferred Facebook Page lookup must be 120 characters or less.")
     .regex(/^[a-zA-Z0-9._-]+$/, "Use a valid Facebook Page username or ID."),
+  returnTo: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => value || "")
+    .refine(
+      (value) =>
+        value.length === 0 ||
+        value === "/dashboard/settings/channels/facebook" ||
+        value === "/dashboard/settings/channels/facebook/advanced" ||
+        value === "/dashboard/settings/channels/instagram" ||
+        value === "/dashboard/settings/channels/instagram/advanced",
+      "Invalid return destination.",
+    ),
 });
 
 export const facebookPageSelectionSchema = z.object({

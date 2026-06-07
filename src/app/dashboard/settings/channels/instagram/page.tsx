@@ -1,6 +1,16 @@
 import Link from "next/link";
+import { saveFacebookSettingsAction } from "@/app/dashboard/settings/channels/facebook/actions";
+import { testInstagramConnectionAction } from "@/app/dashboard/settings/channels/instagram/actions";
+import { getFacebookConfiguration } from "@/lib/facebook";
 import { getInstagramDiagnostics } from "@/lib/instagram";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
+
+type InstagramSettingsPageProps = {
+  searchParams?: Promise<{
+    status?: string;
+    message?: string;
+  }>;
+};
 
 function getStatusTone(status: Awaited<ReturnType<typeof getInstagramDiagnostics>>["foundation"]["status"]) {
   if (status === "READY") {
@@ -14,31 +24,51 @@ function getStatusTone(status: Awaited<ReturnType<typeof getInstagramDiagnostics
   return "draft";
 }
 
-export default async function InstagramChannelSettingsPage() {
-  const [diagnostics, timezone] = await Promise.all([
+export default async function InstagramChannelSettingsPage({ searchParams }: InstagramSettingsPageProps) {
+  const resolvedSearchParams = await searchParams;
+  const [diagnostics, config, timezone] = await Promise.all([
     getInstagramDiagnostics({ refreshHealth: true }),
+    getFacebookConfiguration(),
     getResolvedAppTimezone(),
   ]);
   const instagramFoundation = diagnostics.foundation;
+  const isReady = instagramFoundation.status === "READY";
+  const hasBlockingSetupIssue = config.missingConfig.length > 0;
+  const connectHref = "/api/facebook/connect?mode=reconnect";
 
   return (
     <section className="section-stack">
       <header className="page-header">
         <div>
           <h2>Instagram</h2>
-          <p>Verify the linked Instagram Business or Creator account, required permissions, and publish readiness from the existing Meta connection.</p>
+          <p>Keep Instagram setup simple here, and use the advanced page only when you need deeper Meta diagnostics.</p>
         </div>
-        <Link href="/dashboard/settings" className="secondary-button">
-          Back To Settings
-        </Link>
+        <div className="button-row">
+          <Link href="/dashboard/settings/channels/instagram/advanced" className="secondary-button">
+            Advanced
+          </Link>
+          <Link href="/dashboard/settings" className="ghost-link-button">
+            Back To Settings
+          </Link>
+        </div>
       </header>
+
+      {resolvedSearchParams?.message ? (
+        <section className="panel">
+          <div className="panel-body">
+            <p className={resolvedSearchParams.status === "error" ? "error-text" : "success-text"}>
+              {resolvedSearchParams.message}
+            </p>
+          </div>
+        </section>
+      ) : null}
 
       <section className="panel settings-section-card">
         <div className="settings-section-head">
           <div>
             <span className="settings-eyebrow">Channel Settings</span>
-            <h3>Instagram Diagnostics</h3>
-            <p>This phase confirms the linked Instagram account, checks the required Meta permissions, and prepares image-only Post Now publishing without disturbing Facebook.</p>
+            <h3>Instagram Connection</h3>
+            <p>Instagram uses the same Meta app and callback as Facebook. Keep only the shared credentials here, and move deeper diagnostics into Advanced.</p>
           </div>
           <span className={`badge is-${getStatusTone(instagramFoundation.status)}`.trim()}>
             {instagramFoundation.status}
@@ -48,16 +78,84 @@ export default async function InstagramChannelSettingsPage() {
         <section className="settings-subcard">
           <div className="settings-subcard-head">
             <div>
-              <strong>Linked Instagram Account</strong>
-              <p>Resolved from the currently connected Facebook Page token.</p>
+              <strong>Basic Setup</strong>
+              <p>These shared Meta credentials power both Facebook and Instagram connection flows.</p>
             </div>
-            <span className="settings-chip">Diagnostics</span>
+            <span className="settings-chip">Required</span>
+          </div>
+
+          <div className="form-grid">
+            <form action={saveFacebookSettingsAction} className="form-grid">
+              <input type="hidden" name="returnTo" value="/dashboard/settings/channels/instagram" />
+              <input type="hidden" name="facebookPageLookupValue" value={config.preferredPageLookupValue || "nctilepro"} />
+              <div className="grid-2">
+                <div className="field">
+                  <label htmlFor="instagramMetaAppId">App ID</label>
+                  <input
+                    id="instagramMetaAppId"
+                    name="facebookAppId"
+                    defaultValue={config.appId}
+                    placeholder="123456789012345"
+                  />
+                  <span className="hint">Shared Meta app ID.</span>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="instagramMetaAppSecret">App Secret</label>
+                  <input
+                    id="instagramMetaAppSecret"
+                    name="facebookAppSecret"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder={config.appSecretConfigured ? "Saved securely. Enter only to replace it." : "Enter Meta app secret"}
+                  />
+                  <span className="hint">
+                    {config.appSecretConfigured
+                      ? `A secret is already available from ${config.appSecretSource === "settings" ? "Settings" : "the environment"}. Leave this blank to keep it.`
+                      : "Stored encrypted in app settings once saved."}
+                  </span>
+                </div>
+
+                <div className="field">
+                  <label>Callback URL</label>
+                  <input value={config.redirectUri} readOnly />
+                  <span className="hint">Use this same callback URL in the Meta app for the shared OAuth flow.</span>
+                </div>
+
+                <div className="field">
+                  <label>Public app URL</label>
+                  <input value={config.publicAppUrl} readOnly />
+                </div>
+              </div>
+
+              <div className="button-row">
+                <button type="submit" className="primary-button">
+                  Save
+                </button>
+              </div>
+            </form>
+
+            {config.missingConfig.length > 0 ? (
+              <p className="error-text">
+                Meta setup is incomplete: {config.missingConfig.join(", ")}. Save the missing values before connecting Instagram.
+              </p>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="settings-subcard">
+          <div className="settings-subcard-head">
+            <div>
+              <strong>Connection Summary</strong>
+              <p>Basic readiness for Instagram posting.</p>
+            </div>
+            <span className="settings-chip">Status</span>
           </div>
 
           <div className="form-grid">
             <div className="grid-2">
               <div className="field">
-                <label>Facebook Page</label>
+                <label>Connected Facebook Page</label>
                 <input
                   value={
                     instagramFoundation.pageName
@@ -69,23 +167,15 @@ export default async function InstagramChannelSettingsPage() {
               </div>
 
               <div className="field">
-                <label>Instagram status</label>
-                <input value={instagramFoundation.status} readOnly />
-              </div>
-
-              <div className="field">
-                <label>Instagram account ID</label>
-                <input value={instagramFoundation.accountId || "Not detected"} readOnly />
-              </div>
-
-              <div className="field">
-                <label>Instagram username</label>
-                <input value={instagramFoundation.username ? `@${instagramFoundation.username}` : "Not detected"} readOnly />
-              </div>
-
-              <div className="field">
-                <label>Lookup source</label>
-                <input value={instagramFoundation.source || "No linked Instagram field returned"} readOnly />
+                <label>Instagram account</label>
+                <input
+                  value={
+                    instagramFoundation.username
+                      ? `@${instagramFoundation.username}${instagramFoundation.accountId ? ` (${instagramFoundation.accountId})` : ""}`
+                      : "Not detected"
+                  }
+                  readOnly
+                />
               </div>
 
               <div className="field">
@@ -99,109 +189,37 @@ export default async function InstagramChannelSettingsPage() {
                   readOnly
                 />
               </div>
-            </div>
-
-            {instagramFoundation.errorMessage ? (
-              <p className="warning-text">{instagramFoundation.errorMessage}</p>
-            ) : null}
-
-            <p className={instagramFoundation.status === "READY" ? "success-text" : "hint"}>
-              {instagramFoundation.message}
-            </p>
-          </div>
-        </section>
-
-        <section className="settings-subcard">
-          <div className="settings-subcard-head">
-            <div>
-              <strong>Permissions & Last Test</strong>
-              <p>These are the scopes and the latest Instagram account test result derived from the current Meta session.</p>
-            </div>
-            <span className="settings-chip">Meta</span>
-          </div>
-
-          <div className="form-grid">
-            <div className="grid-2">
-              <div className="field">
-                <label>Required permissions</label>
-                <input value={diagnostics.requiredScopes.join(", ")} readOnly />
-              </div>
 
               <div className="field">
                 <label>Missing permissions</label>
                 <input value={diagnostics.missingScopes.length > 0 ? diagnostics.missingScopes.join(", ") : "None"} readOnly />
               </div>
-
-              <div className="field">
-                <label>Last test result</label>
-                <input value={diagnostics.lastTestResult.success ? "Success" : "Needs attention"} readOnly />
-              </div>
-
-              <div className="field">
-                <label>Last tested at</label>
-                <input
-                  value={
-                    diagnostics.lastTestResult.testedAt
-                      ? formatDateTimeForTimezone(new Date(diagnostics.lastTestResult.testedAt), timezone)
-                      : "Not tested yet"
-                  }
-                  readOnly
-                />
-              </div>
-
-              <div className="field">
-                <label>Instagram account type</label>
-                <input value={diagnostics.lastTestResult.accountDetails?.accountType || "Not returned"} readOnly />
-              </div>
-
-              <div className="field">
-                <label>Instagram media count</label>
-                <input
-                  value={
-                    typeof diagnostics.lastTestResult.accountDetails?.mediaCount === "number"
-                      ? String(diagnostics.lastTestResult.accountDetails.mediaCount)
-                      : "Not returned"
-                  }
-                  readOnly
-                />
-              </div>
             </div>
 
-            <p className={diagnostics.lastTestResult.success ? "success-text" : "warning-text"}>
-              {diagnostics.lastTestResult.message}
-            </p>
-          </div>
-        </section>
+            <p className={isReady ? "success-text" : "hint"}>{instagramFoundation.message}</p>
+            {!isReady ? (
+              <p className="warning-text">
+                If Instagram is missing, make sure the connected Facebook Page has a linked Instagram Business or Creator account in Meta Business Suite, then reconnect Meta.
+              </p>
+            ) : null}
 
-        <section className="settings-subcard">
-          <div className="settings-subcard-head">
-            <div>
-              <strong>Posting Readiness</strong>
-              <p>Instagram Post Now currently supports image-only publishing through the linked Meta account.</p>
-            </div>
-            <span className="settings-chip">Phase 8</span>
-          </div>
-
-          <div className="settings-subcard-list">
-            <div className="settings-nav-card">
-              <div className="settings-nav-card-head">
-                <strong>Image-only publishing</strong>
-              </div>
-              <p>Instagram posts require at least one image. Text-only Instagram posting remains blocked.</p>
-            </div>
-
-            <div className="settings-nav-card">
-              <div className="settings-nav-card-head">
-                <strong>Temporary Instagram optimizer</strong>
-              </div>
-              <p>Each publish generates a temporary 1080px JPEG from the stored original, uses it for the Meta publish flow, then cleans it up.</p>
-            </div>
-
-            <div className="settings-nav-card">
-              <div className="settings-nav-card-head">
-                <strong>If Instagram is missing</strong>
-              </div>
-              <p>Link an Instagram Business or Creator account to the connected Facebook Page in Meta Business Suite, then reconnect Meta so the app can detect it again.</p>
+            <div className="button-row">
+              <a
+                href={hasBlockingSetupIssue ? undefined : connectHref}
+                className="primary-button"
+                aria-disabled={hasBlockingSetupIssue}
+                style={hasBlockingSetupIssue ? { pointerEvents: "none", opacity: 0.6 } : undefined}
+              >
+                {isReady ? "Reconnect Meta" : "Connect Meta"}
+              </a>
+              <form action={testInstagramConnectionAction}>
+                <button type="submit" className="secondary-button" disabled={hasBlockingSetupIssue}>
+                  Test Connection
+                </button>
+              </form>
+              <Link href="/dashboard/settings/channels/instagram/advanced" className="secondary-button">
+                Open Advanced
+              </Link>
             </div>
           </div>
         </section>

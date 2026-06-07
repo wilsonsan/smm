@@ -18,7 +18,13 @@ import {
   dismissProviderNotifications,
 } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
-import { APP_SETTING_KEYS, getAppSettingValue, getAppSettings, upsertAppSetting } from "@/lib/settings";
+import {
+  APP_SETTING_KEYS,
+  getAppSettingValue,
+  getAppSettings,
+  upsertAppSetting,
+} from "@/lib/settings";
+import { getFacebookAppSecretSetting } from "@/lib/secure-settings";
 import {
   cleanupTemporaryPlatformImage,
   generateTemporaryPlatformImage,
@@ -245,6 +251,8 @@ export type FacebookConnection = FacebookConnectionRecord & {
 
 export type FacebookConfiguration = {
   appId: string;
+  appSecretConfigured: boolean;
+  appSecretSource: "settings" | "environment" | "missing";
   redirectUri: string;
   requiredScopes: string[];
   optionalDiagnosticScopes: string[];
@@ -620,6 +628,12 @@ function getDiagnosticDataCount(value: unknown) {
 export async function getFacebookConfiguration(): Promise<FacebookConfiguration> {
   const settings = await getAppSettings();
   const appId = (settings.facebookAppId || env.FACEBOOK_APP_ID || "").trim();
+  const appSecret = (await getFacebookAppSecretSetting()).trim();
+  const appSecretSource = settings.facebookAppSecretConfigured
+    ? "settings"
+    : env.FACEBOOK_APP_SECRET
+      ? "environment"
+      : "missing";
   const publicAppUrl = settings.publicAppUrl || env.APP_URL;
   const redirectUri = new URL("/api/facebook/callback", publicAppUrl).toString();
   const missingConfig: string[] = [];
@@ -633,8 +647,13 @@ export async function getFacebookConfiguration(): Promise<FacebookConfiguration>
     {
       key: "FACEBOOK_APP_SECRET",
       label: "Facebook App Secret",
-      configured: Boolean(env.FACEBOOK_APP_SECRET),
-      detail: env.FACEBOOK_APP_SECRET ? "Configured in environment" : "Missing",
+      configured: Boolean(appSecret),
+      detail:
+        appSecretSource === "settings"
+          ? "Configured in Settings"
+          : appSecretSource === "environment"
+            ? "Configured in environment"
+            : "Missing",
     },
     {
       key: "TOKEN_ENCRYPTION_KEY",
@@ -660,7 +679,7 @@ export async function getFacebookConfiguration(): Promise<FacebookConfiguration>
     missingConfig.push("Facebook App ID");
   }
 
-  if (!env.FACEBOOK_APP_SECRET) {
+  if (!appSecret) {
     missingConfig.push("FACEBOOK_APP_SECRET");
   }
 
@@ -670,6 +689,8 @@ export async function getFacebookConfiguration(): Promise<FacebookConfiguration>
 
   return {
     appId,
+    appSecretConfigured: Boolean(appSecret),
+    appSecretSource,
     redirectUri,
     requiredScopes: [...FACEBOOK_REQUIRED_SCOPES],
     optionalDiagnosticScopes: [...FACEBOOK_OPTIONAL_DIAGNOSTIC_SCOPES],
@@ -878,9 +899,10 @@ async function getFacebookOauthDebugTokens() {
 }
 
 async function exchangeCodeForUserToken(input: { code: string; redirectUri: string; appId: string }) {
+  const appSecret = await getFacebookAppSecretSetting();
   const url = buildFacebookGraphUrl("/oauth/access_token", {
     client_id: input.appId,
-    client_secret: env.FACEBOOK_APP_SECRET,
+    client_secret: appSecret,
     code: input.code,
     redirect_uri: input.redirectUri,
   });
@@ -893,10 +915,11 @@ async function exchangeCodeForUserToken(input: { code: string; redirectUri: stri
 }
 
 async function exchangeForLongLivedUserToken(input: { accessToken: string; appId: string }) {
+  const appSecret = await getFacebookAppSecretSetting();
   const url = buildFacebookGraphUrl("/oauth/access_token", {
     grant_type: "fb_exchange_token",
     client_id: input.appId,
-    client_secret: env.FACEBOOK_APP_SECRET,
+    client_secret: appSecret,
     fb_exchange_token: input.accessToken,
   });
 
@@ -912,9 +935,10 @@ async function debugFacebookUserToken(input: {
   inputToken: string;
   tokenSource: "short_lived_user" | "long_lived_user";
 }) {
+  const appSecret = await getFacebookAppSecretSetting();
   const url = buildFacebookGraphUrl("/debug_token", {
     input_token: input.inputToken,
-    access_token: `${input.appId}|${env.FACEBOOK_APP_SECRET}`,
+    access_token: `${input.appId}|${appSecret}`,
   });
 
   try {

@@ -26,12 +26,12 @@ const SETTINGS_SECTIONS = [
       {
         href: "/dashboard/settings/channels/facebook",
         title: "Facebook",
-        description: "Environment-backed app credentials and future publishing connection settings.",
+        description: "Basic Meta credentials, connect/reconnect, and quick Facebook connection checks.",
       },
       {
         href: "/dashboard/settings/channels/instagram",
         title: "Instagram",
-        description: "Placeholder page for the future Instagram connection and publishing setup.",
+        description: "Simple Instagram readiness view with Meta connect/test actions and an advanced diagnostics page.",
       },
       {
         href: "/dashboard/settings/channels/google",

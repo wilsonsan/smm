@@ -15,10 +15,20 @@ import {
   testFacebookConnection,
 } from "@/lib/facebook";
 import { getRequestMetadata } from "@/lib/http";
-import { saveFacebookAppIdSetting, saveFacebookPageLookupSetting } from "@/lib/settings";
+import { saveFacebookAppSecretSetting } from "@/lib/secure-settings";
+import {
+  saveFacebookAppIdSetting,
+  saveFacebookPageLookupSetting,
+} from "@/lib/settings";
 import { facebookPageIdTestSchema, facebookPageSelectionSchema, facebookSettingsSchema } from "@/lib/validation";
 
-function buildFacebookSettingsHref(input?: { status?: "success" | "error"; message?: string }) {
+function buildFacebookSettingsHref(
+  input?: {
+    status?: "success" | "error";
+    message?: string;
+    returnTo?: string;
+  },
+) {
   const params = new URLSearchParams();
 
   if (input?.status) {
@@ -30,7 +40,8 @@ function buildFacebookSettingsHref(input?: { status?: "success" | "error"; messa
   }
 
   const suffix = params.toString();
-  return suffix ? `/dashboard/settings/channels/facebook?${suffix}` : "/dashboard/settings/channels/facebook";
+  const basePath = input?.returnTo || "/dashboard/settings/channels/facebook";
+  return suffix ? `${basePath}?${suffix}` : basePath;
 }
 
 async function writeFacebookAuditLog(input: {
@@ -56,34 +67,44 @@ export async function saveFacebookSettingsAction(formData: FormData) {
   const adminUser = await requireAdminUser();
   const parsed = facebookSettingsSchema.safeParse({
     facebookAppId: formData.get("facebookAppId"),
+    facebookAppSecret: formData.get("facebookAppSecret"),
     facebookPageLookupValue: formData.get("facebookPageLookupValue"),
+    returnTo: formData.get("returnTo"),
   });
 
   if (!parsed.success) {
     redirect(
       buildFacebookSettingsHref({
+        returnTo:
+          typeof formData.get("returnTo") === "string" ? String(formData.get("returnTo")) : undefined,
         status: "error",
         message:
           parsed.error.flatten().fieldErrors.facebookAppId?.[0] ||
+          parsed.error.flatten().fieldErrors.facebookAppSecret?.[0] ||
           parsed.error.flatten().fieldErrors.facebookPageLookupValue?.[0] ||
+          parsed.error.flatten().fieldErrors.returnTo?.[0] ||
           "Enter valid Facebook settings.",
       }),
     );
   }
 
   await saveFacebookAppIdSetting(parsed.data.facebookAppId);
+  await saveFacebookAppSecretSetting(parsed.data.facebookAppSecret);
   await saveFacebookPageLookupSetting(parsed.data.facebookPageLookupValue);
   await writeFacebookAuditLog({
     actorAdminUserId: adminUser.id,
     action: AUDIT_ACTIONS.FACEBOOK_SETTINGS_UPDATED,
     metadata: {
       hasFacebookAppId: Boolean(parsed.data.facebookAppId),
+      hasFacebookAppSecret: Boolean(parsed.data.facebookAppSecret),
       facebookPageLookupValue: parsed.data.facebookPageLookupValue,
+      returnTo: parsed.data.returnTo || "/dashboard/settings/channels/facebook",
     },
   });
 
   redirect(
     buildFacebookSettingsHref({
+      returnTo: parsed.data.returnTo || "/dashboard/settings/channels/facebook",
       status: "success",
       message: "Facebook settings saved.",
     }),

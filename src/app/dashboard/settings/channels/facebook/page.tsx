@@ -1,26 +1,19 @@
-import { headers } from "next/headers";
 import Link from "next/link";
 import { ConnectedAccountStatus } from "@prisma/client";
 import {
-  clearFacebookDebugResultAction,
-  clearFacebookPendingSelectionAction,
-  connectFacebookResolvedPageAction,
   disconnectFacebookAction,
-  runFacebookPageIdDiagnosticsAction,
   saveFacebookSettingsAction,
   selectFacebookPageAction,
   testFacebookConnectionAction,
 } from "@/app/dashboard/settings/channels/facebook/actions";
 import {
   getFacebookConfiguration,
-  refreshFacebookConnectionHealth,
   getFacebookConnectionRecord,
-  getFacebookOauthDebugResult,
   getPendingFacebookPageSelection,
+  refreshFacebookConnectionHealth,
 } from "@/lib/facebook";
 import { getInstagramFoundationStateFromConnection } from "@/lib/instagram";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
-import { FacebookDiagnosticsPanel } from "@/components/facebook-diagnostics-panel";
 
 type FacebookSettingsPageProps = {
   searchParams?: Promise<{
@@ -28,24 +21,6 @@ type FacebookSettingsPageProps = {
     message?: string;
   }>;
 };
-
-function normalizeOrigin(value: string | null | undefined) {
-  return (value || "").replace(/\/+$/, "");
-}
-
-async function getDetectedRequestOrigin() {
-  const requestHeaders = await headers();
-  const forwardedProto = requestHeaders.get("x-forwarded-proto");
-  const forwardedHost = requestHeaders.get("x-forwarded-host");
-  const host = forwardedHost || requestHeaders.get("host");
-
-  if (!host) {
-    return "";
-  }
-
-  const protocol = forwardedProto || "https";
-  return `${protocol}://${host}`;
-}
 
 function getStatusLabel(status: ConnectedAccountStatus | null) {
   if (status === ConnectedAccountStatus.CONNECTED) {
@@ -96,84 +71,53 @@ function getStatusTone(status: ConnectedAccountStatus | null) {
   return "draft";
 }
 
-function getManualResolvedPage(debugResult: Awaited<ReturnType<typeof getFacebookOauthDebugResult>>) {
-  if (!debugResult?.manualPageIdTest) {
-    return null;
-  }
-
-  for (const result of debugResult.manualPageIdTest.endpointResults) {
-    if (!result.success || !result.endpoint.includes("fields=id,name,access_token")) {
-      continue;
-    }
-
-    const payload = result.sanitizedJson;
-    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-      continue;
-    }
-
-    const id = "id" in payload && typeof payload.id === "string" ? payload.id : "";
-    const name = "name" in payload && typeof payload.name === "string" ? payload.name : "";
-    const accessTokenValue =
-      "access_token" in payload && typeof payload.access_token === "string" ? payload.access_token : "";
-
-    if (id && name && accessTokenValue === "[REDACTED_PRESENT]") {
-      return {
-        pageId: id,
-        pageName: name,
-      };
-    }
-  }
-
-  return null;
-}
-
 export default async function FacebookChannelSettingsPage({ searchParams }: FacebookSettingsPageProps) {
   const resolvedSearchParams = await searchParams;
   await refreshFacebookConnectionHealth({
     createNotification: true,
     source: "settings_page_load",
   }).catch(() => null);
-  const [config, connection, debugResult, pendingSelection, timezone, detectedRequestOrigin] = await Promise.all([
+
+  const [config, connection, pendingSelection, timezone] = await Promise.all([
     getFacebookConfiguration(),
     getFacebookConnectionRecord(),
-    getFacebookOauthDebugResult(),
     getPendingFacebookPageSelection(),
     getResolvedAppTimezone(),
-    getDetectedRequestOrigin(),
   ]);
 
-  const pageUrl =
-    connection?.metadata && typeof connection.metadata === "object" && !Array.isArray(connection.metadata)
-      ? String((connection.metadata as Record<string, unknown>).pageUrl ?? "")
-      : "";
-
-  const effectiveAppId = config.appId || "";
-  const preferredPageLookupValue = config.preferredPageLookupValue || "nctilepro";
+  const instagramFoundation = getInstagramFoundationStateFromConnection(connection);
   const hasBlockingSetupIssue = config.missingConfig.length > 0;
-  const missingScopes = config.requiredScopes.filter((scope) => !connection?.scopes.includes(scope));
-  const publicUrlMismatch =
-    Boolean(detectedRequestOrigin) &&
-    normalizeOrigin(detectedRequestOrigin) !== normalizeOrigin(config.publicAppUrl);
-  const manualResolvedPage = getManualResolvedPage(debugResult);
+  const currentAppId = config.appId || "";
+  const currentPageLookupValue = config.preferredPageLookupValue || "nctilepro";
+  const hasConnectedPage = Boolean(connection?.pageId);
   const needsReconnect =
     connection?.status === ConnectedAccountStatus.NEEDS_RECONNECT ||
     connection?.status === ConnectedAccountStatus.EXPIRED ||
     connection?.status === ConnectedAccountStatus.INVALID ||
     connection?.status === ConnectedAccountStatus.MISSING_SCOPES ||
     connection?.status === ConnectedAccountStatus.ERROR;
-  const hasConnectedPage = Boolean(connection?.pageId);
-  const instagramFoundation = getInstagramFoundationStateFromConnection(connection);
+  const connectHref =
+    hasBlockingSetupIssue
+      ? undefined
+      : connection?.pageId
+        ? "/api/facebook/connect?mode=reconnect"
+        : "/api/facebook/connect";
 
   return (
     <section className="section-stack">
       <header className="page-header">
         <div>
           <h2>Facebook</h2>
-          <p>Connect a Facebook Page, verify the connection, and use it for manual or scheduled publishing.</p>
+          <p>Keep the main Facebook settings simple here, and use the advanced page for diagnostics, runtime details, and deeper troubleshooting.</p>
         </div>
-        <Link href="/dashboard/settings" className="secondary-button">
-          Back To Settings
-        </Link>
+        <div className="button-row">
+          <Link href="/dashboard/settings/channels/facebook/advanced" className="secondary-button">
+            Advanced
+          </Link>
+          <Link href="/dashboard/settings" className="ghost-link-button">
+            Back To Settings
+          </Link>
+        </div>
       </header>
 
       {resolvedSearchParams?.message ? (
@@ -190,119 +134,100 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
         <div className="settings-section-head">
           <div>
             <span className="settings-eyebrow">Channel Settings</span>
-            <h3>Facebook Connection Settings</h3>
-            <p>Meta app configuration stays self-hosted, and Page access tokens are encrypted before they touch storage.</p>
+            <h3>Facebook Connection</h3>
+            <p>Only the essentials live here: Meta app credentials, the callback URL, and the core connection controls.</p>
           </div>
-          <span className="settings-count">{connection?.pageName ? "Connected" : "Ready to connect"}</span>
+          <span className={`badge is-${getStatusTone(connection?.status ?? null)}`.trim()}>
+            {getStatusLabel(connection?.status ?? null)}
+          </span>
         </div>
 
         <section className="settings-subcard">
           <div className="settings-subcard-head">
             <div>
-              <strong>App & Redirect Setup</strong>
-              <p>Use this exact redirect URI in the Meta app configuration, and keep the app secret only in environment variables.</p>
+              <strong>Basic Setup</strong>
+              <p>Save the Meta app credentials here, then use Connect and Test Connection for the live Facebook Page link.</p>
             </div>
-            <span className="settings-chip">OAuth</span>
+            <span className="settings-chip">Required</span>
           </div>
 
           <div className="form-grid">
             <form action={saveFacebookSettingsAction} className="form-grid">
+              <input type="hidden" name="returnTo" value="/dashboard/settings/channels/facebook" />
+              <input type="hidden" name="facebookPageLookupValue" value={currentPageLookupValue} />
               <div className="grid-2">
                 <div className="field">
-                  <label htmlFor="facebookAppId">Facebook App ID</label>
+                  <label htmlFor="facebookAppId">App ID</label>
                   <input
                     id="facebookAppId"
                     name="facebookAppId"
-                    defaultValue={effectiveAppId}
+                    defaultValue={currentAppId}
                     placeholder="123456789012345"
                   />
-                  <span className="hint">Saved here if you want an override. Leaving it blank falls back to `FACEBOOK_APP_ID` from the environment.</span>
+                  <span className="hint">Shared Meta app ID used for Facebook and Instagram OAuth.</span>
                 </div>
 
                 <div className="field">
-                  <label htmlFor="facebookPageLookupValue">Preferred Page lookup</label>
+                  <label htmlFor="facebookAppSecret">App Secret</label>
                   <input
-                    id="facebookPageLookupValue"
-                    name="facebookPageLookupValue"
-                    defaultValue={preferredPageLookupValue}
-                    placeholder="nctilepro"
+                    id="facebookAppSecret"
+                    name="facebookAppSecret"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder={config.appSecretConfigured ? "Saved securely. Enter only to replace it." : "Enter Meta app secret"}
                   />
-                  <span className="hint">When `/me/accounts` returns zero, the app will try this Page username or ID directly before giving up.</span>
+                  <span className="hint">
+                    {config.appSecretConfigured
+                      ? `A secret is already saved from ${config.appSecretSource === "settings" ? "Settings" : "the environment"}. Leave this blank to keep it.`
+                      : "Stored encrypted in app settings once saved."}
+                  </span>
                 </div>
 
                 <div className="field">
-                  <label>Facebook App Secret</label>
-                  <input value={config.missingConfig.includes("FACEBOOK_APP_SECRET") ? "Not configured" : "Configured via environment"} readOnly />
-                  <span className="hint">The app secret never gets stored in the database.</span>
-                </div>
-
-                <div className="field">
-                  <label>Effective public app URL</label>
-                  <input value={config.publicAppUrl} readOnly />
-                  <span className="hint">This is the base URL the Facebook OAuth flow will trust for callbacks and local redirects.</span>
-                </div>
-
-                <div className="field">
-                  <label>Redirect URI</label>
+                  <label>Callback URL</label>
                   <input value={config.redirectUri} readOnly />
+                  <span className="hint">Use this exact callback URL in the Meta app.</span>
                 </div>
 
                 <div className="field">
-                  <label>Detected request origin</label>
-                  <input value={detectedRequestOrigin || "Could not detect request origin"} readOnly />
-                  <span className="hint">Useful for spotting reverse-proxy host/protocol mismatches.</span>
-                </div>
-
-                <div className="field">
-                  <label>Required scopes</label>
-                  <input value={config.requiredScopes.join(", ")} readOnly />
-                </div>
-
-                <div className="field">
-                  <label>Optional diagnostic scopes</label>
-                  <input value={config.optionalDiagnosticScopes.join(", ")} readOnly />
-                  <span className="hint">`business_management` is not required for basic Page connect, but it can help diagnose Business Manager owned Pages when `/me/accounts` returns zero.</span>
+                  <label>Public app URL</label>
+                  <input value={config.publicAppUrl} readOnly />
                 </div>
               </div>
-
               <div className="button-row">
                 <button type="submit" className="primary-button">
-                  Save Facebook Settings
+                  Save
                 </button>
-                <a
-                  href={
-                    hasBlockingSetupIssue
-                      ? undefined
-                      : connection?.pageId
-                        ? "/api/facebook/connect?mode=reconnect"
-                        : "/api/facebook/connect"
-                  }
-                  className="secondary-button"
-                  aria-disabled={hasBlockingSetupIssue}
-                  style={hasBlockingSetupIssue ? { pointerEvents: "none", opacity: 0.6 } : undefined}
-                >
-                  {connection?.pageId ? "Reconnect Facebook" : "Connect Facebook"}
-                </a>
-                <a
-                  href={hasBlockingSetupIssue ? undefined : "/api/facebook/debug"}
-                  className="secondary-button"
-                  aria-disabled={hasBlockingSetupIssue}
-                  style={hasBlockingSetupIssue ? { pointerEvents: "none", opacity: 0.6 } : undefined}
-                >
-                  Run Facebook Diagnostics
-                </a>
               </div>
             </form>
 
+            <div className="button-row">
+                <a
+                  href={connectHref}
+                  className="secondary-button"
+                  aria-disabled={hasBlockingSetupIssue}
+                  style={hasBlockingSetupIssue ? { pointerEvents: "none", opacity: 0.6 } : undefined}
+                >
+                  {needsReconnect ? "Reconnect Facebook" : hasConnectedPage ? "Reconnect" : "Connect"}
+                </a>
+                <form action={testFacebookConnectionAction}>
+                  <button type="submit" className="secondary-button" disabled={!hasConnectedPage || hasBlockingSetupIssue}>
+                    Test Connection
+                  </button>
+                </form>
+                <Link href="/dashboard/settings/channels/facebook/advanced" className="secondary-button">
+                  Open Advanced
+                </Link>
+                <form action={disconnectFacebookAction}>
+                  <button type="submit" className="danger-button" disabled={!connection}>
+                    Disconnect
+                  </button>
+                </form>
+            </div>
+
             {hasBlockingSetupIssue ? (
               <p className="error-text">
-                Facebook setup is incomplete: {config.missingConfig.join(", ")}. Add those values before starting OAuth.
-              </p>
-            ) : null}
-            {publicUrlMismatch ? (
-              <p className="warning-text">
-                The detected request origin ({detectedRequestOrigin}) does not match the configured public app URL ({config.publicAppUrl}).
-                Facebook callbacks may redirect incorrectly until the proxy or app URL is aligned.
+                Facebook setup is incomplete: {config.missingConfig.join(", ")}. Save the missing values here before starting OAuth.
               </p>
             ) : null}
           </div>
@@ -311,104 +236,33 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
         <section className="settings-subcard">
           <div className="settings-subcard-head">
             <div>
-              <strong>Advanced Facebook Debug</strong>
-              <p>Run a server-side diagnostics pass against the current Meta app so we can compare token sources, raw sanitized Graph responses, and Business Manager fallbacks without exposing any tokens.</p>
+              <strong>Connection Summary</strong>
+              <p>Quick status for the active Facebook Page and the linked Instagram account.</p>
             </div>
-            <span className="settings-chip">Debug</span>
-          </div>
-
-          {debugResult ? (
-            <FacebookDiagnosticsPanel
-              debugResult={debugResult}
-              manualResolvedPage={manualResolvedPage}
-              timezone={timezone}
-              onClearAction={clearFacebookDebugResultAction}
-              onRunPageIdDiagnosticsAction={runFacebookPageIdDiagnosticsAction}
-              onConnectResolvedPageAction={connectFacebookResolvedPageAction}
-            />
-          ) : (
-            <div className="form-grid">
-              <p className="hint">No Facebook diagnostics snapshot is stored yet. Use the Run Facebook Diagnostics button above to inspect token exchange, `/me`, `/me/accounts`, and Business Manager fallback responses.</p>
-            </div>
-          )}
-        </section>
-
-        <section className="settings-subcard">
-          <div className="settings-subcard-head">
-            <div>
-              <strong>Runtime Diagnostics</strong>
-              <p>These checks confirm the local environment is ready for Facebook OAuth, encrypted token storage, and publishing.</p>
-            </div>
-            <span className="settings-chip">Health</span>
-          </div>
-
-          <div className="settings-subcard-list">
-            {config.checks.map((check) => (
-              <div key={check.key} className="settings-nav-card">
-                <div className="settings-nav-card-head">
-                  <strong>{check.label}</strong>
-                  <span className={`badge is-${check.configured ? "published" : "failed"}`.trim()}>
-                    {check.configured ? "Configured" : "Missing"}
-                  </span>
-                </div>
-                <p>{check.detail}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="settings-subcard">
-          <div className="settings-subcard-head">
-            <div>
-              <strong>Connected Page Status</strong>
-              <p>Only one Facebook Page is active in this phase so manual publishing and the worker share the same token.</p>
-            </div>
-            <span className={`badge is-${getStatusTone(connection?.status ?? null)}`.trim()}>
-              {getStatusLabel(connection?.status ?? null)}
-            </span>
+            <span className="settings-chip">Overview</span>
           </div>
 
           <div className="form-grid">
             <div className="grid-2">
               <div className="field">
-                <label>Connected account</label>
-                <input value={connection?.accountName || "No Facebook account connected yet"} readOnly />
-              </div>
-
-              <div className="field">
                 <label>Connected Page</label>
-                <input value={connection?.pageName || "No Facebook Page selected"} readOnly />
-              </div>
-
-              <div className="field">
-                <label>Page ID</label>
-                <input value={connection?.pageId || "Not connected"} readOnly />
-              </div>
-
-              <div className="field">
-                <label>Granted scopes</label>
-                <input value={connection?.scopes.join(", ") || "Not connected"} readOnly />
-              </div>
-
-              <div className="field">
-                <label>Missing required scopes</label>
-                <input value={missingScopes.length > 0 ? missingScopes.join(", ") : "None"} readOnly />
-              </div>
-
-              <div className="field">
-                <label>Token expiry</label>
                 <input
                   value={
-                    connection?.tokenExpiresAt
-                      ? formatDateTimeForTimezone(connection.tokenExpiresAt, timezone)
-                      : "No token expiry reported"
+                    connection?.pageName
+                      ? `${connection.pageName}${connection.pageId ? ` (${connection.pageId})` : ""}`
+                      : "No Facebook Page selected"
                   }
                   readOnly
                 />
               </div>
 
               <div className="field">
-                <label>Last connection test</label>
+                <label>Connected account</label>
+                <input value={connection?.accountName || "No Facebook account connected yet"} readOnly />
+              </div>
+
+              <div className="field">
+                <label>Last checked</label>
                 <input
                   value={
                     connection?.lastTestedAt
@@ -420,145 +274,22 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
               </div>
 
               <div className="field">
-                <label>Last successful token test</label>
-                <input
-                  value={
-                    connection?.lastSuccessfulTestAt
-                      ? formatDateTimeForTimezone(connection.lastSuccessfulTestAt, timezone)
-                      : "No successful test recorded yet"
-                  }
-                  readOnly
-                />
-              </div>
-
-              <div className="field">
-                <label>Last failed token test</label>
-                <input
-                  value={
-                    connection?.lastFailedTestAt
-                      ? formatDateTimeForTimezone(connection.lastFailedTestAt, timezone)
-                      : "No failed test recorded"
-                  }
-                  readOnly
-                />
-              </div>
-
-              <div className="field">
-                <label>Linked Instagram status</label>
-                <input value={instagramFoundation.status} readOnly />
-              </div>
-
-              <div className="field">
-                <label>Linked Instagram account</label>
+                <label>Linked Instagram</label>
                 <input
                   value={
                     instagramFoundation.username
                       ? `@${instagramFoundation.username}${instagramFoundation.accountId ? ` (${instagramFoundation.accountId})` : ""}`
-                      : "No linked Instagram account detected"
+                      : instagramFoundation.status
                   }
                   readOnly
                 />
               </div>
             </div>
 
-            {pageUrl ? (
-              <p className="hint">
-                Connected Page link:{" "}
-                <a href={pageUrl} target="_blank" rel="noreferrer">
-                  {pageUrl}
-                </a>
-              </p>
-            ) : null}
-
+            {connection?.lastError ? <p className="error-text">{connection.lastError}</p> : null}
             <p className={instagramFoundation.status === "READY" ? "success-text" : "hint"}>
               {instagramFoundation.message}
             </p>
-
-            {connection?.lastError ? <p className="error-text">{connection.lastError}</p> : null}
-            {needsReconnect ? (
-              <p className="warning-text">
-                Facebook needs to be reconnected before posting again. Use Reconnect Facebook below and complete the Meta OAuth flow.
-              </p>
-            ) : null}
-            {connection?.status === ConnectedAccountStatus.ERROR || missingScopes.length > 0 ? (
-              <p className="warning-text">
-                Reconnect this Facebook Page if the token is invalid, the app changed mode, or required scopes are
-                missing.
-              </p>
-            ) : null}
-
-            <div className="button-row">
-              <form action={testFacebookConnectionAction}>
-                <button
-                  type="submit"
-                  className="secondary-button"
-                  disabled={!hasConnectedPage || hasBlockingSetupIssue}
-                >
-                  Test Connection
-                </button>
-              </form>
-
-              <a
-                href={
-                  hasBlockingSetupIssue
-                    ? undefined
-                    : hasConnectedPage
-                      ? "/api/facebook/connect?mode=reconnect"
-                      : "/api/facebook/connect"
-                }
-                className="primary-button"
-                aria-disabled={hasBlockingSetupIssue}
-                style={hasBlockingSetupIssue ? { pointerEvents: "none", opacity: 0.6 } : undefined}
-              >
-                {needsReconnect ? "Reconnect Facebook" : "Reconnect"}
-              </a>
-
-              <form action={disconnectFacebookAction}>
-                <button type="submit" className="danger-button" disabled={!connection}>
-                  Disconnect
-                </button>
-              </form>
-            </div>
-          </div>
-        </section>
-
-        <section className="settings-subcard">
-          <div className="settings-subcard-head">
-            <div>
-              <strong>Troubleshooting</strong>
-              <p>If Facebook login succeeds but no Page comes back, the account is authorized but Meta still is not returning a manageable Page.</p>
-            </div>
-            <span className="settings-chip">Help</span>
-          </div>
-
-          <div className="settings-subcard-list">
-            <div className="settings-nav-card">
-              <div className="settings-nav-card-head">
-                <strong>Check the Facebook account</strong>
-              </div>
-              <p>Make sure the exact Facebook account you used in OAuth can open the target Facebook Page and has Page access inside Meta Business Suite.</p>
-            </div>
-
-            <div className="settings-nav-card">
-              <div className="settings-nav-card-head">
-                <strong>Check Meta app mode</strong>
-              </div>
-              <p>If the Meta app is still in Development mode, this Facebook account must be added to the Meta app as an admin, developer, or tester.</p>
-            </div>
-
-            <div className="settings-nav-card">
-              <div className="settings-nav-card-head">
-                <strong>Approve every requested permission</strong>
-              </div>
-              <p>During Connect Facebook, approve all requested Page permissions. The callback now records the actually granted scopes, not just the requested ones.</p>
-            </div>
-
-            <div className="settings-nav-card">
-              <div className="settings-nav-card-head">
-                <strong>Reconnect after changing access</strong>
-              </div>
-              <p>If you add Page access or change app mode, disconnect and reconnect Facebook so the app gets a fresh user token and a fresh Page list.</p>
-            </div>
           </div>
         </section>
 
@@ -567,7 +298,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
             <div className="settings-subcard-head">
               <div>
                 <strong>Select Facebook Page</strong>
-                <p>Meta returned multiple Pages for {pendingSelection.accountName}. Choose the one this app should publish to.</p>
+                <p>Meta returned multiple Pages. Choose the Page this app should use.</p>
               </div>
               <span className="settings-chip">{pendingSelection.pages.length} pages</span>
             </div>
@@ -588,14 +319,6 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                   </p>
                 </form>
               ))}
-            </div>
-
-            <div className="button-row">
-              <form action={clearFacebookPendingSelectionAction}>
-                <button type="submit" className="ghost-link-button">
-                  Clear Pending Selection
-                </button>
-              </form>
             </div>
           </section>
         ) : null}
