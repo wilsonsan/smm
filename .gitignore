@@ -5,10 +5,9 @@ node_modules
 .env.*.local
 dist
 coverage
-uploads
+/uploads
 Dockerfile.local
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-
