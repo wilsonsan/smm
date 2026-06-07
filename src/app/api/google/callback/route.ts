@@ -7,6 +7,7 @@ import {
   exchangeGoogleAuthorizationCode,
   setPendingGoogleLocationSelection,
 } from "@/lib/google";
+import { resolvePublicRequestOrigin } from "@/lib/http";
 
 function buildGoogleSettingsUrl(status: "success" | "error", message: string) {
   const url = new URL("/dashboard/settings/channels/google", "http://localhost");
@@ -17,6 +18,7 @@ function buildGoogleSettingsUrl(status: "success" | "error", message: string) {
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  const publicOrigin = await resolvePublicRequestOrigin(request);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const oauthError = url.searchParams.get("error");
@@ -32,7 +34,7 @@ export async function GET(request: Request) {
   try {
     const mode = await consumeGoogleOauthState({ state });
     const exchanged = await exchangeGoogleAuthorizationCode(code, {
-      publicAppUrlOverride: url.origin,
+      publicAppUrlOverride: publicOrigin,
     });
     const pendingSelection = await buildGooglePendingSelectionFromCodeExchange({
       mode,
