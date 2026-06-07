@@ -20,7 +20,11 @@ export async function GET(request: Request) {
     });
     return NextResponse.redirect(connectUrl);
   } catch (error) {
-    const fallback = new URL(buildSettingsRedirect(error instanceof Error ? error.message : "Google OAuth could not be started."), request.url);
+    const publicOrigin = await resolvePublicRequestOrigin(request);
+    const fallback = new URL(
+      buildSettingsRedirect(error instanceof Error ? error.message : "Google OAuth could not be started."),
+      publicOrigin,
+    );
     return NextResponse.redirect(fallback);
   }
 }

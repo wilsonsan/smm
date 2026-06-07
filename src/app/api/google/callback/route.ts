@@ -24,11 +24,15 @@ export async function GET(request: Request) {
   const oauthError = url.searchParams.get("error");
 
   if (oauthError) {
-    return NextResponse.redirect(new URL(buildGoogleSettingsUrl("error", `Google authorization failed: ${oauthError}`), request.url));
+    return NextResponse.redirect(
+      new URL(buildGoogleSettingsUrl("error", `Google authorization failed: ${oauthError}`), publicOrigin),
+    );
   }
 
   if (!code) {
-    return NextResponse.redirect(new URL(buildGoogleSettingsUrl("error", "Google did not return an authorization code."), request.url));
+    return NextResponse.redirect(
+      new URL(buildGoogleSettingsUrl("error", "Google did not return an authorization code."), publicOrigin),
+    );
   }
 
   try {
@@ -56,7 +60,7 @@ export async function GET(request: Request) {
               ? `Reconnected Google Business location: ${result.location.title}.`
               : `Connected Google Business location: ${result.location.title}.`,
           ),
-          request.url,
+          publicOrigin,
         ),
       );
     }
@@ -68,7 +72,7 @@ export async function GET(request: Request) {
           "success",
           `Google returned ${pendingSelection.locations.length} Business Profile locations. Choose the one this app should use.`,
         ),
-        request.url,
+        publicOrigin,
       ),
     );
   } catch (error) {
@@ -79,7 +83,7 @@ export async function GET(request: Request) {
           "error",
           error instanceof Error ? error.message : "Google authorization could not be completed.",
         ),
-        request.url,
+        publicOrigin,
       ),
     );
   }
