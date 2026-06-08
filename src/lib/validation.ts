@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   areSelectedPlatformsPublishableNow,
   doSelectedPlatformsRequireMedia,
+  getCaptionLimitErrorMessage,
+  getCaptionMaxForPlatforms,
   getMaxMediaCountForPlatforms,
   getRequiredMediaMessageForPlatforms,
   normalizeSelectedPlatforms,
@@ -18,7 +20,7 @@ export const postFormSchema = z
   .object({
     postId: z.string().trim().optional().transform((value) => value || ""),
     mediaAssetIds: z.array(z.string().trim()).default([]).transform((value) => value.filter(Boolean)),
-    caption: z.string().trim().max(5000),
+    caption: z.string().trim().max(63206, "Caption must be 63,206 characters or less."),
     scheduledDate: z.string().trim().optional().transform((value) => value || ""),
     scheduledHour: z.string().trim().optional().transform((value) => value || ""),
     scheduledMinute: z.string().trim().optional().transform((value) => value || "00"),
@@ -29,6 +31,7 @@ export const postFormSchema = z
   .superRefine((value, ctx) => {
     const hasAnyTimePart = Boolean(value.scheduledHour);
     const maxMediaCount = getMaxMediaCountForPlatforms(value.platforms);
+    const maxCaptionLength = getCaptionMaxForPlatforms(value.platforms);
 
     if ((value.intent === "schedule" || value.intent === "publish") && !value.caption) {
       ctx.addIssue({
@@ -43,6 +46,14 @@ export const postFormSchema = z
         code: z.ZodIssueCode.custom,
         message: "Select at least one platform.",
         path: ["platforms"],
+      });
+    }
+
+    if (value.caption.length > maxCaptionLength) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: getCaptionLimitErrorMessage(value.platforms),
+        path: ["caption"],
       });
     }
 

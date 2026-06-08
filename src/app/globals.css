@@ -3055,9 +3055,14 @@ th {
 .composer-caption-footer {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.composer-caption-guidance {
+  display: grid;
+  gap: 6px;
 }
 
 .composer-caption-help,
@@ -3072,6 +3077,85 @@ th {
 
 .composer-character-count {
   font-weight: 700;
+}
+
+.composer-character-count.is-sweet {
+  color: #8ff0b8;
+}
+
+.composer-character-count.is-long {
+  color: #ffd37e;
+}
+
+.composer-character-count.is-short {
+  color: #a8bad7;
+}
+
+.composer-character-count.is-over {
+  color: #ff9b96;
+}
+
+.composer-caption-sweet-spots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.composer-sweet-spot-pill {
+  min-width: 180px;
+  max-width: 260px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(138, 158, 221, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  display: grid;
+  gap: 4px;
+}
+
+.composer-sweet-spot-pill strong {
+  font-size: 0.84rem;
+  letter-spacing: 0.01em;
+}
+
+.composer-sweet-spot-pill span {
+  color: #9bb0cf;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.composer-sweet-spot-pill.is-sweet {
+  border-color: rgba(71, 212, 132, 0.32);
+  background: linear-gradient(180deg, rgba(18, 56, 35, 0.92), rgba(11, 38, 24, 0.9));
+}
+
+.composer-sweet-spot-pill.is-sweet strong,
+.composer-sweet-spot-pill.is-sweet span {
+  color: #b8f2ce;
+}
+
+.composer-sweet-spot-pill.is-long {
+  border-color: rgba(255, 184, 76, 0.26);
+  background: linear-gradient(180deg, rgba(60, 39, 15, 0.92), rgba(43, 28, 11, 0.9));
+}
+
+.composer-sweet-spot-pill.is-long strong,
+.composer-sweet-spot-pill.is-long span {
+  color: #ffd999;
+}
+
+.composer-sweet-spot-pill.is-over {
+  border-color: rgba(255, 120, 112, 0.28);
+  background: linear-gradient(180deg, rgba(58, 23, 29, 0.92), rgba(39, 15, 19, 0.9));
+}
+
+.composer-sweet-spot-pill.is-over strong,
+.composer-sweet-spot-pill.is-over span {
+  color: #ffb7b0;
+}
+
+.composer-sweet-spot-pill.is-idle {
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .composer-platform-grid {
