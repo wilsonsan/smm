@@ -14,9 +14,11 @@ import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
 import { env, hasTokenEncryptionKeyConfigured, isProduction } from "@/lib/env";
 import {
   FACEBOOK_SETTINGS_ACTION_URL,
+  createOrUpdatePlatformPublishFailedNotification,
   createOrUpdateFacebookTokenNotification,
   dismissProviderNotifications,
 } from "@/lib/notifications";
+import { syncSocialPostAggregateState } from "@/lib/publish-state";
 import { prisma } from "@/lib/prisma";
 import {
   APP_SETTING_KEYS,
@@ -2291,7 +2293,7 @@ export async function testFacebookConnection() {
 
 export async function validateFacebookPublishPrerequisites(input: {
   caption: string;
-  mediaAsset:
+  mediaAsset?:
     | {
         id: string;
         mimeType: string;
@@ -2302,6 +2304,14 @@ export async function validateFacebookPublishPrerequisites(input: {
       }
     | null
     | undefined;
+  mediaAssets?: Array<{
+    id: string;
+    mimeType: string;
+    sizeBytes?: bigint | string;
+    width?: number;
+    height?: number;
+    storagePath: string;
+  }>;
 }) {
   await assertFacebookRuntimeReady();
   const health = await refreshFacebookConnectionHealth({
@@ -2322,16 +2332,25 @@ export async function validateFacebookPublishPrerequisites(input: {
     throw new Error("Caption is required before publishing to Facebook.");
   }
 
-  if (input.mediaAsset) {
-    const validatedOriginal = await validateStoredOriginalMediaAsset({
-      mediaAsset: input.mediaAsset,
-    });
+  const originalMediaAssets = (input.mediaAssets ?? (input.mediaAsset ? [input.mediaAsset] : []))
+    .filter((asset): asset is NonNullable<typeof input.mediaAsset> => Boolean(asset));
+
+  if (originalMediaAssets.length > 0) {
+    const validatedOriginals = await Promise.all(
+      originalMediaAssets.map((mediaAsset) =>
+        validateStoredOriginalMediaAsset({
+          mediaAsset,
+        }),
+      ),
+    );
 
     return {
       connection,
       caption: trimmedCaption,
-      originalMediaAsset: input.mediaAsset,
-      validatedOriginal,
+      originalMediaAsset: originalMediaAssets[0] ?? null,
+      originalMediaAssets,
+      validatedOriginal: validatedOriginals[0] ?? null,
+      validatedOriginals,
     };
   }
 
@@ -2339,13 +2358,15 @@ export async function validateFacebookPublishPrerequisites(input: {
     connection,
     caption: trimmedCaption,
     originalMediaAsset: null,
+    originalMediaAssets: [],
     validatedOriginal: null,
+    validatedOriginals: [],
   };
 }
 
 export function buildFacebookPostPayload(input: {
   caption: string;
-  mediaAsset:
+  mediaAsset?:
     | {
         id: string;
         mimeType: string;
@@ -2356,20 +2377,34 @@ export function buildFacebookPostPayload(input: {
       }
     | null
     | undefined;
+  mediaAssets?: Array<{
+    id: string;
+    mimeType: string;
+    sizeBytes?: bigint | string;
+    width?: number;
+    height?: number;
+    storagePath: string;
+  }>;
 }) {
+  const mediaAssets = (input.mediaAssets ?? (input.mediaAsset ? [input.mediaAsset] : []))
+    .filter((asset): asset is NonNullable<typeof input.mediaAsset> => Boolean(asset));
+
   return {
-    kind: input.mediaAsset ? "image" : "text",
+    kind: mediaAssets.length > 1 ? "multi_image" : mediaAssets.length === 1 ? "image" : "text",
     variantId: null,
     summary: {
       captionLength: input.caption.trim().length,
-      hasMedia: Boolean(input.mediaAsset),
-      mediaAssetId: input.mediaAsset?.id ?? null,
+      hasMedia: mediaAssets.length > 0,
+      mediaCount: mediaAssets.length,
+      mediaAssetId: mediaAssets[0]?.id ?? null,
+      mediaAssetIds: mediaAssets.map((asset) => asset.id),
       mediaVariantId: null,
       mediaVariantDimensions:
-        input.mediaAsset?.width && input.mediaAsset?.height
-          ? `${input.mediaAsset.width}x${input.mediaAsset.height}`
+        mediaAssets[0]?.width && mediaAssets[0]?.height
+          ? `${mediaAssets[0].width}x${mediaAssets[0].height}`
           : null,
-      mediaStoragePath: input.mediaAsset?.storagePath ?? null,
+      mediaStoragePath: mediaAssets[0]?.storagePath ?? null,
+      mediaStoragePaths: mediaAssets.map((asset) => asset.storagePath),
     },
   } as const;
 }
@@ -2437,26 +2472,77 @@ export async function publishFacebookImagePost(input: {
   };
 }
 
+export async function publishFacebookMultiImagePost(input: {
+  accessToken: string;
+  pageId: string;
+  caption: string;
+  absolutePaths: string[];
+}) {
+  const uploadedPhotoIds: string[] = [];
+
+  for (const absolutePath of input.absolutePaths) {
+    const fileBuffer = await readFile(absolutePath);
+    const formData = new FormData();
+    formData.set("access_token", input.accessToken);
+    formData.set("published", "false");
+    formData.set("source", new Blob([fileBuffer], { type: "image/jpeg" }), "facebook-feed.jpg");
+
+    const uploadResponse = await facebookGraphRequestJson<{
+      id: string;
+    }>(buildFacebookGraphUrl(`/${input.pageId}/photos`), {
+      method: "POST",
+      body: formData,
+    });
+
+    uploadedPhotoIds.push(uploadResponse.id);
+  }
+
+  const body = new URLSearchParams();
+  body.set("message", input.caption.trim());
+  body.set("access_token", input.accessToken);
+
+  for (const [index, photoId] of uploadedPhotoIds.entries()) {
+    body.append(`attached_media[${index}]`, JSON.stringify({ media_fbid: photoId }));
+  }
+
+  const response = await facebookGraphRequestJson<{
+    id: string;
+  }>(buildFacebookGraphUrl(`/${input.pageId}/feed`), {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body,
+  });
+
+  return {
+    id: response.id,
+    responseSummary: {
+      endpoint: "feed",
+      postId: response.id,
+      uploadedPhotoIds,
+      photoCount: uploadedPhotoIds.length,
+    } satisfies Prisma.InputJsonObject,
+  };
+}
+
 function appendFacebookTempImageDiagnostics(
   responseSummary: Prisma.InputJsonValue | null | undefined,
   input: {
-    originalMediaAssetId: string | null;
-    originalStoragePath: string | null;
-    temporaryImage:
-      | {
-          storagePath: string;
-          width: number;
-          height: number;
-          sizeBytes: bigint;
-          mimeType: string;
-        }
-      | null;
-    cleanupResult:
-      | {
-          status: "deleted" | "missing" | "failed";
-          message: string | null;
-        }
-      | null;
+    originalMediaAssetIds: string[];
+    originalStoragePaths: string[];
+    temporaryImages: Array<{
+      storagePath: string;
+      width: number;
+      height: number;
+      sizeBytes: bigint;
+      mimeType: string;
+    }>;
+    cleanupResults: Array<{
+      status: "deleted" | "missing" | "failed";
+      message: string | null;
+      absolutePath?: string;
+    }>;
   },
 ) {
   const base =
@@ -2466,18 +2552,20 @@ function appendFacebookTempImageDiagnostics(
 
   return {
     ...base,
-    originalMediaAssetId: input.originalMediaAssetId,
-    originalStoragePath: input.originalStoragePath,
-    temporaryPlatformImage: input.temporaryImage
-      ? {
-          storagePath: input.temporaryImage.storagePath,
-          width: input.temporaryImage.width,
-          height: input.temporaryImage.height,
-          sizeBytes: input.temporaryImage.sizeBytes.toString(),
-          mimeType: input.temporaryImage.mimeType,
-        }
-      : null,
-    temporaryPlatformImageCleanup: input.cleanupResult,
+    originalMediaAssetIds: input.originalMediaAssetIds,
+    originalStoragePaths: input.originalStoragePaths,
+    temporaryPlatformImages: input.temporaryImages.map((image) => ({
+      storagePath: image.storagePath,
+      width: image.width,
+      height: image.height,
+      sizeBytes: image.sizeBytes.toString(),
+      mimeType: image.mimeType,
+    })),
+    temporaryPlatformImageCleanup: input.cleanupResults.map((result) => ({
+      status: result.status,
+      message: result.message,
+      ...(result.absolutePath ? { absolutePath: result.absolutePath } : {}),
+    })),
   } satisfies Prisma.InputJsonObject;
 }
 
@@ -2506,7 +2594,7 @@ async function fetchFacebookPostUrl(input: { accessToken: string; platformPostId
 
 export async function publishFacebookPost(input: {
   caption: string;
-  mediaAsset:
+  mediaAsset?:
     | {
         id: string;
         mimeType: string;
@@ -2517,25 +2605,30 @@ export async function publishFacebookPost(input: {
       }
     | null
     | undefined;
+  mediaAssets?: Array<{
+    id: string;
+    mimeType: string;
+    sizeBytes?: bigint | string;
+    width?: number;
+    height?: number;
+    storagePath: string;
+  }>;
 }) {
   const payload = buildFacebookPostPayload(input);
   const validation = await validateFacebookPublishPrerequisites(input);
-  let temporaryImage:
-    | {
-        absolutePath: string;
-        storagePath: string;
-        mimeType: string;
-        width: number;
-        height: number;
-        sizeBytes: bigint;
-      }
-    | null = null;
-  let cleanupResult:
-    | {
-        status: "deleted" | "missing" | "failed";
-        message: string | null;
-      }
-    | null = null;
+  const temporaryImages: Array<{
+    absolutePath: string;
+    storagePath: string;
+    mimeType: string;
+    width: number;
+    height: number;
+    sizeBytes: bigint;
+  }> = [];
+  const cleanupResults: Array<{
+    absolutePath: string;
+    status: "deleted" | "missing" | "failed";
+    message: string | null;
+  }> = [];
   let publishedResult:
     | {
         platformPostId: string;
@@ -2546,24 +2639,36 @@ export async function publishFacebookPost(input: {
   let publishError: unknown = null;
 
   try {
-    if (payload.kind === "image" && validation.originalMediaAsset) {
-      temporaryImage = await generateTemporaryPlatformImage({
-        mediaAsset: validation.originalMediaAsset,
-        platform: "FACEBOOK",
-      });
+    if ((payload.kind === "image" || payload.kind === "multi_image") && validation.originalMediaAssets.length > 0) {
+      for (const originalMediaAsset of validation.originalMediaAssets) {
+        const temporaryImage = await generateTemporaryPlatformImage({
+          mediaAsset: originalMediaAsset,
+          platform: "FACEBOOK",
+        });
 
-      const validatedTempImage = await validateStoredMediaFile({
-        storagePath: temporaryImage.storagePath,
-        expectedMimeType: temporaryImage.mimeType,
-        maxFileSizeBytes: FACEBOOK_MAX_IMAGE_BYTES,
-      });
+        await validateStoredMediaFile({
+          storagePath: temporaryImage.storagePath,
+          expectedMimeType: temporaryImage.mimeType,
+          maxFileSizeBytes: FACEBOOK_MAX_IMAGE_BYTES,
+        });
 
-      const publishResult = await publishFacebookImagePost({
-        accessToken: validation.connection.accessToken,
-        pageId: validation.connection.pageId!,
-        caption: validation.caption,
-        absolutePath: validatedTempImage.absolutePath,
-      });
+        temporaryImages.push(temporaryImage);
+      }
+
+      const publishResult =
+        temporaryImages.length > 1
+          ? await publishFacebookMultiImagePost({
+              accessToken: validation.connection.accessToken,
+              pageId: validation.connection.pageId!,
+              caption: validation.caption,
+              absolutePaths: temporaryImages.map((image) => image.absolutePath),
+            })
+          : await publishFacebookImagePost({
+              accessToken: validation.connection.accessToken,
+              pageId: validation.connection.pageId!,
+              caption: validation.caption,
+              absolutePath: temporaryImages[0].absolutePath,
+            });
 
       const platformPostUrl = await fetchFacebookPostUrl({
         accessToken: validation.connection.accessToken,
@@ -2577,6 +2682,7 @@ export async function publishFacebookPost(input: {
           ...publishResult.responseSummary,
           pageId: validation.connection.pageId,
           pageName: validation.connection.pageName,
+          mediaCount: temporaryImages.length,
           platformPostUrl,
         } satisfies Prisma.InputJsonObject,
       };
@@ -2606,8 +2712,9 @@ export async function publishFacebookPost(input: {
   } catch (error) {
     publishError = error;
   } finally {
-    if (temporaryImage) {
-      cleanupResult = await cleanupTemporaryPlatformImage(temporaryImage.absolutePath);
+    for (const temporaryImage of temporaryImages) {
+      const cleanupResult = await cleanupTemporaryPlatformImage(temporaryImage.absolutePath);
+      cleanupResults.push(cleanupResult);
       if (cleanupResult.status === "failed") {
         console.warn("Temporary Facebook publish image cleanup failed.", {
           storagePath: temporaryImage.storagePath,
@@ -2622,10 +2729,10 @@ export async function publishFacebookPost(input: {
       platformPostId: publishedResult.platformPostId,
       platformPostUrl: publishedResult.platformPostUrl,
       responseSummary: appendFacebookTempImageDiagnostics(publishedResult.responseSummary, {
-        originalMediaAssetId: validation.originalMediaAsset?.id ?? null,
-        originalStoragePath: validation.originalMediaAsset?.storagePath ?? null,
-        temporaryImage,
-        cleanupResult,
+        originalMediaAssetIds: validation.originalMediaAssets.map((asset) => asset.id),
+        originalStoragePaths: validation.originalMediaAssets.map((asset) => asset.storagePath),
+        temporaryImages,
+        cleanupResults,
       }),
     } satisfies FacebookPublishResult;
   }
@@ -2634,10 +2741,10 @@ export async function publishFacebookPost(input: {
   throw new FacebookServiceError(normalizedError.message, {
     code: normalizedError.code,
     responseSummary: appendFacebookTempImageDiagnostics(normalizedError.responseSummary, {
-      originalMediaAssetId: validation.originalMediaAsset?.id ?? null,
-      originalStoragePath: validation.originalMediaAsset?.storagePath ?? null,
-      temporaryImage,
-      cleanupResult,
+      originalMediaAssetIds: validation.originalMediaAssets.map((asset) => asset.id),
+      originalStoragePaths: validation.originalMediaAssets.map((asset) => asset.storagePath),
+      temporaryImages,
+      cleanupResults,
     }),
   });
 }
@@ -2739,6 +2846,18 @@ export async function executeFacebookPublish(input: {
               variants: true,
             },
           },
+          attachedMedia: {
+            orderBy: {
+              position: "asc",
+            },
+            include: {
+              mediaAsset: {
+                include: {
+                  variants: true,
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -2752,13 +2871,23 @@ export async function executeFacebookPublish(input: {
     throw new Error("Only Facebook publishing is implemented in this phase.");
   }
 
-  if (platformRecord.platformPostId || platformRecord.socialPost.status === SocialPostStatus.PUBLISHED) {
+  if (
+    platformRecord.platformPostId ||
+    platformRecord.publishedAt ||
+    platformRecord.status === SocialPostStatus.PUBLISHED
+  ) {
     throw new Error("This Facebook post was already published and will not be published again.");
   }
 
+  const mediaAssets =
+    platformRecord.socialPost.attachedMedia.length > 0
+      ? platformRecord.socialPost.attachedMedia.map((item) => item.mediaAsset)
+      : platformRecord.socialPost.mediaAsset
+        ? [platformRecord.socialPost.mediaAsset]
+        : [];
   const requestPayload = buildFacebookPostPayload({
     caption: platformRecord.socialPost.caption,
-    mediaAsset: platformRecord.socialPost.mediaAsset,
+    mediaAssets,
   });
 
   const attempt = await prisma.publishAttempt.create({
@@ -2778,12 +2907,12 @@ export async function executeFacebookPublish(input: {
   try {
     const result = await publishFacebookPost({
       caption: platformRecord.socialPost.caption,
-      mediaAsset: platformRecord.socialPost.mediaAsset,
+      mediaAssets,
     });
     const finishedAt = new Date();
 
-    await prisma.$transaction([
-      prisma.publishAttempt.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.publishAttempt.update({
         where: {
           id: attempt.id,
         },
@@ -2794,8 +2923,8 @@ export async function executeFacebookPublish(input: {
           platformPostUrl: result.platformPostUrl,
           finishedAt,
         },
-      }),
-      prisma.socialPostPlatform.update({
+      });
+      await tx.socialPostPlatform.update({
         where: {
           id: platformRecord.id,
         },
@@ -2806,18 +2935,9 @@ export async function executeFacebookPublish(input: {
           platformPostUrl: result.platformPostUrl,
           lastError: null,
         },
-      }),
-      prisma.socialPost.update({
-        where: {
-          id: platformRecord.socialPostId,
-        },
-        data: {
-          status: SocialPostStatus.PUBLISHED,
-          publishedAt: finishedAt,
-          failureReason: null,
-        },
-      }),
-    ]);
+      });
+      await syncSocialPostAggregateState(tx, platformRecord.socialPostId);
+    });
 
     return {
       attemptId: attempt.id,
@@ -2829,8 +2949,8 @@ export async function executeFacebookPublish(input: {
     const finishedAt = new Date();
     const normalizedError = handleFacebookApiError(error);
 
-    await prisma.$transaction([
-      prisma.publishAttempt.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.publishAttempt.update({
         where: {
           id: attempt.id,
         },
@@ -2841,8 +2961,8 @@ export async function executeFacebookPublish(input: {
           responseSummary: normalizedError.responseSummary ?? undefined,
           finishedAt,
         },
-      }),
-      prisma.socialPostPlatform.update({
+      });
+      await tx.socialPostPlatform.update({
         where: {
           id: platformRecord.id,
         },
@@ -2850,17 +2970,18 @@ export async function executeFacebookPublish(input: {
           status: SocialPostStatus.FAILED,
           lastError: normalizedError.message,
         },
-      }),
-      prisma.socialPost.update({
-        where: {
-          id: platformRecord.socialPostId,
-        },
-        data: {
-          status: SocialPostStatus.FAILED,
-          failureReason: normalizedError.message,
-        },
-      }),
-    ]);
+      });
+      await syncSocialPostAggregateState(tx, platformRecord.socialPostId, {
+        failureReason: normalizedError.message,
+      });
+    });
+
+    await createOrUpdatePlatformPublishFailedNotification({
+      provider: SocialPlatform.FACEBOOK,
+      postId: platformRecord.socialPostId,
+      message: "Facebook posting failed.",
+      detail: normalizedError.message,
+    }).catch(() => undefined);
 
     throw normalizedError;
   }
@@ -2888,7 +3009,6 @@ export async function claimFacebookPostForPublishing(input: {
         socialPost: {
           select: {
             status: true,
-            publishedAt: true,
           },
         },
       },
@@ -2905,8 +3025,7 @@ export async function claimFacebookPostForPublishing(input: {
     if (
       platformRecord.platformPostId ||
       platformRecord.publishedAt ||
-      platformRecord.socialPost.status === SocialPostStatus.PUBLISHED ||
-      platformRecord.socialPost.publishedAt
+      platformRecord.status === SocialPostStatus.PUBLISHED
     ) {
       return {
         ok: false,
@@ -2942,6 +3061,7 @@ export async function claimFacebookPostForPublishing(input: {
           in: input.allowedStatuses,
         },
         platformPostId: null,
+        publishedAt: null,
       },
       data: {
         status: SocialPostStatus.PUBLISHING,
@@ -2957,22 +3077,16 @@ export async function claimFacebookPostForPublishing(input: {
       };
     }
 
-    const postClaim = await tx.socialPost.updateMany({
+    await tx.socialPost.update({
       where: {
         id: input.socialPostId,
-        status: {
-          in: input.allowedStatuses,
-        },
       },
       data: {
         status: SocialPostStatus.PUBLISHING,
+        publishedAt: null,
         failureReason: null,
       },
     });
-
-    if (postClaim.count !== 1) {
-      throw new Error("CLAIM_CONFLICT");
-    }
 
     return {
       ok: true,

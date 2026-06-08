@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { PublishAttemptStatus, SocialPlatform } from "@prisma/client";
+import { PublishAttemptStatus } from "@prisma/client";
 import { requireAdminUser } from "@/lib/auth/session";
 import {
   formatBytes,
@@ -13,8 +13,9 @@ import {
 } from "@/lib/media-presentation";
 import {
   canManuallyPublish,
+  getAggregatePlatformOutcome,
   getPostCaptionPreview,
-  getPostStatusTone,
+  getPlatformPublishSummary,
 } from "@/lib/posts";
 import { prisma } from "@/lib/prisma";
 import {
@@ -23,6 +24,7 @@ import {
   getSchedulerTimezoneLabel,
 } from "@/lib/time";
 import { publishPostNowAction } from "@/app/dashboard/posts/actions";
+import { PlatformLinkButtons } from "@/components/platform-chip-list";
 
 type PostAdvancedPageProps = {
   params: Promise<{
@@ -91,11 +93,19 @@ export default async function PostAdvancedPage({ params, searchParams }: PostAdv
   }
 
   const timezoneLabel = getSchedulerTimezoneLabel(timezone);
-  const facebookPlatform = post.platforms.find((platform) => platform.platform === SocialPlatform.FACEBOOK) ?? null;
-  const publishAttempts = facebookPlatform?.publishAttempts ?? [];
+  const aggregateOutcome = getAggregatePlatformOutcome(post.platforms, post.status);
+  const platformSummaries = post.platforms.map((platform) => ({
+    ...platform,
+    publishSummary: getPlatformPublishSummary({
+      platform: platform.platform,
+      status: platform.status,
+    }),
+    retryCount: platform.publishAttempts.length > 0 ? Math.max(0, platform.publishAttempts.length - 1) : 0,
+  }));
+  const publishAttempts = [...post.platforms.flatMap((platform) => platform.publishAttempts)].sort(
+    (left, right) => right.startedAt.getTime() - left.startedAt.getTime(),
+  );
   const lastPublishAttempt = publishAttempts[0] ?? null;
-  const publishedPostUrl = facebookPlatform?.platformPostUrl ?? null;
-  const retryCount = publishAttempts.length > 0 ? Math.max(0, publishAttempts.length - 1) : 0;
   const needsImmediatePublishConfirmation =
     resolvedSearchParams?.confirmImmediate === "1" &&
     post.status === "SCHEDULED" &&
@@ -131,7 +141,7 @@ export default async function PostAdvancedPage({ params, searchParams }: PostAdv
             <div>
               <h2 style={{ fontSize: "1.35rem" }}>Post Status</h2>
             </div>
-            <span className={`badge is-${getPostStatusTone(post.status)}`.trim()}>{post.status}</span>
+            <span className={`badge is-${aggregateOutcome.tone}`.trim()}>{aggregateOutcome.label}</span>
           </div>
 
           <div className="grid-2">
@@ -143,26 +153,19 @@ export default async function PostAdvancedPage({ params, searchParams }: PostAdv
             <article className="stat-card compact">
               <span>Published time</span>
               <strong>{post.publishedAt ? formatDateTimeForTimezone(post.publishedAt, timezone) : "Not published"}</strong>
-              <p>{publishedPostUrl ? "Facebook returned a post URL for this publish." : "No platform URL recorded yet."}</p>
-            </article>
-            <article className="stat-card compact">
-              <span>Facebook platform status</span>
-              <strong>{facebookPlatform?.status ?? post.status}</strong>
-              <p>{facebookPlatform?.lastError || "No current Facebook platform error is stored."}</p>
-            </article>
-            <article className="stat-card compact">
-              <span>Facebook post link</span>
-              <strong>{publishedPostUrl ? "Available" : "Not available"}</strong>
               <p>
-                {publishedPostUrl ? (
-                  <a href={publishedPostUrl} target="_blank" rel="noreferrer">
-                    Open Facebook post
-                  </a>
-                ) : (
-                  "A Facebook permalink will appear here after a successful publish."
-                )}
+                {post.platforms.some((platform) => platform.platformPostUrl)
+                  ? "At least one platform returned a post URL for this publish."
+                  : "No platform URL is recorded yet."}
               </p>
             </article>
+            {platformSummaries.map((platform) => (
+              <article key={platform.id} className="stat-card compact">
+                <span>{platform.platform.replace("_BUSINESS", "").replace("_", " ")}</span>
+                <strong>{platform.publishSummary.label}</strong>
+                <p>{platform.lastError || platform.platformPostUrl || "No current platform error is stored."}</p>
+              </article>
+            ))}
           </div>
         </div>
       </section>
@@ -182,7 +185,7 @@ export default async function PostAdvancedPage({ params, searchParams }: PostAdv
                 <strong>{post.mediaAsset ? "All systems ready!" : "Text-only post ready"}</strong>
                 <p>
                   {post.mediaAsset
-                    ? "Original stored. Facebook will generate a temporary optimized JPEG at publish time."
+                    ? "Original stored. Each selected platform will generate a temporary optimized image at publish time."
                     : "All systems ready! Your text-only post is good to go."}
                 </p>
               </div>
@@ -229,7 +232,7 @@ export default async function PostAdvancedPage({ params, searchParams }: PostAdv
                 </div>
               </>
             ) : (
-              <p className="muted">No media asset is attached to this post. Text-only Facebook posts are still allowed.</p>
+              <p className="muted">No media asset is attached to this post. Text-only posting is still allowed where the selected platform supports it.</p>
             )}
           </div>
         </section>
@@ -241,6 +244,35 @@ export default async function PostAdvancedPage({ params, searchParams }: PostAdv
                 <h2 style={{ fontSize: "1.35rem" }}>Publishing</h2>
               </div>
             </div>
+
+            <div className="grid-2">
+              {platformSummaries.map((platform) => (
+                <div key={`${platform.id}-summary`} className="settings-subcard">
+                  <div className="settings-subcard-head">
+                    <div>
+                      <strong>{platform.platform.replace("_BUSINESS", "").replace("_", " ")}</strong>
+                      <p>{platform.platformPostUrl ? "Published URL available." : "No published URL recorded yet."}</p>
+                    </div>
+                    <span className={`badge is-${platform.publishSummary.tone}`.trim()}>
+                      {platform.publishSummary.label}
+                    </span>
+                  </div>
+                  <p className="muted">
+                    Retries: {platform.retryCount}
+                    {platform.lastError ? ` · ${platform.lastError}` : ""}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <PlatformLinkButtons
+              links={platformSummaries
+                .filter((platform) => Boolean(platform.platformPostUrl))
+                .map((platform) => ({
+                  platform: platform.platform,
+                  url: platform.platformPostUrl as string,
+                }))}
+            />
 
             {lastPublishAttempt ? (
               <div className="settings-subcard">
@@ -266,7 +298,13 @@ export default async function PostAdvancedPage({ params, searchParams }: PostAdv
                   </div>
                   <div className="field">
                     <label>Retry count</label>
-                    <input value={String(retryCount)} readOnly />
+                    <input
+                      value={String(
+                        platformSummaries.find((platform) => platform.platform === lastPublishAttempt.platform)
+                          ?.retryCount ?? 0,
+                      )}
+                      readOnly
+                    />
                   </div>
                   <div className="field">
                     <label>Error code</label>
@@ -304,7 +342,7 @@ export default async function PostAdvancedPage({ params, searchParams }: PostAdv
                 ) : null}
               </div>
             ) : (
-              <p className="muted">No Facebook publish attempts have been recorded yet.</p>
+              <p className="muted">No platform publish attempts have been recorded yet.</p>
             )}
 
             {canManuallyPublish(post.status) ? (

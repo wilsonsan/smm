@@ -3,18 +3,22 @@
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { SocialPostStatus } from "@prisma/client";
-import { requireAuthenticatedUser } from "@/lib/auth/session";
+import { isAdminUserRole, requireAuthenticatedUser } from "@/lib/auth/session";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import {
   ArrowRightIcon,
   CalendarIcon,
   ComposeIcon,
+  ClockIcon,
   DraftIcon,
   FailureIcon,
   GalleryIcon,
   PostsIcon,
+  QueueIcon,
   ScheduleIcon,
+  SuccessIcon,
 } from "@/components/dashboard-icons";
+import { getQueueOverview, getRecentActivityFeed } from "@/lib/analytics";
 import { getMediaVariantUrl, getPreferredPreviewVariant } from "@/lib/media-presentation";
 import { getPostCaptionPreview, getPostStatusTone, resolvePostCalendarAt } from "@/lib/posts";
 import { prisma } from "@/lib/prisma";
@@ -37,13 +41,22 @@ type QuickActionCard = {
 
 export default async function DashboardPage() {
   const adminUser = await requireAuthenticatedUser();
+  const isAdmin = isAdminUserRole(adminUser.role);
   const timezone = await getResolvedAppTimezone();
   const now = DateTime.now().setZone(timezone);
   const weekStart = now.startOf("week");
   const weekEnd = weekStart.plus({ weeks: 1 });
   const postScope = {};
 
-  const [totalPosts, draftPosts, recentPosts, scheduledThisWeekCount, failedPostsNeedingAttention] =
+  const [
+    totalPosts,
+    draftPosts,
+    recentPosts,
+    scheduledThisWeekCount,
+    failedPostsNeedingAttention,
+    recentActivity,
+    queueOverview,
+  ] =
     await Promise.all([
       prisma.socialPost.count({
         where: postScope,
@@ -80,6 +93,14 @@ export default async function DashboardPage() {
           status: SocialPostStatus.FAILED,
         },
       }),
+      isAdmin ? getRecentActivityFeed() : Promise.resolve([]),
+      isAdmin
+        ? getQueueOverview(timezone)
+        : Promise.resolve({
+            today: [],
+            tomorrow: [],
+            thisWeek: [],
+          }),
     ]);
 
   const quickActions: QuickActionCard[] = [
@@ -260,6 +281,95 @@ export default async function DashboardPage() {
           </div>
         </div>
       </section>
+
+      {isAdmin ? (
+        <div className="analytics-section-grid">
+          <section className="panel dashboard-module-card">
+            <div className="panel-body">
+              <div className="dashboard-module-heading">
+                <div className="dashboard-module-title">
+                  <span className="dashboard-module-icon is-blue">
+                    <SuccessIcon />
+                  </span>
+                  <div>
+                    <h3>Recent Activity</h3>
+                    <p>Publishing, scheduling, and connection activity across the team.</p>
+                  </div>
+                </div>
+                <Link href="/dashboard/analytics" className="secondary-button dashboard-secondary-inline">
+                  <span>Open Analytics</span>
+                </Link>
+              </div>
+
+              <div className="analytics-activity-feed">
+                {recentActivity.length === 0 ? (
+                  <p className="muted">No recent activity yet.</p>
+                ) : (
+                  recentActivity.map((activity) => (
+                    <article key={activity.id} className={`analytics-activity-item is-${activity.tone}`.trim()}>
+                      <div className={`analytics-activity-marker is-${activity.tone}`.trim()}>
+                        {activity.tone === "error" ? <FailureIcon /> : activity.tone === "success" ? <SuccessIcon /> : <ClockIcon />}
+                      </div>
+                      <div className="analytics-activity-copy">
+                        <strong>{activity.message}</strong>
+                        <p>{formatDateTimeForTimezone(activity.createdAt, timezone)}</p>
+                      </div>
+                    </article>
+                  ))
+                )}
+              </div>
+            </div>
+          </section>
+
+          <section className="panel dashboard-module-card">
+            <div className="panel-body">
+              <div className="dashboard-module-heading">
+                <div className="dashboard-module-title">
+                  <span className="dashboard-module-icon is-purple">
+                    <QueueIcon />
+                  </span>
+                  <div>
+                    <h3>Upcoming Queue</h3>
+                    <p>Quick access to what is scheduled next.</p>
+                  </div>
+                </div>
+                <Link href="/dashboard/analytics" className="secondary-button dashboard-secondary-inline">
+                  <span>View Queue</span>
+                </Link>
+              </div>
+
+              <div className="analytics-queue-groups">
+                {[
+                  { label: "Today", items: queueOverview.today },
+                  { label: "Tomorrow", items: queueOverview.tomorrow },
+                  { label: "This Week", items: queueOverview.thisWeek.slice(0, 4) },
+                ].map((group) => (
+                  <div key={group.label} className="analytics-queue-group">
+                    <div className="analytics-queue-group-head">
+                      <strong>{group.label}</strong>
+                      <span>{group.items.length}</span>
+                    </div>
+                    {group.items.length === 0 ? (
+                      <p className="muted">Nothing queued.</p>
+                    ) : (
+                      <div className="analytics-queue-list">
+                        {group.items.map((item) => (
+                          <Link key={item.id} href={`/dashboard/posts/${item.id}`} className="analytics-queue-item">
+                            <div>
+                              <strong>{item.descriptionPreview}</strong>
+                              <p>{formatDateTimeForTimezone(item.scheduledAt, timezone)}</p>
+                            </div>
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }

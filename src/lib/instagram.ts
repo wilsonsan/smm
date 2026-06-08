@@ -9,11 +9,13 @@ import {
 import { createSignedPublicPlatformMediaUrl } from "@/lib/public-platform-media";
 import {
   cleanupTemporaryPlatformImage,
-  generateTemporaryPlatformImage,
   validateStoredOriginalMediaAsset,
+  generateTemporaryPlatformImage,
   type TemporaryPlatformImage,
   type TemporaryMediaCleanupResult,
 } from "@/lib/uploads";
+import { createOrUpdatePlatformPublishFailedNotification } from "@/lib/notifications";
+import { syncSocialPostAggregateState } from "@/lib/publish-state";
 import { prisma } from "@/lib/prisma";
 
 export const INSTAGRAM_REQUIRED_SCOPES = [
@@ -754,7 +756,6 @@ export async function claimInstagramPostForPublishing(input: {
         socialPost: {
           select: {
             status: true,
-            publishedAt: true,
           },
         },
       },
@@ -771,8 +772,7 @@ export async function claimInstagramPostForPublishing(input: {
     if (
       platformRecord.platformPostId ||
       platformRecord.publishedAt ||
-      platformRecord.socialPost.status === SocialPostStatus.PUBLISHED ||
-      platformRecord.socialPost.publishedAt
+      platformRecord.status === SocialPostStatus.PUBLISHED
     ) {
       return {
         ok: false as const,
@@ -808,6 +808,7 @@ export async function claimInstagramPostForPublishing(input: {
           in: input.allowedStatuses,
         },
         platformPostId: null,
+        publishedAt: null,
       },
       data: {
         status: SocialPostStatus.PUBLISHING,
@@ -823,22 +824,16 @@ export async function claimInstagramPostForPublishing(input: {
       };
     }
 
-    const postClaim = await tx.socialPost.updateMany({
+    await tx.socialPost.update({
       where: {
         id: input.socialPostId,
-        status: {
-          in: input.allowedStatuses,
-        },
       },
       data: {
         status: SocialPostStatus.PUBLISHING,
+        publishedAt: null,
         failureReason: null,
       },
     });
-
-    if (postClaim.count !== 1) {
-      throw new Error("CLAIM_CONFLICT");
-    }
 
     return {
       ok: true as const,
@@ -880,7 +875,11 @@ export async function executeInstagramPublish(input: {
     throw new Error("Only Instagram platform records can use the Instagram publisher.");
   }
 
-  if (platformRecord.platformPostId || platformRecord.socialPost.status === SocialPostStatus.PUBLISHED) {
+  if (
+    platformRecord.platformPostId ||
+    platformRecord.publishedAt ||
+    platformRecord.status === SocialPostStatus.PUBLISHED
+  ) {
     throw new Error("This Instagram post was already published and will not be published again.");
   }
 
@@ -908,8 +907,8 @@ export async function executeInstagramPublish(input: {
     });
     const finishedAt = new Date();
 
-    await prisma.$transaction([
-      prisma.publishAttempt.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.publishAttempt.update({
         where: {
           id: attempt.id,
         },
@@ -920,8 +919,8 @@ export async function executeInstagramPublish(input: {
           platformPostUrl: result.platformPostUrl,
           finishedAt,
         },
-      }),
-      prisma.socialPostPlatform.update({
+      });
+      await tx.socialPostPlatform.update({
         where: {
           id: platformRecord.id,
         },
@@ -932,18 +931,9 @@ export async function executeInstagramPublish(input: {
           platformPostUrl: result.platformPostUrl,
           lastError: null,
         },
-      }),
-      prisma.socialPost.update({
-        where: {
-          id: platformRecord.socialPostId,
-        },
-        data: {
-          status: SocialPostStatus.PUBLISHED,
-          publishedAt: finishedAt,
-          failureReason: null,
-        },
-      }),
-    ]);
+      });
+      await syncSocialPostAggregateState(tx, platformRecord.socialPostId);
+    });
 
     return {
       attemptId: attempt.id,
@@ -955,8 +945,8 @@ export async function executeInstagramPublish(input: {
     const finishedAt = new Date();
     const message = error instanceof Error ? error.message : "Instagram publishing failed.";
 
-    await prisma.$transaction([
-      prisma.publishAttempt.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.publishAttempt.update({
         where: {
           id: attempt.id,
         },
@@ -966,8 +956,8 @@ export async function executeInstagramPublish(input: {
           errorMessage: message,
           finishedAt,
         },
-      }),
-      prisma.socialPostPlatform.update({
+      });
+      await tx.socialPostPlatform.update({
         where: {
           id: platformRecord.id,
         },
@@ -975,19 +965,19 @@ export async function executeInstagramPublish(input: {
           status: SocialPostStatus.FAILED,
           lastError: message,
         },
-      }),
-      prisma.socialPost.update({
-        where: {
-          id: platformRecord.socialPostId,
-        },
-        data: {
-          status: SocialPostStatus.FAILED,
-          failureReason: message,
-        },
-      }),
-    ]);
+      });
+      await syncSocialPostAggregateState(tx, platformRecord.socialPostId, {
+        failureReason: message,
+      });
+    });
+
+    await createOrUpdatePlatformPublishFailedNotification({
+      provider: SocialPlatform.INSTAGRAM,
+      postId: platformRecord.socialPostId,
+      message: "Instagram posting failed.",
+      detail: message,
+    }).catch(() => undefined);
 
     throw new Error(message);
   }
 }
-

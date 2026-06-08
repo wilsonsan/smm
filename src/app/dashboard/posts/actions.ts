@@ -38,6 +38,8 @@ import {
   isReadOnlyPostStatus,
   validateAndResolveScheduledAt,
 } from "@/lib/posts";
+import { createOrUpdatePlatformPublishFailedNotification } from "@/lib/notifications";
+import { syncSocialPostAggregateState } from "@/lib/publish-state";
 import { prisma } from "@/lib/prisma";
 import { getRequestMetadata } from "@/lib/http";
 import { initialFormState, postFormSchema, type FormState } from "@/lib/validation";
@@ -181,16 +183,6 @@ async function markImmediatePublishFailure(input: {
       },
     });
 
-    await tx.socialPost.update({
-      where: {
-        id: input.postId,
-      },
-      data: {
-        status: SocialPostStatus.FAILED,
-        failureReason: input.message,
-      },
-    });
-
     await tx.socialPostPlatform.updateMany({
       where: {
         socialPostId: input.postId,
@@ -217,19 +209,109 @@ async function markImmediatePublishFailure(input: {
         },
       });
     }
+
+    await syncSocialPostAggregateState(tx, input.postId, {
+      failureReason: input.message,
+    });
   });
 }
 
-function resolveImmediatePublishPlatform(platforms: SocialPlatform[]) {
-  if (platforms.length === 1 && platforms[0] === SocialPlatform.INSTAGRAM) {
-    return SocialPlatform.INSTAGRAM;
+type ImmediatePublishResult = {
+  platform: SocialPlatform;
+  outcome: "succeeded" | "failed" | "skipped";
+  message: string;
+  platformPostId?: string | null;
+  platformPostUrl?: string | null;
+  finishedAt?: Date;
+};
+
+function getPlatformDisplayName(platform: SocialPlatform) {
+  switch (platform) {
+    case SocialPlatform.FACEBOOK:
+      return "Facebook";
+    case SocialPlatform.INSTAGRAM:
+      return "Instagram";
+    case SocialPlatform.GOOGLE_BUSINESS:
+      return "Google Business";
+    default:
+      return platform;
+  }
+}
+
+function formatPlatformList(platforms: SocialPlatform[]) {
+  const labels = platforms.map(getPlatformDisplayName);
+  if (labels.length === 0) {
+    return "";
   }
 
-  if (platforms.length === 1 && platforms[0] === SocialPlatform.GOOGLE_BUSINESS) {
-    return SocialPlatform.GOOGLE_BUSINESS;
+  if (labels.length === 1) {
+    return labels[0];
   }
 
-  return SocialPlatform.FACEBOOK;
+  if (labels.length === 2) {
+    return `${labels[0]} and ${labels[1]}`;
+  }
+
+  return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
+}
+
+function isPlatformAlreadyPublished(record: {
+  status: SocialPostStatus;
+  publishedAt: Date | null;
+  platformPostId: string | null;
+}) {
+  return record.status === SocialPostStatus.PUBLISHED || Boolean(record.publishedAt) || Boolean(record.platformPostId);
+}
+
+function buildImmediatePublishSummary(results: ImmediatePublishResult[]) {
+  const succeeded = results.filter((result) => result.outcome === "succeeded").map((result) => result.platform);
+  const failed = results.filter((result) => result.outcome === "failed").map((result) => result.platform);
+  const skipped = results.filter((result) => result.outcome === "skipped").map((result) => result.platform);
+
+  if (succeeded.length > 0 && failed.length === 0) {
+    return {
+      status: "success" as const,
+      message:
+        skipped.length > 0
+          ? `Published to ${formatPlatformList(succeeded)}. ${formatPlatformList(skipped)} was already published and was skipped.`
+          : `Published to ${formatPlatformList(succeeded)}.`,
+    };
+  }
+
+  if (succeeded.length > 0 && failed.length > 0) {
+    return {
+      status: "error" as const,
+      message: `Published to ${formatPlatformList(succeeded)}. Failed on ${formatPlatformList(failed)}.`,
+    };
+  }
+
+  if (failed.length > 0) {
+    return {
+      status: "error" as const,
+      message: `Publishing failed on ${formatPlatformList(failed)}.`,
+    };
+  }
+
+  return {
+    status: "error" as const,
+    message:
+      skipped.length > 0
+        ? `${formatPlatformList(skipped)} was already published and was skipped.`
+        : "No pending platform publishes were available.",
+  };
+}
+
+async function notifyImmediatePlatformPublishFailure(input: {
+  postId: string;
+  platform: SocialPlatform;
+  message: string;
+}) {
+  await createOrUpdatePlatformPublishFailedNotification({
+    provider: input.platform,
+    postId: input.postId,
+    message: `${getPlatformDisplayName(input.platform)} posting failed.`,
+    detail: input.message,
+  }).catch(() => undefined);
 }
 
 async function validateImmediatePublishPrerequisites(input: {
@@ -298,6 +380,214 @@ async function executeImmediatePublish(input: {
   }
 
   return executeFacebookPublish(input);
+}
+
+async function runImmediatePlatformPublishes(input: {
+  actorAdminUserId: string;
+  postId: string;
+  caption: string;
+  primaryMediaAsset: {
+    id: string;
+    mimeType: string;
+    storagePath: string;
+    variants?: unknown;
+  } | null;
+  mediaAssets: Array<{
+    id: string;
+    mimeType: string;
+    storagePath: string;
+    variants?: unknown;
+  }>;
+  targetPlatforms: SocialPlatform[];
+  initialStatus: SocialPostStatus;
+  mode: "manual" | "manual-form";
+  allowedStatuses: SocialPostStatus[];
+}) {
+  const results: ImmediatePublishResult[] = [];
+
+  for (const platform of input.targetPlatforms) {
+    try {
+      await validateImmediatePublishPrerequisites({
+        platform,
+        caption: input.caption,
+        primaryMediaAsset: input.primaryMediaAsset,
+        mediaAssets: input.mediaAssets,
+      });
+    } catch (error) {
+      unstable_rethrow(error);
+      const message =
+        error instanceof Error ? error.message : `${getPlatformDisplayName(platform)} publishing prerequisites are not met.`;
+
+      await markImmediatePublishFailure({
+        postId: input.postId,
+        message,
+        platform,
+      });
+      await notifyImmediatePlatformPublishFailure({
+        postId: input.postId,
+        platform,
+        message,
+      });
+      await createPostAuditLog({
+        actorAdminUserId: input.actorAdminUserId,
+        action: AUDIT_ACTIONS.POST_PUBLISH_FAILED,
+        targetId: input.postId,
+        metadata: {
+          previousStatus: input.initialStatus,
+          nextStatus: SocialPostStatus.FAILED,
+          mode: input.mode,
+          platform,
+          message,
+        },
+      });
+      results.push({
+        platform,
+        outcome: "failed",
+        message,
+      });
+      continue;
+    }
+
+    const claim = await claimImmediatePublish({
+      platform,
+      socialPostId: input.postId,
+      allowedStatuses: input.allowedStatuses,
+    });
+
+    if (!claim.ok) {
+      if (claim.reason === "ALREADY_PUBLISHED") {
+        results.push({
+          platform,
+          outcome: "skipped",
+          message: claim.message,
+        });
+        continue;
+      }
+
+      await markImmediatePublishFailure({
+        postId: input.postId,
+        message: claim.message,
+        platform,
+      });
+      await notifyImmediatePlatformPublishFailure({
+        postId: input.postId,
+        platform,
+        message: claim.message,
+      });
+      await createPostAuditLog({
+        actorAdminUserId: input.actorAdminUserId,
+        action: AUDIT_ACTIONS.POST_PUBLISH_FAILED,
+        targetId: input.postId,
+        metadata: {
+          previousStatus: input.initialStatus,
+          nextStatus: SocialPostStatus.FAILED,
+          mode: input.mode,
+          platform,
+          message: claim.message,
+          reason: claim.reason,
+        },
+      });
+      results.push({
+        platform,
+        outcome: "failed",
+        message: claim.message,
+      });
+      continue;
+    }
+
+    await createPostAuditLog({
+      actorAdminUserId: input.actorAdminUserId,
+      action: AUDIT_ACTIONS.POST_PUBLISH_STARTED,
+      targetId: input.postId,
+      metadata: {
+        previousStatus: input.initialStatus,
+        nextStatus: SocialPostStatus.PUBLISHING,
+        mode: input.mode,
+        platform,
+      },
+    });
+
+    try {
+      const result = await executeImmediatePublish({
+        platform,
+        socialPostId: claim.socialPostId,
+        socialPostPlatformId: claim.socialPostPlatformId,
+      });
+
+      await createPostAuditLog({
+        actorAdminUserId: input.actorAdminUserId,
+        action: AUDIT_ACTIONS.POST_PUBLISH_SUCCEEDED,
+        targetId: input.postId,
+        metadata: {
+          previousStatus: SocialPostStatus.PUBLISHING,
+          nextStatus: SocialPostStatus.PUBLISHED,
+          mode: input.mode,
+          publishedAt: result.finishedAt.toISOString(),
+          platform,
+          platformPostId: result.result.platformPostId,
+          platformPostUrl: result.result.platformPostUrl,
+        },
+      });
+
+      results.push({
+        platform,
+        outcome: "succeeded",
+        message: `${getPlatformDisplayName(platform)} published successfully.`,
+        platformPostId: result.result.platformPostId,
+        platformPostUrl: result.result.platformPostUrl,
+        finishedAt: result.finishedAt,
+      });
+    } catch (error) {
+      unstable_rethrow(error);
+      const message = error instanceof Error ? error.message : `${getPlatformDisplayName(platform)} publishing failed.`;
+
+      await createPostAuditLog({
+        actorAdminUserId: input.actorAdminUserId,
+        action: AUDIT_ACTIONS.POST_PUBLISH_FAILED,
+        targetId: input.postId,
+        metadata: {
+          previousStatus: SocialPostStatus.PUBLISHING,
+          nextStatus: SocialPostStatus.FAILED,
+          mode: input.mode,
+          platform,
+          message,
+        },
+      });
+
+      results.push({
+        platform,
+        outcome: "failed",
+        message,
+      });
+    }
+  }
+
+  const refreshedPost = await prisma.socialPost.findUnique({
+    where: {
+      id: input.postId,
+    },
+    select: {
+      status: true,
+    },
+  });
+
+  if (refreshedPost && refreshedPost.status !== input.initialStatus) {
+    await createPostAuditLog({
+      actorAdminUserId: input.actorAdminUserId,
+      action: AUDIT_ACTIONS.POST_STATUS_CHANGED,
+      targetId: input.postId,
+      metadata: {
+        previousStatus: input.initialStatus,
+        nextStatus: refreshedPost.status,
+        mode: input.mode,
+      },
+    });
+  }
+
+  return {
+    results,
+    finalStatus: refreshedPost?.status ?? input.initialStatus,
+  };
 }
 
 function getDraftRedirectTarget(postId: string, scheduledAt: Date | null) {
@@ -455,9 +745,9 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
     if (parsed.data.intent === "schedule" && !areSelectedPlatformsPublishableNow(parsed.data.platforms, "schedule")) {
       return {
         ...initialFormState,
-        message: "Scheduling currently supports Facebook-only or Google-only posts. Remove other platforms before scheduling.",
+        message: "Choose at least one platform before scheduling.",
         fieldErrors: {
-          platforms: ["Scheduling currently supports Facebook-only or Google-only posts. Remove other platforms before scheduling."],
+          platforms: ["Choose at least one platform before scheduling."],
         },
         submittedValues,
       };
@@ -466,9 +756,9 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
     if (parsed.data.intent === "publish" && !areSelectedPlatformsPublishableNow(parsed.data.platforms, "publish")) {
       return {
         ...initialFormState,
-        message: "Post Now currently supports single-platform Facebook, Instagram, or Google posts. Remove extra platforms before publishing.",
+        message: "Choose at least one platform before publishing.",
         fieldErrors: {
-          platforms: ["Post Now currently supports single-platform Facebook, Instagram, or Google posts. Remove extra platforms before publishing."],
+          platforms: ["Choose at least one platform before publishing."],
         },
         submittedValues,
       };
@@ -490,6 +780,21 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       let previousStatus: SocialPostStatus | null = null;
       let previousScheduledAt: Date | null = null;
       let previousPlatforms: SocialPlatform[] = [];
+      let currentPlatforms: Array<{
+        platform: SocialPlatform;
+        status: SocialPostStatus;
+        publishedAt: Date | null;
+        platformPostId: string | null;
+      }> = [];
+      let existingPlatformMap = new Map<
+        SocialPlatform,
+        {
+          platform: SocialPlatform;
+          status: SocialPostStatus;
+          publishedAt: Date | null;
+          platformPostId: string | null;
+        }
+      >();
 
       if (parsed.data.postId) {
         const existingPost = await tx.socialPost.findUnique({
@@ -506,6 +811,9 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
             platforms: {
               select: {
                 platform: true,
+                status: true,
+                publishedAt: true,
+                platformPostId: true,
               },
             },
           },
@@ -525,6 +833,22 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
         previousStatus = existingPost.status;
         previousScheduledAt = existingPost.scheduledAt;
         previousPlatforms = existingPost.platforms.map((platform) => platform.platform);
+        existingPlatformMap = new Map(
+          existingPost.platforms.map((platform) => [platform.platform, platform]),
+        );
+
+        const removedPublishedPlatforms = existingPost.platforms
+          .filter(
+            (platform) =>
+              !parsed.data.platforms.includes(platform.platform) && isPlatformAlreadyPublished(platform),
+          )
+          .map((platform) => platform.platform);
+
+        if (removedPublishedPlatforms.length > 0) {
+          throw new Error(
+            `Published platforms cannot be removed from this post. Duplicate the post if you need a different platform mix than ${formatPlatformList(removedPublishedPlatforms)}.`,
+          );
+        }
 
         savedPost = await tx.socialPost.update({
           where: { id: parsed.data.postId },
@@ -565,6 +889,11 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       });
 
       for (const platform of parsed.data.platforms) {
+        const existingPlatformRecord = existingPlatformMap.get(platform);
+        const keepPublishedRecord = existingPlatformRecord
+          ? isPlatformAlreadyPublished(existingPlatformRecord)
+          : false;
+
         await tx.socialPostPlatform.upsert({
           where: {
             socialPostId_platform: {
@@ -572,26 +901,16 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
               platform,
             },
           },
-          update: {
-            status: nextStatus,
-            scheduledAt: effectiveScheduledAt,
-            ...((platform === SocialPlatform.FACEBOOK || platform === SocialPlatform.GOOGLE_BUSINESS)
-              ? {
-                  publishedAt: null,
-                  platformPostId: null,
-                  platformPostUrl: null,
-                  lastError: null,
-                }
-              : platform === SocialPlatform.INSTAGRAM
-                ? {
-                    // TODO: reset Instagram publish placeholders when real publish support lands.
-                    publishedAt: null,
-                    platformPostId: null,
-                    platformPostUrl: null,
-                    lastError: null,
-                  }
-              : {}),
-          },
+          update: keepPublishedRecord
+            ? {}
+            : {
+                status: nextStatus,
+                scheduledAt: effectiveScheduledAt,
+                publishedAt: null,
+                platformPostId: null,
+                platformPostUrl: null,
+                lastError: null,
+              },
           create: {
             socialPostId: savedPost.id,
             platform,
@@ -601,12 +920,26 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
         });
       }
 
+      await syncSocialPostAggregateState(tx, savedPost.id);
+      currentPlatforms = await tx.socialPostPlatform.findMany({
+        where: {
+          socialPostId: savedPost.id,
+        },
+        select: {
+          platform: true,
+          status: true,
+          publishedAt: true,
+          platformPostId: true,
+        },
+      });
+
       return {
         post: savedPost,
         previousMediaAssetIds,
         previousStatus,
         previousScheduledAt,
         previousPlatforms,
+        currentPlatforms,
       };
     });
 
@@ -750,7 +1083,19 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       redirect(getDraftRedirectTarget(post.post.id, effectiveScheduledAt));
     }
 
-    const immediatePlatform = resolveImmediatePublishPlatform(parsed.data.platforms);
+    const targetPlatforms = post.currentPlatforms
+      .filter((platformRecord) => !isPlatformAlreadyPublished(platformRecord))
+      .map((platformRecord) => platformRecord.platform);
+
+    if (targetPlatforms.length === 0) {
+      revalidatePostViews(post.post.id);
+      redirect(
+        buildPostDetailHref(post.post.id, {
+          status: "error",
+          message: "All selected platforms are already published. Duplicate the post if you need to post it again.",
+        }),
+      );
+    }
 
     await createPostAuditLog({
       actorAdminUserId: adminUser.id,
@@ -763,214 +1108,34 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
         previousStatus: post.previousStatus ?? nextStatus,
         requestedStatus: SocialPostStatus.PUBLISHING,
         mode: "manual-form",
-        platform: immediatePlatform,
+        platforms: targetPlatforms,
       },
     });
 
-    try {
-      await validateImmediatePublishPrerequisites({
-        platform: immediatePlatform,
-        caption: parsed.data.caption,
-        primaryMediaAsset,
-        mediaAssets: orderedSelectedMediaAssets,
-      });
-    } catch (error) {
-      unstable_rethrow(error);
-      const message =
-        error instanceof Error
-          ? error.message
-          : immediatePlatform === SocialPlatform.INSTAGRAM
-            ? "Instagram publishing prerequisites are not met."
-            : immediatePlatform === SocialPlatform.GOOGLE_BUSINESS
-              ? "Google Business publishing prerequisites are not met."
-              : "Facebook publishing prerequisites are not met.";
-
-      await markImmediatePublishFailure({
-        postId: post.post.id,
-        message,
-        platform: immediatePlatform,
-      });
-
-      await createPostAuditLog({
-        actorAdminUserId: adminUser.id,
-        action: AUDIT_ACTIONS.POST_PUBLISH_FAILED,
-        targetId: post.post.id,
-        metadata: {
-          previousStatus: nextStatus,
-          nextStatus: SocialPostStatus.FAILED,
-          mode: "manual-form",
-          platform: immediatePlatform,
-          message,
-        },
-      });
-
-      await createPostAuditLog({
-        actorAdminUserId: adminUser.id,
-        action: AUDIT_ACTIONS.POST_STATUS_CHANGED,
-        targetId: post.post.id,
-        metadata: {
-          previousStatus: nextStatus,
-          nextStatus: SocialPostStatus.FAILED,
-          mode: "manual-form",
-        },
-      });
-
-      revalidatePostViews(post.post.id);
-      redirect(
-        buildPostDetailHref(post.post.id, {
-          status: "error",
-          message,
-        }),
-      );
-    }
-
-    const claim = await claimImmediatePublish({
-      platform: immediatePlatform,
-      socialPostId: post.post.id,
+    const publishRun = await runImmediatePlatformPublishes({
+      actorAdminUserId: adminUser.id,
+      postId: post.post.id,
+      caption: parsed.data.caption,
+      primaryMediaAsset,
+      mediaAssets: orderedSelectedMediaAssets,
+      targetPlatforms,
+      initialStatus: post.previousStatus ?? nextStatus,
+      mode: "manual-form",
       allowedStatuses: [SocialPostStatus.DRAFT, SocialPostStatus.SCHEDULED, SocialPostStatus.FAILED],
     });
+    const summary = buildImmediatePublishSummary(publishRun.results);
 
-    if (!claim.ok) {
-      await markImmediatePublishFailure({
-        postId: post.post.id,
-        message: claim.message,
-        platform: immediatePlatform,
-      });
-
-      await createPostAuditLog({
-        actorAdminUserId: adminUser.id,
-        action: AUDIT_ACTIONS.POST_PUBLISH_FAILED,
-        targetId: post.post.id,
-        metadata: {
-          previousStatus: nextStatus,
-          nextStatus: SocialPostStatus.FAILED,
-          mode: "manual-form",
-          platform: immediatePlatform,
-          message: claim.message,
-        },
-      });
-
-      await createPostAuditLog({
-        actorAdminUserId: adminUser.id,
-        action: AUDIT_ACTIONS.POST_STATUS_CHANGED,
-        targetId: post.post.id,
-        metadata: {
-          previousStatus: nextStatus,
-          nextStatus: SocialPostStatus.FAILED,
-          mode: "manual-form",
-        },
-      });
-
-      revalidatePostViews(post.post.id);
-      redirect(
-        buildPostDetailHref(post.post.id, {
-          status: "error",
-          message: claim.message,
-        }),
-      );
-    }
-
-    await createPostAuditLog({
-      actorAdminUserId: adminUser.id,
-      action: AUDIT_ACTIONS.POST_PUBLISH_STARTED,
-      targetId: post.post.id,
-      metadata: {
-        previousStatus: nextStatus,
-        nextStatus: SocialPostStatus.PUBLISHING,
-        mode: "manual-form",
-        platform: immediatePlatform,
-      },
-    });
-
-    await createPostAuditLog({
-      actorAdminUserId: adminUser.id,
-      action: AUDIT_ACTIONS.POST_STATUS_CHANGED,
-      targetId: post.post.id,
-      metadata: {
-        previousStatus: nextStatus,
-        nextStatus: SocialPostStatus.PUBLISHING,
-        mode: "manual-form",
-      },
-    });
-
-    try {
-      const result = await executeImmediatePublish({
-        platform: immediatePlatform,
-        socialPostId: claim.socialPostId,
-        socialPostPlatformId: claim.socialPostPlatformId,
-      });
-
-      await createPostAuditLog({
-        actorAdminUserId: adminUser.id,
-        action: AUDIT_ACTIONS.POST_PUBLISH_SUCCEEDED,
-        targetId: post.post.id,
-        metadata: {
-          previousStatus: SocialPostStatus.PUBLISHING,
-          nextStatus: SocialPostStatus.PUBLISHED,
-          mode: "manual-form",
-          publishedAt: result.finishedAt.toISOString(),
-          platform: immediatePlatform,
-          platformPostId: result.result.platformPostId,
-          platformPostUrl: result.result.platformPostUrl,
-        },
-      });
-
-      await createPostAuditLog({
-        actorAdminUserId: adminUser.id,
-        action: AUDIT_ACTIONS.POST_STATUS_CHANGED,
-        targetId: post.post.id,
-        metadata: {
-          previousStatus: SocialPostStatus.PUBLISHING,
-          nextStatus: SocialPostStatus.PUBLISHED,
-          mode: "manual-form",
-        },
-      });
-
-      revalidatePostViews(post.post.id);
+    revalidatePostViews(post.post.id);
+    if (summary.status === "success") {
       redirect(buildCalendarHref({ flash: "published" }));
-    } catch (error) {
-      unstable_rethrow(error);
-      const message =
-        error instanceof Error
-          ? error.message
-          : immediatePlatform === SocialPlatform.INSTAGRAM
-            ? "Instagram publishing failed."
-            : immediatePlatform === SocialPlatform.GOOGLE_BUSINESS
-              ? "Google Business publishing failed."
-              : "Facebook publishing failed.";
-
-      await createPostAuditLog({
-        actorAdminUserId: adminUser.id,
-        action: AUDIT_ACTIONS.POST_PUBLISH_FAILED,
-        targetId: post.post.id,
-        metadata: {
-          previousStatus: SocialPostStatus.PUBLISHING,
-          nextStatus: SocialPostStatus.FAILED,
-          mode: "manual-form",
-          platform: immediatePlatform,
-          message,
-        },
-      });
-
-      await createPostAuditLog({
-        actorAdminUserId: adminUser.id,
-        action: AUDIT_ACTIONS.POST_STATUS_CHANGED,
-        targetId: post.post.id,
-        metadata: {
-          previousStatus: SocialPostStatus.PUBLISHING,
-          nextStatus: SocialPostStatus.FAILED,
-          mode: "manual-form",
-        },
-      });
-
-      revalidatePostViews(post.post.id);
-      redirect(
-        buildPostDetailHref(post.post.id, {
-          status: "error",
-          message,
-        }),
-      );
     }
+
+    redirect(
+      buildPostDetailHref(post.post.id, {
+        status: summary.status,
+        message: summary.message,
+      }),
+    );
   } catch (error) {
     unstable_rethrow(error);
     const message = error instanceof Error ? error.message : "Could not save the post.";
@@ -1173,7 +1338,19 @@ export async function publishPostNowAction(formData: FormData) {
     );
   }
 
-  const immediatePlatform = resolveImmediatePublishPlatform(platforms);
+  const targetPlatforms = existingPost.platforms
+    .filter((platformRecord) => !isPlatformAlreadyPublished(platformRecord))
+    .map((platformRecord) => platformRecord.platform);
+
+  if (targetPlatforms.length === 0) {
+    redirect(
+      buildPostDetailHref(postId, {
+        status: "error",
+        message: "All selected platforms are already published. Duplicate the post if you need to post it again.",
+      }),
+    );
+  }
+
   const publishNowAt = new Date();
   if ((existingPost.scheduledAt?.toISOString() ?? null) !== publishNowAt.toISOString()) {
     await prisma.$transaction(async (tx) => {
@@ -1188,7 +1365,9 @@ export async function publishPostNowAction(formData: FormData) {
       await tx.socialPostPlatform.updateMany({
         where: {
           socialPostId: existingPost.id,
-          platform: immediatePlatform,
+          platform: {
+            in: targetPlatforms,
+          },
         },
         data: {
           scheduledAt: publishNowAt,
@@ -1208,190 +1387,28 @@ export async function publishPostNowAction(formData: FormData) {
     });
   }
 
-  try {
-    await validateImmediatePublishPrerequisites({
-      platform: immediatePlatform,
-      caption: existingPost.caption,
-      primaryMediaAsset: existingPost.mediaAsset,
-      mediaAssets: existingPost.attachedMedia.map((item) => item.mediaAsset),
-    });
-  } catch (error) {
-    unstable_rethrow(error);
-    const message =
-      error instanceof Error
-        ? error.message
-        : immediatePlatform === SocialPlatform.INSTAGRAM
-          ? "Instagram publishing prerequisites are not met."
-          : "Facebook publishing prerequisites are not met.";
-
-    await markImmediatePublishFailure({
-      postId,
-      message,
-      platform: immediatePlatform,
-    });
-
-    await createPostAuditLog({
-      actorAdminUserId: adminUser.id,
-      action: AUDIT_ACTIONS.POST_PUBLISH_FAILED,
-      targetId: postId,
-      metadata: {
-        previousStatus: existingPost.status,
-        nextStatus: SocialPostStatus.FAILED,
-        mode: "manual",
-        platform: immediatePlatform,
-        message,
-      },
-    });
-
-    await createPostAuditLog({
-      actorAdminUserId: adminUser.id,
-      action: AUDIT_ACTIONS.POST_STATUS_CHANGED,
-      targetId: postId,
-      metadata: {
-        previousStatus: existingPost.status,
-        nextStatus: SocialPostStatus.FAILED,
-        mode: "manual",
-      },
-    });
-
-    revalidatePostViews(postId);
-    redirect(
-      buildPostDetailHref(postId, {
-        status: "error",
-        message,
-      }),
-    );
-  }
-
-  const claim = await claimImmediatePublish({
-    platform: immediatePlatform,
-    socialPostId: postId,
+  const publishRun = await runImmediatePlatformPublishes({
+    actorAdminUserId: adminUser.id,
+    postId,
+    caption: existingPost.caption,
+    primaryMediaAsset: existingPost.mediaAsset,
+    mediaAssets: existingPost.attachedMedia.map((item) => item.mediaAsset),
+    targetPlatforms,
+    initialStatus: existingPost.status,
+    mode: "manual",
     allowedStatuses,
   });
+  const summary = buildImmediatePublishSummary(publishRun.results);
 
-  if (!claim.ok) {
-    revalidatePostViews(postId);
-    redirect(
-      buildPostDetailHref(postId, {
-        status: "error",
-        message: claim.message,
-      }),
-    );
-  }
-
-  await createPostAuditLog({
-    actorAdminUserId: adminUser.id,
-    action:
-      existingPost.status === SocialPostStatus.FAILED
-        ? AUDIT_ACTIONS.POST_PUBLISH_RETRY_REQUESTED
-        : AUDIT_ACTIONS.POST_PUBLISH_MANUAL_REQUESTED,
-    targetId: postId,
-    metadata: {
-      previousStatus: existingPost.status,
-      requestedStatus: SocialPostStatus.PUBLISHING,
-      mode: "manual",
-      platform: immediatePlatform,
-      confirmImmediate,
-    },
-  });
-
-  await createPostAuditLog({
-    actorAdminUserId: adminUser.id,
-    action: AUDIT_ACTIONS.POST_PUBLISH_STARTED,
-    targetId: postId,
-    metadata: {
-      previousStatus: existingPost.status,
-      nextStatus: SocialPostStatus.PUBLISHING,
-      mode: "manual",
-      platform: immediatePlatform,
-    },
-  });
-
-  await createPostAuditLog({
-    actorAdminUserId: adminUser.id,
-    action: AUDIT_ACTIONS.POST_STATUS_CHANGED,
-    targetId: postId,
-    metadata: {
-      previousStatus: existingPost.status,
-      nextStatus: SocialPostStatus.PUBLISHING,
-      mode: "manual",
-    },
-  });
-
-  try {
-    const result = await executeImmediatePublish({
-      platform: immediatePlatform,
-      socialPostId: claim.socialPostId,
-      socialPostPlatformId: claim.socialPostPlatformId,
-    });
-
-    await createPostAuditLog({
-      actorAdminUserId: adminUser.id,
-      action: AUDIT_ACTIONS.POST_PUBLISH_SUCCEEDED,
-      targetId: postId,
-      metadata: {
-        previousStatus: SocialPostStatus.PUBLISHING,
-        nextStatus: SocialPostStatus.PUBLISHED,
-        mode: "manual",
-        publishedAt: result.finishedAt.toISOString(),
-        platform: immediatePlatform,
-        platformPostId: result.result.platformPostId,
-        platformPostUrl: result.result.platformPostUrl,
-      },
-    });
-
-    await createPostAuditLog({
-      actorAdminUserId: adminUser.id,
-      action: AUDIT_ACTIONS.POST_STATUS_CHANGED,
-      targetId: postId,
-      metadata: {
-        previousStatus: SocialPostStatus.PUBLISHING,
-        nextStatus: SocialPostStatus.PUBLISHED,
-        mode: "manual",
-      },
-    });
-
-    revalidatePostViews(postId);
+  revalidatePostViews(postId);
+  if (summary.status === "success") {
     redirect(buildCalendarHref({ flash: "published" }));
-  } catch (error) {
-    unstable_rethrow(error);
-    const message =
-      error instanceof Error
-        ? error.message
-        : immediatePlatform === SocialPlatform.INSTAGRAM
-          ? "Instagram publishing failed."
-          : "Facebook publishing failed.";
-
-    await createPostAuditLog({
-      actorAdminUserId: adminUser.id,
-      action: AUDIT_ACTIONS.POST_PUBLISH_FAILED,
-      targetId: postId,
-      metadata: {
-        previousStatus: SocialPostStatus.PUBLISHING,
-        nextStatus: SocialPostStatus.FAILED,
-        mode: "manual",
-        platform: immediatePlatform,
-        message,
-      },
-    });
-
-    await createPostAuditLog({
-      actorAdminUserId: adminUser.id,
-      action: AUDIT_ACTIONS.POST_STATUS_CHANGED,
-      targetId: postId,
-      metadata: {
-        previousStatus: SocialPostStatus.PUBLISHING,
-        nextStatus: SocialPostStatus.FAILED,
-        mode: "manual",
-      },
-    });
-
-    revalidatePostViews(postId);
-    redirect(
-      buildPostDetailHref(postId, {
-        status: "error",
-        message,
-      }),
-    );
   }
+
+  redirect(
+    buildPostDetailHref(postId, {
+      status: summary.status,
+      message: summary.message,
+    }),
+  );
 }

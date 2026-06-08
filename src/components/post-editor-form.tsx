@@ -47,6 +47,12 @@ type PostEditorFormProps = {
     status: string;
     mediaAssets: MediaAssetSummary[];
     platforms: string[];
+    platformResults?: Array<{
+      platform: string;
+      status: string;
+      label: "Pending" | "Success" | "Failed";
+      tone: "publishing" | "published" | "failed";
+    }>;
     createdFrom?: string;
     createdByLabel?: string;
     createdAtLabel?: string;
@@ -1000,6 +1006,29 @@ export function PostEditorForm({
                   <span className="composer-summary-label">Media Count</span>
                   <span className="composer-summary-value">{mediaCountLabel}</span>
                 </div>
+                {post?.platformResults?.map((platformResult) => (
+                  <div key={`summary-platform-${platformResult.platform}`} className="composer-summary-row">
+                    <span className="composer-summary-icon">
+                      {platformResult.platform === FACEBOOK_PLATFORM ? (
+                        <FacebookIcon />
+                      ) : platformResult.platform === INSTAGRAM_PLATFORM ? (
+                        <InstagramIcon />
+                      ) : (
+                        <GoogleIcon />
+                      )}
+                    </span>
+                    <span className="composer-summary-label">
+                      {platformResult.platform === FACEBOOK_PLATFORM
+                        ? "Facebook"
+                        : platformResult.platform === INSTAGRAM_PLATFORM
+                          ? "Instagram"
+                          : "Google Business"}
+                    </span>
+                    <span className={`composer-summary-value badge is-${platformResult.tone}`.trim()}>
+                      {platformResult.label}
+                    </span>
+                  </div>
+                ))}
                 {post?.createdByLabel ? (
                   <div className="composer-summary-row">
                     <span className="composer-summary-icon"><ComposeIcon /></span>

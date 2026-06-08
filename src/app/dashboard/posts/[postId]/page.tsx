@@ -9,6 +9,7 @@ import { getInstagramFoundationState } from "@/lib/instagram";
 import {
   canCancelScheduled,
   canDeleteDraft,
+  getPlatformPublishSummary,
   isReadOnlyPostStatus,
 } from "@/lib/posts";
 import { prisma } from "@/lib/prisma";
@@ -83,19 +84,56 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
         variants: true,
         posts: {
           select: {
+            id: true,
+            status: true,
+            scheduledAt: true,
+            publishedAt: true,
+            updatedAt: true,
             platforms: {
               where: {
                 status: {
                   in: [
+                    SocialPostStatus.DRAFT,
                     SocialPostStatus.SCHEDULED,
                     SocialPostStatus.PUBLISHING,
                     SocialPostStatus.PUBLISHED,
+                    SocialPostStatus.FAILED,
                   ],
                 },
               },
               select: {
                 platform: true,
                 status: true,
+              },
+            },
+          },
+        },
+        attachedToPosts: {
+          select: {
+            socialPost: {
+              select: {
+                id: true,
+                status: true,
+                scheduledAt: true,
+                publishedAt: true,
+                updatedAt: true,
+                platforms: {
+                  where: {
+                    status: {
+                      in: [
+                        SocialPostStatus.DRAFT,
+                        SocialPostStatus.SCHEDULED,
+                        SocialPostStatus.PUBLISHING,
+                        SocialPostStatus.PUBLISHED,
+                        SocialPostStatus.FAILED,
+                      ],
+                    },
+                  },
+                  select: {
+                    platform: true,
+                    status: true,
+                  },
+                },
               },
             },
           },
@@ -142,6 +180,12 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
           status: post.status,
           mediaAssets: post.attachedMedia.map((item) => toMediaAssetSummary(item.mediaAsset)),
           platforms: post.platforms.map((platform) => platform.platform),
+          platformResults: post.platforms.map((platform) =>
+            getPlatformPublishSummary({
+              platform: platform.platform,
+              status: platform.status,
+            }),
+          ),
           createdByLabel,
           createdAtLabel: formatDateTimeForTimezone(post.createdAt, timezone),
           updatedByLabel: hasBeenEdited ? updatedByLabel : undefined,

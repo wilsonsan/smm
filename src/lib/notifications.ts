@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
 
 export const FACEBOOK_SETTINGS_ACTION_URL = "/dashboard/settings/channels/facebook";
+export const INSTAGRAM_SETTINGS_ACTION_URL = "/dashboard/settings/channels/instagram";
 export const GOOGLE_SETTINGS_ACTION_URL = "/dashboard/settings/channels/google";
 
 const TOKEN_NOTIFICATION_TYPES = [
@@ -248,20 +249,80 @@ export async function createOrUpdateGoogleTokenNotification(input: ProviderNotif
   });
 }
 
-export async function createOrUpdateGooglePublishFailedNotification(input: {
+function getPlatformPublishFailedTitle(provider: SocialPlatform) {
+  switch (provider) {
+    case SocialPlatform.FACEBOOK:
+      return "Facebook publish failed";
+    case SocialPlatform.INSTAGRAM:
+      return "Instagram publish failed";
+    case SocialPlatform.GOOGLE_BUSINESS:
+      return "Google Business publish failed";
+    default:
+      return "Publish failed";
+  }
+}
+
+function getPlatformPublishFailedMessage(provider: SocialPlatform) {
+  switch (provider) {
+    case SocialPlatform.FACEBOOK:
+      return "Facebook posting failed.";
+    case SocialPlatform.INSTAGRAM:
+      return "Instagram posting failed.";
+    case SocialPlatform.GOOGLE_BUSINESS:
+      return "Google Business posting failed.";
+    default:
+      return "Posting failed.";
+  }
+}
+
+function getPlatformSettingsActionUrl(provider: SocialPlatform) {
+  switch (provider) {
+    case SocialPlatform.FACEBOOK:
+      return FACEBOOK_SETTINGS_ACTION_URL;
+    case SocialPlatform.INSTAGRAM:
+      return INSTAGRAM_SETTINGS_ACTION_URL;
+    case SocialPlatform.GOOGLE_BUSINESS:
+      return GOOGLE_SETTINGS_ACTION_URL;
+    default:
+      return "/dashboard/settings";
+  }
+}
+
+export async function createOrUpdatePlatformPublishFailedNotification(input: {
   actorAdminUserId?: string | null;
-  message: string;
+  provider: SocialPlatform;
+  postId?: string | null;
+  message?: string;
   detail?: string | null;
 }) {
+  const baseMessage = input.message || getPlatformPublishFailedMessage(input.provider);
   return createOrUpdateNotification({
     actorAdminUserId: input.actorAdminUserId,
     type: NotificationType.PUBLISH_FAILED,
-    provider: SocialPlatform.GOOGLE_BUSINESS,
+    provider: input.provider,
     severity: NotificationSeverity.ERROR,
-    title: "Google Business publish failed",
-    message: input.detail ? `${input.message} ${input.detail}` : input.message,
-    actionUrl: GOOGLE_SETTINGS_ACTION_URL,
-    metadata: input.detail ? { detail: input.detail } : undefined,
+    title: getPlatformPublishFailedTitle(input.provider),
+    message: input.detail ? `${baseMessage} ${input.detail}` : baseMessage,
+    actionUrl: input.postId ? `/dashboard/posts/${input.postId}/advanced` : getPlatformSettingsActionUrl(input.provider),
+    metadata: {
+      ...(input.detail ? { detail: input.detail } : {}),
+      ...(input.postId ? { postId: input.postId } : {}),
+    },
+  });
+}
+
+export async function createOrUpdateGooglePublishFailedNotification(input: {
+  actorAdminUserId?: string | null;
+  postId?: string | null;
+  message: string;
+  detail?: string | null;
+}) {
+  return createOrUpdatePlatformPublishFailedNotification({
+    actorAdminUserId: input.actorAdminUserId,
+    provider: SocialPlatform.GOOGLE_BUSINESS,
+    postId: input.postId,
+    message: input.message,
+    detail: input.detail,
   });
 }
 

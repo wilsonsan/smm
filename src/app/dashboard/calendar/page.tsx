@@ -1,10 +1,10 @@
-import { DateTime } from "luxon";
 import { SocialPlatform, SocialPostStatus } from "@prisma/client";
+import { DateTime } from "luxon";
 import { CalendarCommandCenter } from "@/components/calendar-command-center";
 import { openNotificationAction } from "@/app/dashboard/actions";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { buildMonthGrid, formatMonthParam, shiftMonth } from "@/lib/calendar";
-import { getPostCaptionPreview, resolvePostCalendarAt } from "@/lib/posts";
+import { getAggregatePlatformOutcome, getPostCaptionPreview, resolvePostCalendarAt } from "@/lib/posts";
 import { getMediaVariantUrl, getPreferredPreviewVariant } from "@/lib/media-presentation";
 import { getNotificationCenterSnapshot } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
@@ -135,11 +135,16 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
         caption: post.caption,
         captionPreview: getPostCaptionPreview(post.caption),
         status: post.status,
+        displayStatus: getAggregatePlatformOutcome(post.platforms, post.status),
         calendarAtIso: calendarAt.toISOString(),
         platforms:
           post.platforms.length > 0
             ? post.platforms.map((platform) => platform.platform)
             : ([SocialPlatform.FACEBOOK] as SocialPlatform[]),
+        platformStatuses: post.platforms.map((platform) => ({
+          platform: platform.platform,
+          status: platform.status,
+        })),
         mediaPreviewUrl: previewVariant ? getMediaVariantUrl(previewVariant.id) : null,
       };
     })

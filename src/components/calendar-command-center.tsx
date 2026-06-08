@@ -48,8 +48,16 @@ type CalendarPostView = {
   caption: string;
   captionPreview: string;
   status: SocialPostStatus;
+  displayStatus: {
+    label: string;
+    tone: "draft" | "scheduled" | "publishing" | "published" | "failed" | "cancelled";
+  };
   calendarAtIso: string;
   platforms: SocialPlatform[];
+  platformStatuses: Array<{
+    platform: SocialPlatform;
+    status: SocialPostStatus;
+  }>;
   mediaPreviewUrl: string | null;
 };
 
@@ -172,10 +180,6 @@ function getPlatformLabel(platforms: SocialPlatform[]) {
     default:
       return "Post";
   }
-}
-
-function getStatusLabel(status: SocialPostStatus) {
-  return STATUS_FILTERS.find((filter) => filter.value === status)?.label ?? status;
 }
 
 function formatTime(valueIso: string, timezone: string) {
@@ -507,7 +511,7 @@ export function CalendarCommandCenter({
                       {isFeaturedDay && primaryPost ? (
                         <Link
                           href={`/dashboard/posts/${primaryPost.id}`}
-                          className={`calendar-mobile-featured-event is-${primaryPost.status.toLowerCase()}`.trim()}
+                          className={`calendar-mobile-featured-event is-${primaryPost.displayStatus.tone}`.trim()}
                         >
                           <span className="calendar-mobile-featured-icon">
                             {renderPlatformIcon(primaryPost.platforms[0] ?? "FACEBOOK")}
@@ -528,7 +532,7 @@ export function CalendarCommandCenter({
                             {dotPosts.map((post) => (
                               <span
                                 key={`mobile-dot-${post.id}`}
-                                className={`calendar-status-dot is-${post.status.toLowerCase()}`.trim()}
+                                className={`calendar-status-dot is-${post.displayStatus.tone}`.trim()}
                               />
                             ))}
                           </span>
@@ -589,8 +593,8 @@ export function CalendarCommandCenter({
                   <div className="calendar-mobile-upcoming-copy">
                     <div className="calendar-mobile-upcoming-title-row">
                       <strong>{getPlatformLabel(nextUpcomingPost.platforms)}</strong>
-                      <span className={`calendar-mobile-upcoming-badge is-${nextUpcomingPost.status.toLowerCase()}`.trim()}>
-                        {getStatusLabel(nextUpcomingPost.status)}
+                      <span className={`calendar-mobile-upcoming-badge is-${nextUpcomingPost.displayStatus.tone}`.trim()}>
+                        {nextUpcomingPost.displayStatus.label}
                       </span>
                     </div>
                     <span>
@@ -718,7 +722,7 @@ export function CalendarCommandCenter({
                             <Link
                               key={post.id}
                               href={`/dashboard/posts/${post.id}`}
-                              className={`calendar-command-event is-${post.status.toLowerCase()}`.trim()}
+                              className={`calendar-command-event is-${post.displayStatus.tone}`.trim()}
                               title={`${getPlatformLabel(post.platforms)} at ${formatTime(post.calendarAtIso, timezone)}`}
                             >
                               <div className="calendar-command-event-copy">
@@ -803,13 +807,13 @@ export function CalendarCommandCenter({
                         ))}
                         <strong>{getPlatformLabel(post.platforms)}</strong>
                       </div>
-                      <span className={`badge is-${post.status.toLowerCase()}`.trim()}>{post.status}</span>
+                      <span className={`badge is-${post.displayStatus.tone}`.trim()}>{post.displayStatus.label}</span>
                     </div>
 
                     <p>{post.captionPreview}</p>
                     <div className="calendar-day-modal-meta">
                       <span>{formatTime(post.calendarAtIso, timezone)}</span>
-                      <span>{post.status}</span>
+                      <span>{post.displayStatus.label}</span>
                     </div>
                     <div className="calendar-day-modal-actions">
                       <Link href={`/dashboard/posts/${post.id}`} className="secondary-button">

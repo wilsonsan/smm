@@ -1399,7 +1399,6 @@ export async function claimGooglePostForPublishing(input: {
         socialPost: {
           select: {
             status: true,
-            publishedAt: true,
           },
         },
       },
@@ -1416,7 +1415,7 @@ export async function claimGooglePostForPublishing(input: {
     if (
       platformRecord.platformPostId ||
       platformRecord.publishedAt ||
-      platformRecord.socialPost.publishedAt
+      platformRecord.status === SocialPostStatus.PUBLISHED
     ) {
       return {
         ok: false as const,
@@ -1450,6 +1449,7 @@ export async function claimGooglePostForPublishing(input: {
           in: input.allowedStatuses,
         },
         platformPostId: null,
+        publishedAt: null,
       },
       data: {
         status: SocialPostStatus.PUBLISHING,
@@ -1465,22 +1465,16 @@ export async function claimGooglePostForPublishing(input: {
       };
     }
 
-    const postClaim = await tx.socialPost.updateMany({
+    await tx.socialPost.update({
       where: {
         id: input.socialPostId,
-        status: {
-          in: input.allowedStatuses,
-        },
       },
       data: {
         status: SocialPostStatus.PUBLISHING,
+        publishedAt: null,
         failureReason: null,
       },
     });
-
-    if (postClaim.count !== 1) {
-      throw new Error("CLAIM_CONFLICT");
-    }
 
     return {
       ok: true as const,
@@ -1600,6 +1594,7 @@ export async function executeGooglePublish(input: {
     });
 
     await createOrUpdateGooglePublishFailedNotification({
+      postId: platformRecord.socialPostId,
       message: "Google Business posting failed.",
       detail: message,
     }).catch(() => undefined);

@@ -162,7 +162,7 @@ export default async function OperationsPage() {
                   {workerStatus.lastFailedPublish ? (
                     <>
                       <strong>{getSnapshotTitle(workerStatus.lastFailedPublish.socialPost.internalTitle)}</strong>
-                      <p>{workerStatus.lastFailedPublish.errorMessage || "Facebook publish failed."}</p>
+                      <p>{workerStatus.lastFailedPublish.errorMessage || "Platform publish failed."}</p>
                     </>
                   ) : (
                     <>

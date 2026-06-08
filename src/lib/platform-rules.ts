@@ -140,19 +140,6 @@ export function areSelectedPlatformsPublishableNow(
   intent: "schedule" | "publish" = "publish",
 ) {
   const normalizedPlatforms = normalizeSelectedPlatforms(platforms.map((platform) => String(platform)));
-
-  if (intent === "schedule") {
-    return (
-      normalizedPlatforms.length === 1 &&
-      (normalizedPlatforms[0] === SocialPlatform.FACEBOOK ||
-        normalizedPlatforms[0] === SocialPlatform.GOOGLE_BUSINESS)
-    );
-  }
-
-  return (
-    normalizedPlatforms.length === 1 &&
-    (normalizedPlatforms[0] === SocialPlatform.FACEBOOK ||
-      normalizedPlatforms[0] === SocialPlatform.INSTAGRAM ||
-      normalizedPlatforms[0] === SocialPlatform.GOOGLE_BUSINESS)
-  );
+  void intent;
+  return normalizedPlatforms.length > 0;
 }

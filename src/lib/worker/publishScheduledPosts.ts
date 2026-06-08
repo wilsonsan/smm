@@ -2,7 +2,9 @@ import { PublishAttemptStatus, SocialPlatform, SocialPostStatus } from "@prisma/
 import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
 import { claimFacebookPostForPublishing, executeFacebookPublish } from "@/lib/facebook";
 import { claimGooglePostForPublishing, executeGooglePublish } from "@/lib/google";
+import { claimInstagramPostForPublishing, executeInstagramPublish } from "@/lib/instagram";
 import { createOrUpdateWorkerErrorNotification, dismissWorkerErrorNotifications } from "@/lib/notifications";
+import { syncSocialPostAggregateState } from "@/lib/publish-state";
 import { prisma } from "@/lib/prisma";
 import { recordWorkerRunStatus, WORKER_PUBLISH_TIMEOUT_MINUTES } from "@/lib/worker-status";
 
@@ -19,7 +21,7 @@ async function recoverStuckPublishingPosts(now: Date) {
   const stuckPlatforms = await prisma.socialPostPlatform.findMany({
     where: {
       platform: {
-        in: [SocialPlatform.FACEBOOK, SocialPlatform.GOOGLE_BUSINESS],
+        in: [SocialPlatform.FACEBOOK, SocialPlatform.INSTAGRAM, SocialPlatform.GOOGLE_BUSINESS],
       },
       status: SocialPostStatus.PUBLISHING,
       updatedAt: {
@@ -93,17 +95,9 @@ async function recoverStuckPublishingPosts(now: Date) {
         },
       });
 
-      if (currentPlatform.socialPost.status === SocialPostStatus.PUBLISHING) {
-        await tx.socialPost.update({
-          where: {
-            id: currentPlatform.socialPostId,
-          },
-          data: {
-            status: SocialPostStatus.FAILED,
-            failureReason: timeoutMessage,
-          },
-        });
-      }
+      await syncSocialPostAggregateState(tx, currentPlatform.socialPostId, {
+        failureReason: timeoutMessage,
+      });
 
       return true;
     });
@@ -174,7 +168,7 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
     const duePlatforms = await prisma.socialPostPlatform.findMany({
       where: {
         platform: {
-          in: [SocialPlatform.FACEBOOK, SocialPlatform.GOOGLE_BUSINESS],
+          in: [SocialPlatform.FACEBOOK, SocialPlatform.INSTAGRAM, SocialPlatform.GOOGLE_BUSINESS],
         },
         status: SocialPostStatus.SCHEDULED,
         scheduledAt: {
@@ -199,6 +193,11 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
               socialPostId: platform.socialPostId,
               allowedStatuses: [SocialPostStatus.SCHEDULED],
             })
+          : platform.platform === SocialPlatform.INSTAGRAM
+            ? await claimInstagramPostForPublishing({
+                socialPostId: platform.socialPostId,
+                allowedStatuses: [SocialPostStatus.SCHEDULED],
+              })
           : await claimFacebookPostForPublishing({
               socialPostId: platform.socialPostId,
               allowedStatuses: [SocialPostStatus.SCHEDULED],
@@ -268,6 +267,11 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
                 socialPostId: platform.socialPostId,
                 socialPostPlatformId: platformId,
               })
+            : platform.platform === SocialPlatform.INSTAGRAM
+              ? await executeInstagramPublish({
+                  socialPostId: platform.socialPostId,
+                  socialPostPlatformId: platformId,
+                })
             : await executeFacebookPublish({
                 socialPostId: platform.socialPostId,
                 socialPostPlatformId: platformId,
@@ -307,6 +311,8 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
         const message =
           error instanceof Error
             ? error.message
+            : platform.platform === SocialPlatform.INSTAGRAM
+              ? "Instagram publishing failed."
             : platform.platform === SocialPlatform.GOOGLE_BUSINESS
               ? "Google Business publishing failed."
               : "Facebook publishing failed.";
@@ -351,18 +357,18 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
     await createAuditLog({
       action: AUDIT_ACTIONS.WORKER_RUN_COMPLETED,
       targetType: "Worker",
-      targetId: "facebook-publish-worker",
+      targetId: "social-publish-worker",
       metadata: {
         finishedAt: finishedAt.toISOString(),
         result,
-        errorMessage: failedCount > 0 ? "One or more scheduled Facebook publishes failed." : null,
+        errorMessage: failedCount > 0 ? "One or more scheduled platform publishes failed." : null,
       },
     });
 
     await recordWorkerRunStatus({
       finishedAt,
       result,
-      errorMessage: failedCount > 0 ? "One or more scheduled Facebook publishes failed." : null,
+      errorMessage: failedCount > 0 ? "One or more scheduled platform publishes failed." : null,
     });
 
     if (failedCount === 0) {
@@ -384,7 +390,7 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
     await createAuditLog({
       action: AUDIT_ACTIONS.WORKER_RUN_COMPLETED,
       targetType: "Worker",
-      targetId: "facebook-publish-worker",
+      targetId: "social-publish-worker",
       metadata: {
         finishedAt: finishedAt.toISOString(),
         result,

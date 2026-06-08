@@ -1,4 +1,4 @@
-import { SocialPostStatus } from "@prisma/client";
+import { SocialPlatform, SocialPostStatus } from "@prisma/client";
 import { getResolvedAppTimezone, parseScheduledAtInTimezone } from "@/lib/time";
 
 export const POST_LIST_FILTERS = [
@@ -11,6 +11,18 @@ export const POST_LIST_FILTERS = [
 ] as const;
 
 export type PostListFilter = (typeof POST_LIST_FILTERS)[number];
+
+export type PlatformPublishSummary = {
+  platform: SocialPlatform;
+  status: SocialPostStatus;
+  label: "Pending" | "Success" | "Failed";
+  tone: "publishing" | "published" | "failed";
+};
+
+export type AggregatePlatformOutcome = {
+  label: string;
+  tone: "draft" | "scheduled" | "publishing" | "published" | "failed" | "cancelled";
+};
 
 export function isEditablePostStatus(status: SocialPostStatus) {
   return (
@@ -148,6 +160,117 @@ export function getPostStatusTone(status: SocialPostStatus) {
     default:
       return "scheduled";
   }
+}
+
+export function getPlatformPublishSummary(input: {
+  platform: SocialPlatform;
+  status: SocialPostStatus;
+}): PlatformPublishSummary {
+  if (input.status === SocialPostStatus.PUBLISHED) {
+    return {
+      platform: input.platform,
+      status: input.status,
+      label: "Success",
+      tone: "published",
+    };
+  }
+
+  if (input.status === SocialPostStatus.FAILED || input.status === SocialPostStatus.CANCELLED) {
+    return {
+      platform: input.platform,
+      status: input.status,
+      label: "Failed",
+      tone: "failed",
+    };
+  }
+
+  return {
+    platform: input.platform,
+    status: input.status,
+    label: "Pending",
+    tone: "publishing",
+  };
+}
+
+export function getAggregatePlatformOutcome(
+  platformStatuses: Array<{
+    status: SocialPostStatus;
+  }>,
+  fallbackStatus: SocialPostStatus,
+): AggregatePlatformOutcome {
+  if (platformStatuses.length === 0) {
+    return {
+      label:
+        fallbackStatus === SocialPostStatus.PUBLISHED
+          ? "Published"
+          : fallbackStatus === SocialPostStatus.PUBLISHING
+            ? "Publishing"
+            : fallbackStatus === SocialPostStatus.FAILED
+              ? "Failed"
+              : fallbackStatus === SocialPostStatus.CANCELLED
+                ? "Cancelled"
+                : fallbackStatus === SocialPostStatus.SCHEDULED
+                  ? "Scheduled"
+                  : "Draft",
+      tone: getPostStatusTone(fallbackStatus),
+    };
+  }
+
+  const statuses = platformStatuses.map((platform) => platform.status);
+  const allPublished = statuses.every((status) => status === SocialPostStatus.PUBLISHED);
+  const allFailed = statuses.every(
+    (status) => status === SocialPostStatus.FAILED || status === SocialPostStatus.CANCELLED,
+  );
+  const someFailed = statuses.some(
+    (status) => status === SocialPostStatus.FAILED || status === SocialPostStatus.CANCELLED,
+  );
+
+  if (allPublished) {
+    return {
+      label: "Published",
+      tone: "published",
+    };
+  }
+
+  if (allFailed) {
+    return {
+      label: "Failed",
+      tone: "failed",
+    };
+  }
+
+  if (someFailed) {
+    return {
+      label: "Partial Failed",
+      tone: "failed",
+    };
+  }
+
+  if (statuses.some((status) => status === SocialPostStatus.PUBLISHING)) {
+    return {
+      label: "Publishing",
+      tone: "publishing",
+    };
+  }
+
+  if (statuses.some((status) => status === SocialPostStatus.SCHEDULED)) {
+    return {
+      label: "Scheduled",
+      tone: "scheduled",
+    };
+  }
+
+  if (statuses.some((status) => status === SocialPostStatus.CANCELLED)) {
+    return {
+      label: "Cancelled",
+      tone: "cancelled",
+    };
+  }
+
+  return {
+    label: "Draft",
+    tone: "draft",
+  };
 }
 
 export function getPostCaptionPreview(caption: string | null | undefined, maxLength = 84) {

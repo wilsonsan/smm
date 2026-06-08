@@ -172,6 +172,14 @@ function formatUploadDate(value: string, timezone: string) {
   }).format(date);
 }
 
+function formatUsageDate(value: string | null, timezone: string) {
+  if (!value) {
+    return "Never";
+  }
+
+  return formatUploadDate(value, timezone);
+}
+
 function getTypeFilterLabel(asset: MediaAssetGallerySummary) {
   if (asset.mimeType === "image/jpeg") {
     return "JPEG";
@@ -717,6 +725,11 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
                       <span>{formatUploadDate(asset.createdAt, timezone)}</span>
                     </div>
 
+                    <div className="gallery-asset-usage">
+                      <strong>Used {asset.usage.totalUses} {asset.usage.totalUses === 1 ? "time" : "times"}</strong>
+                      <span>Last used {formatUsageDate(asset.usage.lastUsedAt, timezone)}</span>
+                    </div>
+
                     <div className="gallery-asset-footer">
                       <button type="button" className="gallery-open-link" onClick={() => setOpenAssetId(asset.id)}>
                         Open Details
@@ -964,6 +977,20 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
                 <div className="media-variant-info-card">
                   <strong>MIME type</strong>
                   <p>{openAsset.mimeType}</p>
+                </div>
+                <div className="media-variant-info-card">
+                  <strong>Times used</strong>
+                  <p>{openAsset.usage.totalUses}</p>
+                </div>
+                <div className="media-variant-info-card">
+                  <strong>Usage breakdown</strong>
+                  <p>
+                    Facebook x{openAsset.usage.facebookUses} | Instagram x{openAsset.usage.instagramUses} | Google x{openAsset.usage.googleUses}
+                  </p>
+                </div>
+                <div className="media-variant-info-card">
+                  <strong>Last used</strong>
+                  <p>{formatUsageDate(openAsset.usage.lastUsedAt, timezone)}</p>
                 </div>
 
                 {deleteError ? <p className="inline-error">{deleteError}</p> : null}

@@ -108,6 +108,13 @@ export async function POST(request: Request) {
           postedEverywhere: false,
           publishedAnywhere: false,
         },
+        usage: {
+          totalUses: 0,
+          facebookUses: 0,
+          instagramUses: 0,
+          googleUses: 0,
+          lastUsedAt: null,
+        },
         variants: variants.map((variant) => ({
           id: variant.id,
           variantType: variant.variantType,

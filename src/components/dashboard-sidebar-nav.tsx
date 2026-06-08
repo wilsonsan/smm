@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { AdminUserRole } from "@prisma/client";
 import type { ComponentType, SVGProps } from "react";
 import {
+  AnalyticsIcon,
   CalendarIcon,
   ComposeIcon,
   DashboardIcon,
@@ -45,6 +46,12 @@ const NAV_ITEMS: NavItem[] = [
     isActive: (pathname) => pathname.startsWith("/dashboard/media"),
   },
   {
+    href: "/dashboard/analytics",
+    label: "Analytics",
+    icon: AnalyticsIcon,
+    isActive: (pathname) => pathname.startsWith("/dashboard/analytics"),
+  },
+  {
     href: "/dashboard/settings",
     label: "Settings",
     icon: SettingsIcon,
@@ -59,7 +66,12 @@ type DashboardSidebarNavProps = {
 
 export function DashboardSidebarNav({ role }: DashboardSidebarNavProps) {
   const pathname = usePathname();
-  const visibleItems = role === AdminUserRole.ADMIN ? NAV_ITEMS : NAV_ITEMS.filter((item) => item.href !== "/dashboard/settings");
+  const visibleItems =
+    role === AdminUserRole.ADMIN
+      ? NAV_ITEMS
+      : NAV_ITEMS.filter(
+          (item) => item.href !== "/dashboard/settings" && item.href !== "/dashboard/analytics",
+        );
 
   return (
     <nav className="sidebar-nav" aria-label="Dashboard navigation">

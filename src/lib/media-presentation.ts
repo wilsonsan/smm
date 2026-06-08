@@ -32,9 +32,18 @@ export type MediaAssetPostedPlatformFlags = {
   publishedAnywhere: boolean;
 };
 
+export type MediaAssetUsageSummary = {
+  totalUses: number;
+  facebookUses: number;
+  instagramUses: number;
+  googleUses: number;
+  lastUsedAt: string | null;
+};
+
 export type MediaAssetGallerySummary = MediaAssetSummary & {
   createdAt: string;
   postedPlatforms: MediaAssetPostedPlatformFlags;
+  usage: MediaAssetUsageSummary;
 };
 
 const variantLabels: Record<MediaVariantTypeValue, string> = {
@@ -197,6 +206,55 @@ export function resolvePostedPlatformFlags(platforms: Array<{ platform: string; 
   };
 }
 
+function buildUsageSummary(
+  posts: Array<{
+    status: string;
+    scheduledAt: Date | null;
+    publishedAt: Date | null;
+    updatedAt: Date;
+    platforms: Array<{
+      platform: string;
+      status: string;
+    }>;
+  }>,
+): MediaAssetUsageSummary {
+  const activeStatuses = new Set(["DRAFT", "SCHEDULED", "PUBLISHING", "PUBLISHED", "FAILED"]);
+  let facebookUses = 0;
+  let instagramUses = 0;
+  let googleUses = 0;
+  let lastUsedAt: Date | null = null;
+
+  for (const post of posts) {
+    const countedPlatforms = post.platforms.filter((platform) => activeStatuses.has(platform.status));
+    if (countedPlatforms.length === 0) {
+      continue;
+    }
+
+    const candidateLastUsedAt = post.publishedAt ?? post.scheduledAt ?? post.updatedAt;
+    if (candidateLastUsedAt && (!lastUsedAt || candidateLastUsedAt.getTime() > lastUsedAt.getTime())) {
+      lastUsedAt = candidateLastUsedAt;
+    }
+
+    for (const platform of countedPlatforms) {
+      if (platform.platform === "FACEBOOK") {
+        facebookUses += 1;
+      } else if (platform.platform === "INSTAGRAM") {
+        instagramUses += 1;
+      } else if (platform.platform === "GOOGLE_BUSINESS") {
+        googleUses += 1;
+      }
+    }
+  }
+
+  return {
+    totalUses: facebookUses + instagramUses + googleUses,
+    facebookUses,
+    instagramUses,
+    googleUses,
+    lastUsedAt: lastUsedAt ? lastUsedAt.toISOString() : null,
+  };
+}
+
 export function toMediaAssetGallerySummary(asset: {
   id: string;
   originalFilename: string;
@@ -214,17 +272,60 @@ export function toMediaAssetGallerySummary(asset: {
     height: number;
   }>;
   posts: Array<{
+    id: string;
     platforms: Array<{
       platform: string;
       status: string;
     }>;
+    status: string;
+    scheduledAt: Date | null;
+    publishedAt: Date | null;
+    updatedAt: Date;
+  }>;
+  attachedToPosts: Array<{
+    socialPost: {
+      id: string;
+      status: string;
+      scheduledAt: Date | null;
+      publishedAt: Date | null;
+      updatedAt: Date;
+      platforms: Array<{
+        platform: string;
+        status: string;
+      }>;
+    };
   }>;
 }): MediaAssetGallerySummary {
+  const uniquePosts = new Map<
+    string,
+    {
+      status: string;
+      scheduledAt: Date | null;
+      publishedAt: Date | null;
+      updatedAt: Date;
+      platforms: Array<{
+        platform: string;
+        status: string;
+      }>;
+    }
+  >();
+
+  for (const post of asset.posts) {
+    uniquePosts.set(post.id, post);
+  }
+
+  for (const relation of asset.attachedToPosts) {
+    uniquePosts.set(relation.socialPost.id, relation.socialPost);
+  }
+
+  const normalizedPosts = [...uniquePosts.values()];
+
   return {
     ...toMediaAssetSummary(asset),
     createdAt: asset.createdAt.toISOString(),
     postedPlatforms: resolvePostedPlatformFlags(
-      asset.posts.flatMap((post) => post.platforms),
+      normalizedPosts.flatMap((post) => post.platforms),
     ),
+    usage: buildUsageSummary(normalizedPosts),
   };
 }

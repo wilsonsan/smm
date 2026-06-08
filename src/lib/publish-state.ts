@@ -1,11 +1,5 @@
 import { Prisma, SocialPostStatus } from "@prisma/client";
 
-const PENDING_PLATFORM_STATUSES: SocialPostStatus[] = [
-  SocialPostStatus.DRAFT,
-  SocialPostStatus.SCHEDULED,
-  SocialPostStatus.CANCELLED,
-];
-
 function deriveAggregateSocialPostState(platformStatuses: SocialPostStatus[]) {
   if (platformStatuses.length === 0) {
     return {
@@ -31,11 +25,7 @@ function deriveAggregateSocialPostState(platformStatuses: SocialPostStatus[]) {
     };
   }
 
-  if (
-    platformStatuses.some((status) => status === SocialPostStatus.PUBLISHING) ||
-    (platformStatuses.some((status) => status === SocialPostStatus.PUBLISHED) &&
-      platformStatuses.some((status) => PENDING_PLATFORM_STATUSES.includes(status)))
-  ) {
+  if (platformStatuses.some((status) => status === SocialPostStatus.PUBLISHING)) {
     return {
       status: SocialPostStatus.PUBLISHING,
       publishedAt: null as Date | null,
