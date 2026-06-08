@@ -99,6 +99,15 @@ export async function POST(request: Request) {
         width: mediaAsset.width,
         height: mediaAsset.height,
         sizeBytes: mediaAsset.sizeBytes.toString(),
+        createdAt: mediaAsset.createdAt.toISOString(),
+        postedPlatforms: {
+          postedToFacebook: false,
+          postedToInstagram: false,
+          postedToGoogle: false,
+          postedAnywhere: false,
+          postedEverywhere: false,
+          publishedAnywhere: false,
+        },
         variants: variants.map((variant) => ({
           id: variant.id,
           variantType: variant.variantType,

@@ -1,10 +1,12 @@
+import { SocialPostStatus } from "@prisma/client";
 import { DateTime } from "luxon";
 import { PostEditorForm } from "@/components/post-editor-form";
 import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
+import { getFacebookConnectionRecord, getFacebookPreviewIdentity } from "@/lib/facebook";
 import { getGoogleFoundationState } from "@/lib/google";
 import { getInstagramFoundationState } from "@/lib/instagram";
-import { toMediaAssetSummary } from "@/lib/media-presentation";
+import { toMediaAssetGallerySummary, toMediaAssetSummary } from "@/lib/media-presentation";
 import { prisma } from "@/lib/prisma";
 import { getDefaultScheduleFields, getResolvedAppTimezone } from "@/lib/time";
 
@@ -30,12 +32,33 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
       },
       include: {
         variants: true,
+        posts: {
+          select: {
+            platforms: {
+              where: {
+                status: {
+                  in: [
+                    SocialPostStatus.SCHEDULED,
+                    SocialPostStatus.PUBLISHING,
+                    SocialPostStatus.PUBLISHED,
+                  ],
+                },
+              },
+              select: {
+                platform: true,
+                status: true,
+              },
+            },
+          },
+        },
       },
     }),
     getResolvedAppTimezone(),
     getInstagramFoundationState({ refreshHealth: true }),
     getGoogleFoundationState({ refreshHealth: true }),
   ]);
+  const facebookConnection = await getFacebookConnectionRecord();
+  const facebookPreview = getFacebookPreviewIdentity(facebookConnection);
   const requestedDate = resolvedSearchParams?.date?.trim() ?? "";
   const requestedTime = resolvedSearchParams?.time?.trim() ?? "";
   const requestedHour = resolvedSearchParams?.hour?.trim() ?? "";
@@ -87,13 +110,30 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
           scheduledMeridiem: resolvedMeridiem,
           status: "DRAFT",
           mediaAssets: preselectedMediaAsset ? [toMediaAssetSummary(preselectedMediaAsset)] : [],
-          platforms: ["FACEBOOK"],
+          platforms: [],
           createdFrom: resolvedSearchParams?.createdFrom === "calendar-date" ? "calendar-date" : "",
         }}
-        recentMediaAssets={recentMediaAssets.map((asset) => toMediaAssetSummary(asset))}
+        recentMediaAssets={recentMediaAssets.map((asset) => toMediaAssetGallerySummary(asset))}
         timezone={timezone}
         instagramFoundation={instagramFoundation}
         googleFoundation={googleFoundation}
+        previewProfiles={{
+          facebook: {
+            name: facebookPreview.pageName,
+            subtitle: "Just now - Public",
+            profilePictureUrl: facebookPreview.profilePictureUrl,
+          },
+          instagram: {
+            username: instagramFoundation.username,
+            subtitle: instagramFoundation.pageName || "Raleigh, North Carolina",
+            profilePictureUrl: instagramFoundation.profilePictureUrl,
+          },
+          google: {
+            name: googleFoundation.accountName || googleFoundation.locationName,
+            subtitle: googleFoundation.locationName || null,
+            profilePictureUrl: googleFoundation.accountProfilePictureUrl,
+          },
+        }}
       />
     </section>
   );

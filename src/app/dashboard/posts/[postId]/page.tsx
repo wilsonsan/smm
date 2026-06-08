@@ -1,7 +1,9 @@
+import { SocialPostStatus } from "@prisma/client";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PostEditorForm } from "@/components/post-editor-form";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
+import { getFacebookConnectionRecord, getFacebookPreviewIdentity } from "@/lib/facebook";
 import { getGoogleFoundationState } from "@/lib/google";
 import { getInstagramFoundationState } from "@/lib/instagram";
 import {
@@ -19,7 +21,7 @@ import {
   cancelScheduledPostAction,
   deleteDraftPostAction,
 } from "@/app/dashboard/posts/actions";
-import { toMediaAssetSummary } from "@/lib/media-presentation";
+import { toMediaAssetGallerySummary, toMediaAssetSummary } from "@/lib/media-presentation";
 
 type PostDetailPageProps = {
   params: Promise<{
@@ -79,6 +81,25 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
       },
       include: {
         variants: true,
+        posts: {
+          select: {
+            platforms: {
+              where: {
+                status: {
+                  in: [
+                    SocialPostStatus.SCHEDULED,
+                    SocialPostStatus.PUBLISHING,
+                    SocialPostStatus.PUBLISHED,
+                  ],
+                },
+              },
+              select: {
+                platform: true,
+                status: true,
+              },
+            },
+          },
+        },
       },
     }),
     getResolvedAppTimezone(),
@@ -95,6 +116,8 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
   const hasBeenEdited = post.updatedAt.getTime() !== post.createdAt.getTime();
   const createdByLabel = post.createdByAdminUser.displayName || post.createdByAdminUser.username;
   const updatedByLabel = post.updatedByAdminUser.displayName || post.updatedByAdminUser.username;
+  const facebookConnection = await getFacebookConnectionRecord();
+  const facebookPreview = getFacebookPreviewIdentity(facebookConnection);
 
   return (
     <section className="section-stack">
@@ -124,10 +147,27 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
           updatedByLabel: hasBeenEdited ? updatedByLabel : undefined,
           updatedAtLabel: hasBeenEdited ? formatDateTimeForTimezone(post.updatedAt, timezone) : undefined,
         }}
-        recentMediaAssets={recentMediaAssets.map((asset) => toMediaAssetSummary(asset))}
+        recentMediaAssets={recentMediaAssets.map((asset) => toMediaAssetGallerySummary(asset))}
         timezone={timezone}
         instagramFoundation={instagramFoundation}
         googleFoundation={googleFoundation}
+        previewProfiles={{
+          facebook: {
+            name: facebookPreview.pageName,
+            subtitle: "Just now - Public",
+            profilePictureUrl: facebookPreview.profilePictureUrl,
+          },
+          instagram: {
+            username: instagramFoundation.username,
+            subtitle: instagramFoundation.pageName || "Raleigh, North Carolina",
+            profilePictureUrl: instagramFoundation.profilePictureUrl,
+          },
+          google: {
+            name: googleFoundation.accountName || googleFoundation.locationName,
+            subtitle: googleFoundation.locationName || null,
+            profilePictureUrl: googleFoundation.accountProfilePictureUrl,
+          },
+        }}
         isReadOnly={isReadOnly}
         hideHeroCopy
       />

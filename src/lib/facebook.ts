@@ -279,6 +279,11 @@ export type FacebookConnectionHealthResult = {
   missingScopes: string[];
 };
 
+export type FacebookPreviewIdentity = {
+  pageName: string | null;
+  profilePictureUrl: string | null;
+};
+
 export type FacebookLinkedInstagramAccountMetadata = {
   status: "READY" | "NOT_LINKED" | "LOOKUP_ERROR";
   accountId: string | null;
@@ -291,6 +296,7 @@ export type FacebookLinkedInstagramAccountMetadata = {
 
 type FacebookConnectionMetadata = {
   pageUrl: string | null;
+  pageProfilePictureUrl: string | null;
   instagram: FacebookLinkedInstagramAccountMetadata | null;
 };
 
@@ -397,6 +403,7 @@ function normalizeFacebookScopes(scopes: unknown) {
 function normalizeFacebookConnectionMetadata(metadata: ConnectedAccount["metadata"]): FacebookConnectionMetadata {
   const fallback: FacebookConnectionMetadata = {
     pageUrl: null,
+    pageProfilePictureUrl: null,
     instagram: null,
   };
 
@@ -412,6 +419,10 @@ function normalizeFacebookConnectionMetadata(metadata: ConnectedAccount["metadat
 
   return {
     pageUrl: typeof raw.pageUrl === "string" && raw.pageUrl.trim().length > 0 ? raw.pageUrl : null,
+    pageProfilePictureUrl:
+      typeof raw.pageProfilePictureUrl === "string" && raw.pageProfilePictureUrl.trim().length > 0
+        ? raw.pageProfilePictureUrl
+        : null,
     instagram: rawInstagram
       ? {
           status:
@@ -452,20 +463,24 @@ function normalizeFacebookConnectionMetadata(metadata: ConnectedAccount["metadat
 function buildFacebookConnectionMetadata(input: {
   existingMetadata?: ConnectedAccount["metadata"];
   pageUrl?: string | null;
+  pageProfilePictureUrl?: string | null;
   instagram?: FacebookLinkedInstagramAccountMetadata | null;
 }) {
   const existing = normalizeFacebookConnectionMetadata(input.existingMetadata ?? null);
   const next: FacebookConnectionMetadata = {
     pageUrl: input.pageUrl !== undefined ? input.pageUrl : existing.pageUrl,
+    pageProfilePictureUrl:
+      input.pageProfilePictureUrl !== undefined ? input.pageProfilePictureUrl : existing.pageProfilePictureUrl,
     instagram: input.instagram !== undefined ? input.instagram : existing.instagram,
   };
 
-  if (!next.pageUrl && !next.instagram) {
+  if (!next.pageUrl && !next.pageProfilePictureUrl && !next.instagram) {
     return Prisma.JsonNull;
   }
 
   return {
     ...(next.pageUrl ? { pageUrl: next.pageUrl } : {}),
+    ...(next.pageProfilePictureUrl ? { pageProfilePictureUrl: next.pageProfilePictureUrl } : {}),
     ...(next.instagram ? { instagram: next.instagram } : {}),
   } satisfies Prisma.InputJsonObject;
 }
@@ -1745,12 +1760,14 @@ export async function saveFacebookConnectedPage(input: {
   pageName: string;
   pageAccessToken: string;
   pageUrl?: string | null;
+  pageProfilePictureUrl?: string | null;
   scopes: string[];
   tokenExpiresAt?: Date | null;
 }) {
   const testedAt = new Date();
   const metadata = buildFacebookConnectionMetadata({
     pageUrl: input.pageUrl ?? null,
+    pageProfilePictureUrl: input.pageProfilePictureUrl ?? null,
     instagram: null,
   });
   const connectedAccount = await prisma.connectedAccount.upsert({
@@ -1834,6 +1851,15 @@ export async function getFacebookConnectionRecord() {
   });
 
   return toFacebookConnectionRecord(record);
+}
+
+export function getFacebookPreviewIdentity(connection: FacebookConnectionRecord | null): FacebookPreviewIdentity {
+  const metadata = normalizeFacebookConnectionMetadata(connection?.metadata ?? null);
+
+  return {
+    pageName: connection?.pageName ?? null,
+    profilePictureUrl: metadata.pageProfilePictureUrl,
+  };
 }
 
 async function getStoredFacebookConnection(): Promise<FacebookConnection | null> {
@@ -1948,6 +1974,7 @@ async function updateFacebookConnectionHealthState(input: {
   message: string | null;
   pageName?: string | null;
   pageUrl?: string | null;
+  pageProfilePictureUrl?: string | null;
   existingMetadata?: ConnectedAccount["metadata"];
   instagram?: FacebookLinkedInstagramAccountMetadata | null;
   testedAt: Date;
@@ -1966,6 +1993,7 @@ async function updateFacebookConnectionHealthState(input: {
       metadata: buildFacebookConnectionMetadata({
         existingMetadata: input.existingMetadata,
         pageUrl: input.pageUrl,
+        pageProfilePictureUrl: input.pageProfilePictureUrl,
         instagram: input.instagram,
       }),
     },
@@ -2131,12 +2159,17 @@ export async function refreshFacebookConnectionHealth(input?: {
     });
     const url = buildFacebookGraphUrl(`/${connection.pageId}`, {
       access_token: connection.accessToken,
-      fields: "id,name,link",
+      fields: "id,name,link,picture{url}",
     });
     const page = await facebookGraphRequestJson<{
       id: string;
       name: string;
       link?: string;
+      picture?: {
+        data?: {
+          url?: string;
+        };
+      };
     }>(url, { method: "GET" });
 
     await updateFacebookConnectionHealthState({
@@ -2145,6 +2178,7 @@ export async function refreshFacebookConnectionHealth(input?: {
       testedAt,
       pageName: page.name || connection.pageName,
       pageUrl: page.link ?? null,
+      pageProfilePictureUrl: page.picture?.data?.url ?? null,
       existingMetadata: connection.metadata,
       instagram,
     });

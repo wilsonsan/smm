@@ -1,7 +1,7 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element */
-import { useActionState, useEffect, useMemo, useRef, useState, type SVGProps } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState, type ReactNode, type SVGProps } from "react";
 import { savePostAction } from "@/app/dashboard/posts/actions";
 import {
   CalendarIcon,
@@ -15,6 +15,7 @@ import { SubmitButton } from "@/components/submit-button";
 import {
   getMediaVariantUrl,
   getPreferredPreviewVariant,
+  type MediaAssetGallerySummary,
   type MediaAssetSummary,
 } from "@/lib/media-presentation";
 import { getMaxMediaCountForPlatforms, getPlatformMediaLimitMessage } from "@/lib/platform-rules";
@@ -47,15 +48,32 @@ type PostEditorFormProps = {
     updatedByLabel?: string;
     updatedAtLabel?: string;
   };
-  recentMediaAssets: MediaAssetSummary[];
+  recentMediaAssets: MediaAssetGallerySummary[];
   timezone: string;
   instagramFoundation?: InstagramFoundationState;
   googleFoundation?: GoogleFoundationState;
+  previewProfiles?: {
+    facebook?: {
+      name: string | null;
+      subtitle: string | null;
+      profilePictureUrl: string | null;
+    };
+    instagram?: {
+      username: string | null;
+      subtitle: string | null;
+      profilePictureUrl: string | null;
+    };
+    google?: {
+      name: string | null;
+      subtitle: string | null;
+      profilePictureUrl: string | null;
+    };
+  };
   isReadOnly?: boolean;
   hideHeroCopy?: boolean;
 };
 
-type PreviewPlatform = "FACEBOOK" | "GOOGLE";
+type PreviewPlatform = "FACEBOOK" | "INSTAGRAM" | "GOOGLE";
 
 function SparkleIcon(props: SVGProps<SVGSVGElement>) {
   return (
@@ -142,6 +160,24 @@ function ShareIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+function BookmarkIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M7 4.8h10a1.7 1.7 0 0 1 1.7 1.7v12.7L12 15.6l-6.7 3.6V6.5A1.7 1.7 0 0 1 7 4.8Z" />
+    </svg>
+  );
+}
+
+function MoreDotsIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
+      <circle cx="6.5" cy="12" r="1.4" />
+      <circle cx="12" cy="12" r="1.4" />
+      <circle cx="17.5" cy="12" r="1.4" />
+    </svg>
+  );
+}
+
 function TileIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
@@ -151,6 +187,30 @@ function TileIcon(props: SVGProps<SVGSVGElement>) {
       <path d="m8 8 2 2" />
       <path d="m14 14 2 2" />
     </svg>
+  );
+}
+
+function PreviewAvatar({
+  profilePictureUrl,
+  alt,
+  className,
+  imageClassName,
+  fallback,
+}: {
+  profilePictureUrl: string | null | undefined;
+  alt: string;
+  className: string;
+  imageClassName?: string;
+  fallback: ReactNode;
+}) {
+  return (
+    <div className={className}>
+      {profilePictureUrl ? (
+        <img src={profilePictureUrl} alt={alt} className={imageClassName || "composer-avatar-image"} />
+      ) : (
+        fallback
+      )}
+    </div>
   );
 }
 
@@ -186,7 +246,6 @@ function PlatformCard({
   label,
   tone,
   selected,
-  hint,
   disabled,
   onClick,
 }: {
@@ -194,10 +253,10 @@ function PlatformCard({
   label: string;
   tone: "facebook" | "google" | "instagram";
   selected?: boolean;
-  hint?: string;
   disabled?: boolean;
   onClick?: () => void;
 }) {
+  const statusLabel = selected ? "Selected" : disabled ? "Locked" : "Available";
   return (
     <button
       type="button"
@@ -210,10 +269,9 @@ function PlatformCard({
       <span className={`composer-platform-icon is-${tone}`.trim()}>{icon}</span>
       <span className="composer-platform-copy">
         <strong>{label}</strong>
-        <span>{hint ?? (selected ? "Selected for this post" : disabled ? "Not available yet" : "Tap to select")}</span>
       </span>
-      <span className="composer-platform-indicator">
-        {selected ? "Selected" : disabled ? "Locked" : "Available"}
+      <span className={`composer-platform-indicator${selected ? " is-selected" : disabled ? " is-locked" : " is-available"}`.trim()}>
+        {statusLabel}
       </span>
     </button>
   );
@@ -225,6 +283,7 @@ export function PostEditorForm({
   timezone,
   instagramFoundation,
   googleFoundation,
+  previewProfiles,
   isReadOnly = false,
   hideHeroCopy = false,
 }: PostEditorFormProps) {
@@ -241,7 +300,7 @@ export function PostEditorForm({
       scheduledMinute: post?.scheduledMinute ?? "00",
       scheduledMeridiem: post?.scheduledMeridiem ?? "PM",
       mediaAssetIds: post?.mediaAssets.map((asset) => asset.id) ?? [],
-      platforms: post?.platforms.length ? post.platforms : [FACEBOOK_PLATFORM],
+      platforms: post?.platforms.length ? post.platforms : [],
       mediaSelectionSource: "",
     }),
     [post],
@@ -340,10 +399,13 @@ export function PostEditorForm({
         day: "numeric",
         year: "numeric",
       }).format(new Date());
-  const instagramHint =
-    instagramFoundation?.status === "READY"
-      ? `Linked as @${instagramFoundation.username || "instagram"}`
-      : instagramFoundation?.message || "Link a connected Instagram Business account first";
+  const instagramPreviewUsername = instagramFoundation?.username || "nctilepros";
+  const instagramCaptionPreview = caption.trim() || "Clean tile lines, sharp details, and a finish that feels built to last.";
+  const facebookPreviewName = previewProfiles?.facebook?.name || "NC Tile Pros";
+  const facebookPreviewSubtitle = previewProfiles?.facebook?.subtitle || "Just now - Public";
+  const instagramPreviewSubtitle = previewProfiles?.instagram?.subtitle || "Raleigh, North Carolina";
+  const googlePreviewName = previewProfiles?.google?.name || "NC Tile Pros";
+  const googlePreviewSubtitle = previewProfiles?.google?.subtitle || googlePreviewDateLabel;
   return (
     <form ref={formRef} action={formAction} className="composer-shell">
       <input type="hidden" name="postId" value={post?.id ?? ""} />
@@ -443,7 +505,6 @@ export function PostEditorForm({
                 label="Facebook"
                 tone="facebook"
                 selected={selectedPlatforms.includes(FACEBOOK_PLATFORM)}
-                hint="Available now"
                 onClick={() =>
                   setSelectedPlatforms((current) =>
                     current.includes(FACEBOOK_PLATFORM)
@@ -457,7 +518,6 @@ export function PostEditorForm({
                 label="Google"
                 tone="google"
                 selected={selectedPlatforms.includes(GOOGLE_PLATFORM)}
-                hint={googleFoundation?.status === "READY" ? "Available now" : googleFoundation?.message || "Connect Google Business first"}
                 disabled={googleFoundation?.status !== "READY"}
                 onClick={() =>
                   setSelectedPlatforms((current) =>
@@ -472,7 +532,6 @@ export function PostEditorForm({
                 label="Instagram"
                 tone="instagram"
                 selected={selectedPlatforms.includes(INSTAGRAM_PLATFORM)}
-                hint={instagramHint}
                 disabled={instagramFoundation?.status !== "READY"}
                 onClick={() =>
                   setSelectedPlatforms((current) =>
@@ -652,6 +711,14 @@ export function PostEditorForm({
                 </button>
                 <button
                   type="button"
+                  className={`composer-preview-tab${previewPlatform === "INSTAGRAM" ? " is-active" : ""}`.trim()}
+                  onClick={() => setPreviewPlatform("INSTAGRAM")}
+                >
+                  <InstagramIcon />
+                  <span>Instagram</span>
+                </button>
+                <button
+                  type="button"
                   className={`composer-preview-tab${previewPlatform === "GOOGLE" ? " is-active" : ""}`.trim()}
                   onClick={() => setPreviewPlatform("GOOGLE")}
                 >
@@ -672,11 +739,14 @@ export function PostEditorForm({
 
                   <div className="composer-social-preview-head">
                     <div className="composer-social-page">
-                      <div className="composer-social-avatar composer-social-avatar--tile">
-                        <TileIcon />
-                      </div>
+                      <PreviewAvatar
+                        profilePictureUrl={previewProfiles?.facebook?.profilePictureUrl}
+                        alt={`${facebookPreviewName} profile`}
+                        className="composer-social-avatar composer-social-avatar--tile"
+                        fallback={<TileIcon />}
+                      />
                       <div className="composer-social-page-meta">
-                        <strong>NC Tile Pros</strong>
+                        <strong>{facebookPreviewName}</strong>
                         <span>Just now · Public</span>
                       </div>
                     </div>
@@ -715,16 +785,73 @@ export function PostEditorForm({
                     <span><ShareIcon /> <span>Share</span></span>
                   </div>
                 </div>
+              ) : previewPlatform === "INSTAGRAM" ? (
+                <div className="composer-instagram-preview-shell">
+                  <div className="composer-instagram-preview-card">
+                    <div className="composer-instagram-preview-head">
+                      <div className="composer-instagram-preview-account">
+                        <PreviewAvatar
+                          profilePictureUrl={previewProfiles?.instagram?.profilePictureUrl}
+                          alt={`@${instagramPreviewUsername} profile`}
+                          className="composer-instagram-preview-avatar"
+                          imageClassName="composer-instagram-preview-avatar-image"
+                          fallback={<span aria-hidden="true" />}
+                        />
+                        <div className="composer-instagram-preview-account-copy">
+                          <strong>{instagramPreviewUsername}</strong>
+                          <span>{instagramPreviewSubtitle}</span>
+                        </div>
+                      </div>
+                      <span className="composer-instagram-preview-more" aria-hidden="true">
+                        <MoreDotsIcon />
+                      </span>
+                    </div>
+
+                    {previewVariant ? (
+                      <div className="composer-instagram-preview-media">
+                        <img
+                          src={getMediaVariantUrl(previewVariant.id)}
+                          alt="Selected media preview"
+                          className="composer-instagram-preview-image"
+                        />
+                      </div>
+                    ) : (
+                      <div className="composer-instagram-preview-media composer-instagram-preview-media--empty">
+                        <UploadCloudIcon />
+                        <span>No media selected yet</span>
+                      </div>
+                    )}
+
+                    <div className="composer-instagram-preview-actions">
+                      <div className="composer-instagram-preview-action-group">
+                        <LikeIcon />
+                        <CommentIcon />
+                        <PaperPlaneIcon />
+                      </div>
+                      <BookmarkIcon />
+                    </div>
+
+                    <div className="composer-instagram-preview-body">
+                      <strong>212 Likes</strong>
+                      <p>
+                        <span>{instagramPreviewUsername}</span> {instagramCaptionPreview}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               ) : (
                 <div className="composer-google-preview">
                   <div className="composer-google-preview-head">
                     <div className="composer-google-preview-page">
-                      <div className="composer-social-avatar composer-social-avatar--tile">
-                        <TileIcon />
-                      </div>
+                      <PreviewAvatar
+                        profilePictureUrl={previewProfiles?.google?.profilePictureUrl}
+                        alt={`${googlePreviewName} profile`}
+                        className="composer-social-avatar composer-social-avatar--tile"
+                        fallback={<TileIcon />}
+                      />
                       <div className="composer-google-preview-page-copy">
-                        <strong>NC Tile Pros</strong>
-                        <span>{googlePreviewDateLabel}</span>
+                        <strong>{googlePreviewName}</strong>
+                        <span>{googlePreviewSubtitle}</span>
                       </div>
                     </div>
                     <span className="composer-google-preview-more">⋮</span>

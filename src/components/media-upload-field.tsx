@@ -4,16 +4,17 @@
 
 import { useEffect, useMemo, useRef, useState, type SVGProps } from "react";
 import { createPortal } from "react-dom";
+import { MediaPostedBadges } from "@/components/media-posted-badges";
 import {
   formatBytes,
   formatDimensions,
   getMediaVariantUrl,
   getPreferredPreviewVariant,
-  type MediaAssetSummary,
+  type MediaAssetGallerySummary,
 } from "@/lib/media-presentation";
 
 type MediaUploadFieldProps = {
-  availableAssets: MediaAssetSummary[];
+  availableAssets: MediaAssetGallerySummary[];
   selectedMediaAssetIds: string[];
   onSelectedMediaAssetIdsChange: (mediaAssetIds: string[]) => void;
   onSelectionSourceChange: (source: "upload" | "gallery" | "manual" | "") => void;
@@ -50,7 +51,7 @@ function ChevronRightIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function dedupeAssets(assets: MediaAssetSummary[]) {
+function dedupeAssets(assets: MediaAssetGallerySummary[]) {
   const seen = new Set<string>();
   return assets.filter((asset) => {
     if (seen.has(asset.id)) {
@@ -76,7 +77,7 @@ export function MediaUploadField({
   disabled = false,
 }: MediaUploadFieldProps) {
   const dedupedAssets = useMemo(() => dedupeAssets(availableAssets), [availableAssets]);
-  const [mediaOptions, setMediaOptions] = useState<MediaAssetSummary[]>(dedupedAssets);
+  const [mediaOptions, setMediaOptions] = useState<MediaAssetGallerySummary[]>(dedupedAssets);
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
@@ -103,7 +104,7 @@ export function MediaUploadField({
     () =>
       selectedMediaAssetIds
         .map((id) => mediaOptions.find((asset) => asset.id === id) ?? null)
-        .filter((asset): asset is MediaAssetSummary => asset !== null),
+        .filter((asset): asset is MediaAssetGallerySummary => asset !== null),
     [mediaOptions, selectedMediaAssetIds],
   );
 
@@ -200,7 +201,7 @@ export function MediaUploadField({
           .catch(async () => ({ error: await response.text().catch(() => "Upload failed.") }))) as {
           error?: string;
           status?: "uploaded" | "duplicate";
-          mediaAsset?: MediaAssetSummary;
+          mediaAsset?: MediaAssetGallerySummary;
         };
         if (!response.ok) {
           setError(payload.error || "Upload failed.");
@@ -463,6 +464,10 @@ export function MediaUploadField({
                       ) : (
                         <div className="composer-gallery-picker-fallback">No preview</div>
                       )}
+                      <MediaPostedBadges
+                        postedPlatforms={asset.postedPlatforms}
+                        className="gallery-posted-badges composer-gallery-picker-badges"
+                      />
                       {isSelected ? <span className="composer-gallery-picker-check">Selected</span> : null}
                     </div>
                     <div className="composer-gallery-picker-meta">

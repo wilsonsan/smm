@@ -54,6 +54,7 @@ type GoogleUserProfile = {
   sub: string;
   email?: string;
   name?: string;
+  picture?: string;
 };
 
 type GoogleAccountResource = {
@@ -79,6 +80,7 @@ type PendingGoogleLocationSelection = {
     sub: string;
     email: string | null;
     name: string | null;
+    picture: string | null;
   };
   accessToken: string;
   refreshToken: string;
@@ -90,6 +92,7 @@ type PendingGoogleLocationSelection = {
 type GoogleConnectionMetadata = {
   accountEmail: string | null;
   accountDisplayName: string | null;
+  accountProfilePictureUrl: string | null;
   accountResourceName: string | null;
   locationResourceName: string | null;
   localPostParent: string | null;
@@ -158,6 +161,7 @@ export type GoogleDiagnosticsResult = {
     name: string | null;
     accountName: string | null;
     accountEmail: string | null;
+    accountProfilePictureUrl: string | null;
   };
   lastTest: {
     success: boolean;
@@ -177,6 +181,7 @@ export type GoogleFoundationState = {
   locationName: string | null;
   accountName: string | null;
   accountEmail: string | null;
+  accountProfilePictureUrl: string | null;
   lastCheckedAt: string | null;
   isSelectableInComposer: boolean;
   message: string;
@@ -245,6 +250,7 @@ function normalizeScopes(scopes: unknown) {
 function buildGoogleConnectionMetadata(input: {
   accountEmail?: string | null;
   accountDisplayName?: string | null;
+  accountProfilePictureUrl?: string | null;
   accountResourceName?: string | null;
   locationResourceName?: string | null;
   localPostParent?: string | null;
@@ -260,6 +266,7 @@ function buildGoogleConnectionMetadata(input: {
   const next: GoogleConnectionMetadata = {
     accountEmail: input.accountEmail ?? existing.accountEmail,
     accountDisplayName: input.accountDisplayName ?? existing.accountDisplayName,
+    accountProfilePictureUrl: input.accountProfilePictureUrl ?? existing.accountProfilePictureUrl,
     accountResourceName: input.accountResourceName ?? existing.accountResourceName,
     locationResourceName: input.locationResourceName ?? existing.locationResourceName,
     localPostParent: input.localPostParent ?? existing.localPostParent,
@@ -279,6 +286,7 @@ function normalizeGoogleConnectionMetadata(metadata: ConnectedAccount["metadata"
     return {
       accountEmail: null,
       accountDisplayName: null,
+      accountProfilePictureUrl: null,
       accountResourceName: null,
       locationResourceName: null,
       localPostParent: null,
@@ -295,6 +303,7 @@ function normalizeGoogleConnectionMetadata(metadata: ConnectedAccount["metadata"
   return {
     accountEmail: typeof raw.accountEmail === "string" ? raw.accountEmail : null,
     accountDisplayName: typeof raw.accountDisplayName === "string" ? raw.accountDisplayName : null,
+    accountProfilePictureUrl: typeof raw.accountProfilePictureUrl === "string" ? raw.accountProfilePictureUrl : null,
     accountResourceName: typeof raw.accountResourceName === "string" ? raw.accountResourceName : null,
     locationResourceName: typeof raw.locationResourceName === "string" ? raw.locationResourceName : null,
     localPostParent: typeof raw.localPostParent === "string" ? raw.localPostParent : null,
@@ -639,6 +648,7 @@ export async function saveGoogleConnectedLocation(input: {
     sub: string;
     email: string | null;
     name: string | null;
+    picture: string | null;
   };
   accessToken: string;
   refreshToken: string;
@@ -649,6 +659,7 @@ export async function saveGoogleConnectedLocation(input: {
   const metadata = buildGoogleConnectionMetadata({
     accountEmail: input.userProfile.email,
     accountDisplayName: input.userProfile.name,
+    accountProfilePictureUrl: input.userProfile.picture,
     accountResourceName: input.location.accountResourceName,
     locationResourceName: input.location.locationResourceName,
     localPostParent: input.location.localPostParent,
@@ -952,10 +963,16 @@ export async function refreshGoogleConnectionHealth(input?: {
       throw new Error("No Google Business Profile location is connected.");
     }
 
-    await googleApiJson({
-      url: `https://mybusinessbusinessinformation.googleapis.com/v1/locations/${activeConnection.locationId}?readMask=name,title`,
-      accessToken: activeConnection.accessToken,
-    });
+    const [profile, location] = await Promise.all([
+      getGoogleUserProfile(activeConnection.accessToken),
+      googleApiJson<{
+        name?: string;
+        title?: string;
+      }>({
+        url: `https://mybusinessbusinessinformation.googleapis.com/v1/locations/${activeConnection.locationId}?readMask=name,title`,
+        accessToken: activeConnection.accessToken,
+      }),
+    ]);
 
     const testedAt = new Date();
     await updateGoogleConnectionStatus({
@@ -964,7 +981,22 @@ export async function refreshGoogleConnectionHealth(input?: {
       lastError: null,
       lastTestedAt: testedAt,
       lastSuccessfulTestAt: testedAt,
+      metadata: buildGoogleConnectionMetadata({
+        existingMetadata: activeConnection.metadata,
+        accountEmail: profile.email ?? null,
+        accountDisplayName: profile.name ?? null,
+        accountProfilePictureUrl: profile.picture ?? null,
+      }),
     });
+
+    if (location.title && location.title !== activeConnection.locationName) {
+      await prisma.connectedAccount.update({
+        where: { id: activeConnection.id },
+        data: {
+          pageName: location.title,
+        },
+      });
+    }
 
     if (input?.createNotification !== false) {
       await dismissProviderNotifications({
@@ -1042,6 +1074,7 @@ export async function getGoogleDiagnostics(input?: { refreshHealth?: boolean }) 
       name: connection?.locationName ?? null,
       accountName: connection?.accountName ?? null,
       accountEmail: metadata.accountEmail,
+      accountProfilePictureUrl: metadata.accountProfilePictureUrl,
     },
     lastTest: {
       success: connection?.status === ConnectedAccountStatus.CONNECTED,
@@ -1072,6 +1105,7 @@ export async function getGoogleFoundationState(input?: { refreshHealth?: boolean
       locationName: diagnostics.location.name,
       accountName: diagnostics.location.accountName,
       accountEmail: diagnostics.location.accountEmail,
+      accountProfilePictureUrl: diagnostics.location.accountProfilePictureUrl,
       lastCheckedAt: diagnostics.lastTest.testedAt,
       isSelectableInComposer: true,
       message: "Google Business Profile is connected and ready to post.",
@@ -1085,6 +1119,7 @@ export async function getGoogleFoundationState(input?: { refreshHealth?: boolean
       locationName: diagnostics.location.name,
       accountName: diagnostics.location.accountName,
       accountEmail: diagnostics.location.accountEmail,
+      accountProfilePictureUrl: diagnostics.location.accountProfilePictureUrl,
       lastCheckedAt: diagnostics.lastTest.testedAt,
       isSelectableInComposer: false,
       message:
@@ -1099,6 +1134,7 @@ export async function getGoogleFoundationState(input?: { refreshHealth?: boolean
     locationName: null,
     accountName: null,
     accountEmail: null,
+    accountProfilePictureUrl: null,
     lastCheckedAt: null,
     isSelectableInComposer: false,
     message: "Connect Google Business and choose a Business Profile location before posting.",
@@ -1154,6 +1190,7 @@ export async function buildGooglePendingSelectionFromCodeExchange(input: {
       sub: userProfile.sub,
       email: userProfile.email ?? null,
       name: userProfile.name ?? null,
+      picture: userProfile.picture ?? null,
     },
     accessToken: input.accessToken,
     refreshToken: input.refreshToken,

@@ -3092,7 +3092,7 @@ th {
   background: rgba(17, 28, 47, 0.68);
   color: #f0f5ff;
   text-align: left;
-  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
 .composer-platform-card:not(.is-disabled):hover {
@@ -3100,18 +3100,27 @@ th {
 }
 
 .composer-platform-card.is-selected.is-facebook {
-  border-color: rgba(67, 126, 255, 0.44);
-  box-shadow: 0 18px 32px rgba(42, 107, 255, 0.18);
+  border-color: rgba(67, 126, 255, 0.68);
+  background:
+    radial-gradient(circle at top left, rgba(65, 117, 255, 0.28), transparent 48%),
+    rgba(16, 28, 52, 0.96);
+  box-shadow: 0 22px 38px rgba(42, 107, 255, 0.24);
 }
 
 .composer-platform-card.is-selected.is-google {
-  border-color: rgba(82, 202, 123, 0.42);
-  box-shadow: 0 18px 32px rgba(39, 166, 89, 0.18);
+  border-color: rgba(82, 202, 123, 0.62);
+  background:
+    radial-gradient(circle at top left, rgba(53, 173, 92, 0.26), transparent 48%),
+    rgba(16, 30, 35, 0.96);
+  box-shadow: 0 22px 38px rgba(39, 166, 89, 0.22);
 }
 
 .composer-platform-card.is-selected.is-instagram {
-  border-color: rgba(232, 95, 171, 0.42);
-  box-shadow: 0 18px 32px rgba(193, 53, 132, 0.2);
+  border-color: rgba(232, 95, 171, 0.64);
+  background:
+    radial-gradient(circle at top left, rgba(232, 95, 171, 0.26), transparent 48%),
+    rgba(33, 20, 39, 0.96);
+  box-shadow: 0 22px 38px rgba(193, 53, 132, 0.24);
 }
 
 .composer-platform-card.is-disabled.is-google {
@@ -3157,22 +3166,43 @@ th {
 }
 
 .composer-platform-copy {
-  display: grid;
-  gap: 4px;
+  min-width: 0;
 }
 
 .composer-platform-copy strong {
   font-size: 1.02rem;
 }
 
-.composer-platform-copy span,
 .composer-platform-indicator {
-  color: #9eb1cf;
-  font-size: 0.88rem;
+  min-width: 92px;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #c4d2e8;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.05);
 }
 
-.composer-platform-indicator {
-  font-weight: 700;
+.composer-platform-indicator.is-selected {
+  color: #07131e;
+  background: #f4f8ff;
+  border-color: rgba(255, 255, 255, 0.34);
+}
+
+.composer-platform-indicator.is-available {
+  color: #b5c7e2;
+}
+
+.composer-platform-indicator.is-locked {
+  color: #8fa0bc;
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .composer-intent-switcher {
@@ -3509,6 +3539,12 @@ th {
   object-fit: cover;
 }
 
+.composer-gallery-picker-badges {
+  top: 10px;
+  left: 10px;
+  right: auto;
+}
+
 .composer-gallery-picker-fallback {
   display: grid;
   place-items: center;
@@ -3709,7 +3745,8 @@ th {
 }
 
 .composer-preview-tabs {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 18px;
   padding-bottom: 4px;
@@ -3718,6 +3755,7 @@ th {
 .composer-preview-tab {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   min-height: 42px;
   padding: 0 14px;
@@ -3808,10 +3846,18 @@ th {
   border-radius: 999px;
   display: grid;
   place-items: center;
+  overflow: hidden;
   background: linear-gradient(135deg, #f9a43f, #f57f24);
   color: white;
   font-weight: 800;
   text-transform: lowercase;
+}
+
+.composer-avatar-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 
 .composer-social-avatar--tile svg {
@@ -3947,6 +3993,162 @@ th {
 .composer-google-preview-footer svg {
   width: 20px;
   height: 20px;
+}
+
+.composer-instagram-preview-shell {
+  margin-top: 18px;
+  padding: 22px;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top, rgba(173, 74, 255, 0.34), transparent 38%),
+    linear-gradient(135deg, #5a1fe2 0%, #9f2fd4 48%, #ff7340 100%);
+  box-shadow:
+    0 18px 36px rgba(10, 14, 28, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.composer-instagram-preview-card {
+  overflow: hidden;
+  border-radius: 10px;
+  background: #fff;
+  color: #121417;
+  box-shadow: 0 18px 32px rgba(21, 21, 33, 0.26);
+}
+
+.composer-instagram-preview-head,
+.composer-instagram-preview-account,
+.composer-instagram-preview-actions,
+.composer-instagram-preview-action-group {
+  display: flex;
+  align-items: center;
+}
+
+.composer-instagram-preview-head {
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 12px;
+}
+
+.composer-instagram-preview-account {
+  gap: 10px;
+  min-width: 0;
+}
+
+.composer-instagram-preview-avatar {
+  width: 38px;
+  height: 38px;
+  padding: 2px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #feda75 0%, #fa7e1e 25%, #d62976 62%, #4f5bd5 100%);
+}
+
+.composer-instagram-preview-avatar span {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  display: block;
+  background: #121417;
+  border: 2px solid #fff;
+}
+
+.composer-instagram-preview-avatar-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  border-radius: 999px;
+  border: 2px solid #fff;
+  background: #121417;
+}
+
+.composer-instagram-preview-account-copy {
+  min-width: 0;
+}
+
+.composer-instagram-preview-account-copy strong,
+.composer-instagram-preview-body strong,
+.composer-instagram-preview-body span {
+  color: #111317;
+}
+
+.composer-instagram-preview-account-copy strong {
+  display: block;
+  font-size: 0.96rem;
+}
+
+.composer-instagram-preview-account-copy span {
+  display: block;
+  color: #7f8792;
+  font-size: 0.83rem;
+}
+
+.composer-instagram-preview-more {
+  color: #505660;
+}
+
+.composer-instagram-preview-more svg {
+  width: 18px;
+  height: 18px;
+}
+
+.composer-instagram-preview-media {
+  display: grid;
+  place-items: center;
+  min-height: 360px;
+  max-height: 420px;
+  overflow: hidden;
+  background:
+    linear-gradient(45deg, rgba(214, 214, 214, 0.55) 25%, transparent 25%, transparent 75%, rgba(214, 214, 214, 0.55) 75%, rgba(214, 214, 214, 0.55)),
+    linear-gradient(45deg, rgba(214, 214, 214, 0.55) 25%, transparent 25%, transparent 75%, rgba(214, 214, 214, 0.55) 75%, rgba(214, 214, 214, 0.55));
+  background-position: 0 0, 14px 14px;
+  background-size: 28px 28px;
+  background-color: #efefef;
+}
+
+.composer-instagram-preview-image {
+  width: 100%;
+  max-height: 420px;
+  display: block;
+  object-fit: contain;
+  background: #efefef;
+}
+
+.composer-instagram-preview-media--empty {
+  gap: 10px;
+  color: #656d78;
+}
+
+.composer-instagram-preview-actions {
+  justify-content: space-between;
+  padding: 12px 16px 10px;
+  color: #111317;
+}
+
+.composer-instagram-preview-action-group {
+  gap: 16px;
+}
+
+.composer-instagram-preview-actions svg {
+  width: 20px;
+  height: 20px;
+}
+
+.composer-instagram-preview-body {
+  display: grid;
+  gap: 8px;
+  padding: 0 16px 16px;
+}
+
+.composer-instagram-preview-body strong {
+  font-size: 0.92rem;
+}
+
+.composer-instagram-preview-body p {
+  margin: 0;
+  color: #20242b;
+  line-height: 1.55;
 }
 
 .composer-social-preview--facebook .composer-social-caption {
