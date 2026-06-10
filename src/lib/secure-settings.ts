@@ -1,5 +1,3 @@
-import "server-only";
-
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { env, hasTokenEncryptionKeyConfigured } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
@@ -53,7 +51,19 @@ async function getSecureSettingValue(key: string, fallbackValue = "") {
   });
 
   if (setting?.value?.trim()) {
-    return decryptSettingValue(setting.value);
+    if (!setting.value.startsWith("enc:")) {
+      return setting.value;
+    }
+
+    if (!hasTokenEncryptionKeyConfigured) {
+      return fallbackValue;
+    }
+
+    try {
+      return decryptSettingValue(setting.value);
+    } catch {
+      return fallbackValue;
+    }
   }
 
   return fallbackValue;

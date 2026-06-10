@@ -485,11 +485,12 @@ export async function getGoogleConfiguration(): Promise<GoogleConfiguration> {
   const settings = await getAppSettings();
   const clientId = (await getGoogleClientIdSetting()).trim();
   const clientSecret = (await getGoogleClientSecretSetting()).trim();
-  const clientSecretSource = settings.googleClientSecretConfigured
-    ? "settings"
-    : env.GOOGLE_CLIENT_SECRET
-      ? "environment"
-      : "missing";
+  const clientSecretSource =
+    settings.googleClientSecretConfigured && hasTokenEncryptionKeyConfigured && clientSecret
+      ? "settings"
+      : env.GOOGLE_CLIENT_SECRET
+        ? "environment"
+        : "missing";
   const publicAppUrl = settings.publicAppUrl || env.APP_URL;
   const redirectUri = buildGoogleRedirectUri(publicAppUrl);
   const missingConfig: string[] = [];
@@ -500,6 +501,10 @@ export async function getGoogleConfiguration(): Promise<GoogleConfiguration> {
 
   if (!clientSecret) {
     missingConfig.push("Google Client Secret");
+  }
+
+  if (!hasTokenEncryptionKeyConfigured) {
+    missingConfig.push("TOKEN_ENCRYPTION_KEY");
   }
 
   return {

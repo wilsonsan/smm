@@ -646,11 +646,12 @@ export async function getFacebookConfiguration(): Promise<FacebookConfiguration>
   const settings = await getAppSettings();
   const appId = (settings.facebookAppId || env.FACEBOOK_APP_ID || "").trim();
   const appSecret = (await getFacebookAppSecretSetting()).trim();
-  const appSecretSource = settings.facebookAppSecretConfigured
-    ? "settings"
-    : env.FACEBOOK_APP_SECRET
-      ? "environment"
-      : "missing";
+  const appSecretSource =
+    settings.facebookAppSecretConfigured && hasTokenEncryptionKeyConfigured && appSecret
+      ? "settings"
+      : env.FACEBOOK_APP_SECRET
+        ? "environment"
+        : "missing";
   const publicAppUrl = settings.publicAppUrl || env.APP_URL;
   const redirectUri = new URL("/api/facebook/callback", publicAppUrl).toString();
   const missingConfig: string[] = [];
