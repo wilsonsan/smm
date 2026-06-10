@@ -13,8 +13,10 @@ import { prisma } from "@/lib/prisma";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
 import { getWorkerStatusOverview } from "@/lib/worker-status";
 
-function formatRelativeWorkerMode(enabled: boolean) {
-  return enabled ? "Ready for cron or manual runs" : "Disabled";
+function formatRelativeWorkerMode(runsAutomatically: boolean) {
+  return runsAutomatically
+    ? "Due posts should publish automatically while the worker service is running."
+    : "Manual-only mode. Due posts wait until the worker command is run.";
 }
 
 function getSnapshotTitle(value: string | null | undefined) {
@@ -42,7 +44,7 @@ export default async function OperationsPage() {
     {
       label: "Worker Mode",
       value: workerStatus.mode,
-      supporting: formatRelativeWorkerMode(workerStatus.enabled),
+      supporting: formatRelativeWorkerMode(workerStatus.runsAutomatically),
       accentClass: "is-purple",
       Icon: QueueIcon,
     },

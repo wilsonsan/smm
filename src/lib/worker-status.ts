@@ -4,6 +4,7 @@ import {
   SocialPlatform,
   SocialPostStatus,
 } from "@prisma/client";
+import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { APP_SETTING_KEYS, getAppSettingValue, upsertAppSetting } from "@/lib/settings";
 
@@ -186,10 +187,12 @@ export async function getWorkerStatusOverview() {
     ]);
 
   const parsedLastResult = parseWorkerResult(lastResultValue);
+  const isAutomatic = env.WORKER_MODE === "service";
 
   return {
     enabled: true,
-    mode: "Manual cron command",
+    mode: isAutomatic ? "Dedicated background service" : "Manual cron command",
+    runsAutomatically: isAutomatic,
     lastRunAt: lastRunAt ? new Date(lastRunAt) : null,
     lastRunResult: parsedLastResult,
     lastWorkerError: lastError || null,

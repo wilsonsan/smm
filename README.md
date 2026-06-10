@@ -343,10 +343,16 @@ Reference docs:
 
 ## Publish Worker
 
-Run the placeholder worker manually with:
+Run the worker manually once with:
 
 ```powershell
 & 'C:\Program Files\nodejs\npm.cmd' run worker:publish
+```
+
+Run the persistent loop locally with:
+
+```powershell
+& 'C:\Program Files\nodejs\npm.cmd' run worker:loop
 ```
 
 Current behavior:
@@ -368,7 +374,7 @@ Current behavior:
   - last failed Facebook publish
   - due, publishing, failed, and next scheduled post counts
 
-This is structured so we can later run the same worker from a cron job or dedicated worker container.
+The Docker setup now includes a dedicated `worker` service that runs this loop continuously for scheduled publishing.
 
 Current operator visibility:
 
@@ -386,7 +392,8 @@ Current operator visibility:
 
 Operational note:
 
-- for production, run `npm run worker:publish` from cron, a scheduled Docker container, or an equivalent supervisor
+- for production, keep a dedicated worker process or container running `npm run worker:loop`
+- `npm run worker:publish` is still useful for a one-off manual run or debugging
 - do not expose that command through a public route
 - a practical first schedule is every minute
 
@@ -422,20 +429,23 @@ The calendar remains the main command center and now includes filters for:
 - Run migrations and seed as explicit startup/deploy steps; they are not auto-run in the container image.
 - Keep Facebook credentials in container environment variables, not in the database.
 - Keep `TOKEN_ENCRYPTION_KEY` in container environment variables too.
-- Run the publish worker as a separate cron invocation or scheduled container task:
+- `docker-compose.yml` and [docker-compose.example.yml](/C:/Users/Corsair/Desktop/smm-dev/docker-compose.example.yml) now include both:
+  - `app`
+  - `worker`
+- The `worker` service runs `npm run worker:loop` automatically and should stay up alongside the app.
+- To manually force a publish sweep inside Docker:
 
 ```bash
-npm run worker:publish
+docker compose exec worker npm run worker:publish
 ```
 
 Recommended deployment steps after `git pull`:
 
 ```bash
-npm install
-npm run prisma:generate
-npm run prisma:migrate
-npm run build
-npm run start -- --port 3196
+docker compose build --no-cache
+docker compose up -d
+docker compose run --rm app npm run prisma:migrate
+docker compose logs --tail=100 worker
 ```
 
 ## Backups And Recovery
@@ -568,38 +578,38 @@ Verified in this workspace:
 12. Create a draft with caption only and use `Post Now`.
 13. Create a draft with an original uploaded image and use `Post Now`.
 14. Schedule a Facebook post about two minutes out.
-13. Run the worker:
+15. Run the worker once if you are testing manually, or confirm the Docker `worker` service is running:
 
 ```powershell
 & 'C:\Program Files\nodejs\npm.cmd' run worker:publish
 ```
 
-15. Confirm the scheduled post becomes `PUBLISHED` or `FAILED`, then review:
+16. Confirm the scheduled post becomes `PUBLISHED` or `FAILED`, then review:
     - the dashboard worker card
     - the post detail page
     - the Facebook post link if returned
     - the latest publish attempt summary
     - the full publish attempt history
     - the calendar status color/state
-16. If a post fails, use `Retry Publish` from the post detail page and confirm a new publish attempt is added instead of overwriting prior failure details.
-17. Run `npm run media:cleanup-temp` and confirm stale temporary publish files are removed cleanly.
-18. Run `npm run media:cleanup-variants` only when you are ready to remove old stored derivatives and confirm originals remain untouched.
-17. If a future-scheduled post is posted manually, confirm the UI requires the explicit immediate-publish confirmation step first.
-18. Restart the app and confirm the Facebook Page still appears connected without reconnecting.
-19. Use `Post Now` again after restart and confirm the saved Facebook connection is reused.
-20. Schedule a Facebook post after restart and confirm the worker uses the saved connection without reconnecting.
-21. Simulate an invalid token or expired token and confirm:
+17. If a post fails, use `Retry Publish` from the post detail page and confirm a new publish attempt is added instead of overwriting prior failure details.
+18. Run `npm run media:cleanup-temp` and confirm stale temporary publish files are removed cleanly.
+19. Run `npm run media:cleanup-variants` only when you are ready to remove old stored derivatives and confirm originals remain untouched.
+20. If a future-scheduled post is posted manually, confirm the UI requires the explicit immediate-publish confirmation step first.
+21. Restart the app and confirm the Facebook Page still appears connected without reconnecting.
+22. Use `Post Now` again after restart and confirm the saved Facebook connection is reused.
+23. Schedule a Facebook post after restart and confirm the worker uses the saved connection without reconnecting.
+24. Simulate an invalid token or expired token and confirm:
     - the publish is blocked with a readable reconnect message
     - the post moves to `FAILED`
     - a failed publish attempt is created
     - the dashboard notification bell shows a red unread badge
-22. Click the dashboard notification and confirm it opens `Settings > Facebook`.
-23. Click `Reconnect Facebook`, complete OAuth again, and confirm:
+25. Click the dashboard notification and confirm it opens `Settings > Facebook`.
+26. Click `Reconnect Facebook`, complete OAuth again, and confirm:
     - the existing connection record updates in place
     - the token warning notification is dismissed
     - `Test Connection` succeeds again
-24. Disconnect Facebook, reconnect it, and confirm the Page details repopulate without exposing the token in the UI.
-25. Restart the app and rerun `npm run worker:publish`, then confirm scheduled publishing still resumes from the current database state.
+27. Disconnect Facebook, reconnect it, and confirm the Page details repopulate without exposing the token in the UI.
+28. Restart the app and rerun `npm run worker:publish`, then confirm scheduled publishing still resumes from the current database state.
 
 ## Facebook Diagnostic Checklist
 

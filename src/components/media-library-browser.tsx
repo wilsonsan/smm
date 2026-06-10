@@ -262,6 +262,7 @@ function getPageNumbers(currentPage: number, totalPages: number) {
 export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserProps) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const queuedUploadsRef = useRef<QueuedUpload[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [hasMounted, setHasMounted] = useState(false);
@@ -586,6 +587,7 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
               </span>
               <div>
                 <h2>Gallery</h2>
+                <p className="gallery-mobile-helper">Upload from your camera roll or snap a new photo in a tap.</p>
               </div>
             </div>
           </div>
@@ -830,6 +832,17 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
                 event.currentTarget.value = "";
               }}
             />
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              hidden
+              onChange={(event) => {
+                appendQueuedFiles(Array.from(event.target.files ?? []));
+                event.currentTarget.value = "";
+              }}
+            />
 
             <button
               type="button"
@@ -845,8 +858,30 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
                 <UploadIcon />
               </span>
               <strong>Drag &amp; drop images here</strong>
-              <span>or click to browse files</span>
+              <span>or tap to browse your photos</span>
+              <span className="gallery-upload-dropzone-button">Choose photos</span>
+              <small className="gallery-upload-dropzone-help">On mobile you can also use your camera directly.</small>
             </button>
+
+            <div className="gallery-upload-mobile-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+              >
+                Choose From Library
+              </button>
+              <button
+                type="button"
+                className="gallery-upload-button"
+                onClick={() => cameraInputRef.current?.click()}
+                disabled={isUploading}
+              >
+                <UploadIcon />
+                <span>Take Photo</span>
+              </button>
+            </div>
 
             {queuedUploads.length > 0 ? (
               <div className="gallery-upload-queue">

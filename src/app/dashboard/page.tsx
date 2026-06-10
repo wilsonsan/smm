@@ -279,6 +279,40 @@ export default async function DashboardPage() {
               </tbody>
             </table>
           </div>
+
+          <div className="dashboard-mobile-post-list">
+            {recentPosts.length === 0 ? (
+              <p className="muted">No posts yet.</p>
+            ) : (
+              recentPosts.map((post) => {
+                const previewVariant = getPreferredPreviewVariant(post.mediaAsset?.variants ?? []);
+                const calendarAt = resolvePostCalendarAt(post);
+                const tone = getPostStatusTone(post.status);
+
+                return (
+                  <Link key={`mobile-${post.id}`} href={`/dashboard/posts/${post.id}`} className="dashboard-mobile-post-card">
+                    {previewVariant ? (
+                      <img
+                        src={getMediaVariantUrl(previewVariant.id)}
+                        alt={`${getPostCaptionPreview(post.caption)} thumbnail`}
+                        className="dashboard-mobile-post-thumb"
+                      />
+                    ) : (
+                      <div className="dashboard-mobile-post-thumb placeholder">No image</div>
+                    )}
+                    <div className="dashboard-mobile-post-copy">
+                      <div className="dashboard-mobile-post-head">
+                        <strong>{getPostCaptionPreview(post.caption)}</strong>
+                        <span className={`badge is-${tone}`.trim()}>{post.status}</span>
+                      </div>
+                      <p>{calendarAt ? formatDateTimeForTimezone(calendarAt, timezone) : "No time"}</p>
+                      <small>{post.platforms.map((platform) => platform.platform).join(", ") || "FACEBOOK"}</small>
+                    </div>
+                  </Link>
+                );
+              })
+            )}
+          </div>
         </div>
       </section>
 

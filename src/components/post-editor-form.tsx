@@ -21,7 +21,6 @@ import {
 import {
   getCaptionMaxForPlatforms,
   getCaptionMaxLabelForPlatforms,
-  getCaptionRulesForPlatforms,
   getMaxMediaCountForPlatforms,
   getPlatformMediaLimitMessage,
 } from "@/lib/platform-rules";
@@ -85,7 +84,6 @@ type PostEditorFormProps = {
 };
 
 type PreviewPlatform = "FACEBOOK" | "INSTAGRAM" | "GOOGLE";
-type CaptionSweetSpotState = "sweet" | "short" | "long" | "over";
 
 function SparkleIcon(props: SVGProps<SVGSVGElement>) {
   return (
@@ -293,27 +291,6 @@ function formatCharacterCount(value: number) {
   return value.toLocaleString();
 }
 
-function getCaptionSweetSpotState(input: {
-  captionLength: number;
-  idealMin: number;
-  idealMax: number;
-  maxChars: number;
-}): CaptionSweetSpotState {
-  if (input.captionLength > input.maxChars) {
-    return "over";
-  }
-
-  if (input.captionLength < input.idealMin) {
-    return "short";
-  }
-
-  if (input.captionLength <= input.idealMax) {
-    return "sweet";
-  }
-
-  return "long";
-}
-
 export function PostEditorForm({
   post,
   recentMediaAssets,
@@ -412,27 +389,9 @@ export function PostEditorForm({
     ? getPreferredPreviewVariant(previewMediaAsset.variants)
     : null;
   const maxMediaCount = getMaxMediaCountForPlatforms(selectedPlatforms);
-  const captionRules = getCaptionRulesForPlatforms(selectedPlatforms);
   const captionMax = getCaptionMaxForPlatforms(selectedPlatforms);
   const captionLimitLabel = getCaptionMaxLabelForPlatforms(selectedPlatforms);
-  const captionStatusByPlatform = captionRules.map((rule) => ({
-    ...rule,
-    state: getCaptionSweetSpotState({
-      captionLength: caption.length,
-      idealMin: rule.idealMin,
-      idealMax: rule.idealMax,
-      maxChars: rule.maxChars,
-    }),
-  }));
-  const hasAnyCaptionInSweetSpot = captionStatusByPlatform.some((rule) => rule.state === "sweet");
-  const captionOverallState =
-    caption.length > captionMax
-      ? "over"
-      : hasAnyCaptionInSweetSpot
-        ? "sweet"
-        : captionStatusByPlatform.some((rule) => rule.state === "long")
-          ? "long"
-          : "short";
+  const captionOverallState = caption.length > captionMax ? "over" : "short";
   const mediaLimitMessage =
     selectedMediaAssetIds.length > maxMediaCount ? getPlatformMediaLimitMessage(selectedPlatforms) : null;
   const captionPreview = caption.trim() || "Fresh tile install with clean lines and warm tones...";
@@ -544,30 +503,6 @@ export function PostEditorForm({
                   <span className="composer-caption-help">
                     {captionLimitLabel}
                   </span>
-                </div>
-                <div className="composer-caption-sweet-spots">
-                  {captionStatusByPlatform.length > 0 ? captionStatusByPlatform.map((rule) => (
-                    <span
-                      key={rule.platform}
-                      className={`composer-sweet-spot-pill is-${rule.state}`.trim()}
-                    >
-                      <strong>{rule.label}</strong>
-                      <span>
-                        {rule.state === "sweet"
-                          ? `Sweet spot ${formatCharacterCount(rule.idealMin)}-${formatCharacterCount(rule.idealMax)}`
-                          : rule.state === "short"
-                            ? `Aim for ${formatCharacterCount(rule.idealMin)}-${formatCharacterCount(rule.idealMax)}`
-                            : rule.state === "long"
-                              ? `Better at ${formatCharacterCount(rule.idealMin)}-${formatCharacterCount(rule.idealMax)}`
-                              : `Over ${formatCharacterCount(rule.maxChars)}`}
-                      </span>
-                    </span>
-                  )) : (
-                    <span className="composer-sweet-spot-pill is-idle">
-                      <strong>Sweet spot</strong>
-                      <span>Select a platform to see the ideal range.</span>
-                    </span>
-                  )}
                 </div>
               </div>
             </div>
