@@ -81,6 +81,14 @@ export type DeleteMediaAssetResult =
       blockingPostIds: string[];
     };
 
+export type ClearGalleryLibraryResult = {
+  deletedMediaAssetCount: number;
+  deletedVariantRecordCount: number;
+  deletedFileCount: number;
+  missingFileCount: number;
+  failedFileDeleteCount: number;
+};
+
 export function resolveUploadBasePath(configuredPath: string) {
   return path.isAbsolute(configuredPath)
     ? configuredPath
@@ -792,6 +800,65 @@ export async function deleteStoredMediaAsset(input: {
     deletedFileCount,
     missingFileCount,
   } satisfies DeleteMediaAssetResult;
+}
+
+export async function clearStoredGalleryLibrary(input?: {
+  uploadBasePath?: string;
+}) {
+  const uploadBasePath =
+    input?.uploadBasePath ??
+    resolveUploadBasePath((await getUploadDirectory()) || env.UPLOAD_DIR);
+  const mediaAssets = await prisma.mediaAsset.findMany({
+    select: {
+      id: true,
+      storagePath: true,
+      variants: {
+        select: {
+          id: true,
+          storagePath: true,
+        },
+      },
+    },
+  });
+
+  const uniqueStoragePaths = new Set<string>();
+  let deletedFileCount = 0;
+  let missingFileCount = 0;
+  let failedFileDeleteCount = 0;
+  let deletedVariantRecordCount = 0;
+
+  for (const mediaAsset of mediaAssets) {
+    uniqueStoragePaths.add(mediaAsset.storagePath);
+    deletedVariantRecordCount += mediaAsset.variants.length;
+
+    for (const variant of mediaAsset.variants) {
+      uniqueStoragePaths.add(variant.storagePath);
+    }
+  }
+
+  for (const storagePath of uniqueStoragePaths) {
+    const absolutePath = ensureSafeAbsolutePath(uploadBasePath, storagePath);
+    try {
+      await unlink(absolutePath);
+      deletedFileCount += 1;
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+        missingFileCount += 1;
+      } else {
+        failedFileDeleteCount += 1;
+      }
+    }
+  }
+
+  const deleteResult = await prisma.mediaAsset.deleteMany({});
+
+  return {
+    deletedMediaAssetCount: deleteResult.count,
+    deletedVariantRecordCount,
+    deletedFileCount,
+    missingFileCount,
+    failedFileDeleteCount,
+  } satisfies ClearGalleryLibraryResult;
 }
 
 export function buildMediaVariantUrl(variantId: string) {

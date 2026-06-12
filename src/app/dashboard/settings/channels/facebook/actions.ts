@@ -88,15 +88,30 @@ export async function saveFacebookSettingsAction(formData: FormData) {
     );
   }
 
+  const nextAppSecret = parsed.data.facebookAppSecret.trim();
+
+  try {
+    if (nextAppSecret) {
+      await saveFacebookAppSecretSetting(nextAppSecret);
+    }
+  } catch (error) {
+    redirect(
+      buildFacebookSettingsHref({
+        returnTo: parsed.data.returnTo || "/dashboard/settings/channels/facebook",
+        status: "error",
+        message: error instanceof Error ? error.message : "Facebook App Secret could not be saved.",
+      }),
+    );
+  }
+
   await saveFacebookAppIdSetting(parsed.data.facebookAppId);
-  await saveFacebookAppSecretSetting(parsed.data.facebookAppSecret);
   await saveFacebookPageLookupSetting(parsed.data.facebookPageLookupValue);
   await writeFacebookAuditLog({
     actorAdminUserId: adminUser.id,
     action: AUDIT_ACTIONS.FACEBOOK_SETTINGS_UPDATED,
     metadata: {
       hasFacebookAppId: Boolean(parsed.data.facebookAppId),
-      hasFacebookAppSecret: Boolean(parsed.data.facebookAppSecret),
+      hasFacebookAppSecret: Boolean(nextAppSecret),
       facebookPageLookupValue: parsed.data.facebookPageLookupValue,
       returnTo: parsed.data.returnTo || "/dashboard/settings/channels/facebook",
     },

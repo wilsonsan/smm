@@ -153,6 +153,13 @@ export const settingsSchema = z.object({
   appTimezone: z.string().trim().refine((value) => isValidTimezone(value), "Enter a valid IANA timezone."),
 });
 
+export const galleryDeletionSchema = z.object({
+  confirmation: z
+    .string()
+    .trim()
+    .refine((value) => value === "CLEAR GALLERY", "Type CLEAR GALLERY to confirm."),
+});
+
 export const facebookSettingsSchema = z.object({
   facebookAppId: z
     .string()

@@ -223,10 +223,6 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
       claimedPlatformIds.push(claim.socialPostPlatformId);
     }
 
-    console.log(
-      `[publish worker] Claimed ${claimedPlatformIds.length} scheduled platform post(s) at ${now.toISOString()}.`,
-    );
-
     for (const platformId of claimedPlatformIds) {
       const platform = await prisma.socialPostPlatform.findUniqueOrThrow({
         where: { id: platformId },
@@ -353,17 +349,31 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
       recoveredCount,
     };
     const finishedAt = new Date();
+    const hasWorkerActivity =
+      result.claimedCount > 0 ||
+      result.publishedCount > 0 ||
+      result.failedCount > 0 ||
+      result.skippedCount > 0 ||
+      result.recoveredCount > 0;
 
-    await createAuditLog({
-      action: AUDIT_ACTIONS.WORKER_RUN_COMPLETED,
-      targetType: "Worker",
-      targetId: "social-publish-worker",
-      metadata: {
-        finishedAt: finishedAt.toISOString(),
-        result,
-        errorMessage: failedCount > 0 ? "One or more scheduled platform publishes failed." : null,
-      },
-    });
+    if (hasWorkerActivity) {
+      console.log(
+        `[publish worker] Cycle ${now.toISOString()} claimed=${result.claimedCount} published=${result.publishedCount} failed=${result.failedCount} skipped=${result.skippedCount} recovered=${result.recoveredCount}.`,
+      );
+    }
+
+    if (hasWorkerActivity) {
+      await createAuditLog({
+        action: AUDIT_ACTIONS.WORKER_RUN_COMPLETED,
+        targetType: "Worker",
+        targetId: "social-publish-worker",
+        metadata: {
+          finishedAt: finishedAt.toISOString(),
+          result,
+          errorMessage: failedCount > 0 ? "One or more scheduled platform publishes failed." : null,
+        },
+      });
+    }
 
     await recordWorkerRunStatus({
       finishedAt,

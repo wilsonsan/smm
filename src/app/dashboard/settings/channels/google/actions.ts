@@ -77,14 +77,29 @@ export async function saveGoogleSettingsAction(formData: FormData) {
     );
   }
 
+  const nextClientSecret = parsed.data.googleClientSecret.trim();
+
+  try {
+    if (nextClientSecret) {
+      await saveGoogleClientSecretSetting(nextClientSecret);
+    }
+  } catch (error) {
+    redirect(
+      buildGoogleSettingsHref({
+        returnTo: parsed.data.returnTo || "/dashboard/settings/channels/google",
+        status: "error",
+        message: error instanceof Error ? error.message : "Google Client Secret could not be saved.",
+      }),
+    );
+  }
+
   await saveGoogleClientIdSetting(parsed.data.googleClientId);
-  await saveGoogleClientSecretSetting(parsed.data.googleClientSecret);
   await writeGoogleAuditLog({
     actorAdminUserId: adminUser.id,
     action: AUDIT_ACTIONS.GOOGLE_SETTINGS_UPDATED,
     metadata: {
       hasGoogleClientId: Boolean(parsed.data.googleClientId),
-      hasGoogleClientSecret: Boolean(parsed.data.googleClientSecret),
+      hasGoogleClientSecret: Boolean(nextClientSecret),
       returnTo: parsed.data.returnTo || "/dashboard/settings/channels/google",
     },
   });

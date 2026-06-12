@@ -40,6 +40,18 @@ const SETTINGS_SECTIONS = [
       },
     ],
   },
+  {
+    eyebrow: "Deletion & Recovery",
+    title: "Danger Zone",
+    description: "Use this area for intentional cleanup when saved media records no longer match what is on disk.",
+    items: [
+      {
+        href: "/dashboard/settings/deletion",
+        title: "Deletion",
+        description: "Clear the gallery library and remove broken or missing media records after rebuilds or storage resets.",
+      },
+    ],
+  },
 ];
 
 export default function SettingsPage() {

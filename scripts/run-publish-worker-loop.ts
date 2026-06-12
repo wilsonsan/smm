@@ -32,20 +32,28 @@ async function main() {
 
     try {
       const result = await publishScheduledPosts();
+      const hasWorkerActivity =
+        result.claimedCount > 0 ||
+        result.publishedCount > 0 ||
+        result.failedCount > 0 ||
+        result.skippedCount > 0 ||
+        result.recoveredCount > 0;
 
-      console.log(
-        JSON.stringify(
-          {
-            type: "publish-worker-cycle",
-            startedAt: cycleStartedAt.toISOString(),
-            finishedAt: new Date().toISOString(),
-            pollIntervalMs,
-            result,
-          },
-          null,
-          2,
-        ),
-      );
+      if (hasWorkerActivity) {
+        console.log(
+          JSON.stringify(
+            {
+              type: "publish-worker-cycle",
+              startedAt: cycleStartedAt.toISOString(),
+              finishedAt: new Date().toISOString(),
+              pollIntervalMs,
+              result,
+            },
+            null,
+            2,
+          ),
+        );
+      }
     } catch (error) {
       console.error("[publish worker] Background cycle failed.", error);
     }

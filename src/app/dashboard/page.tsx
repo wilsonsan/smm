@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { DateTime } from "luxon";
-import { SocialPostStatus } from "@prisma/client";
 import { isAdminUserRole, requireAuthenticatedUser } from "@/lib/auth/session";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import {
@@ -10,12 +9,10 @@ import {
   CalendarIcon,
   ComposeIcon,
   ClockIcon,
-  DraftIcon,
   FailureIcon,
   GalleryIcon,
   PostsIcon,
   QueueIcon,
-  ScheduleIcon,
   SuccessIcon,
 } from "@/components/dashboard-icons";
 import { getQueueOverview, getRecentActivityFeed } from "@/lib/analytics";
@@ -48,22 +45,7 @@ export default async function DashboardPage() {
   const weekEnd = weekStart.plus({ weeks: 1 });
   const postScope = {};
 
-  const [
-    totalPosts,
-    draftPosts,
-    recentPosts,
-    scheduledThisWeekCount,
-    failedPostsNeedingAttention,
-    recentActivity,
-    queueOverview,
-  ] =
-    await Promise.all([
-      prisma.socialPost.count({
-        where: postScope,
-      }),
-      prisma.socialPost.count({
-        where: { ...postScope, status: SocialPostStatus.DRAFT },
-      }),
+  const [recentPosts, recentActivity, queueOverview] = await Promise.all([
       prisma.socialPost.findMany({
         where: postScope,
         orderBy: { updatedAt: "desc" },
@@ -77,22 +59,6 @@ export default async function DashboardPage() {
           },
         },
       }),
-      prisma.socialPost.count({
-        where: {
-          ...postScope,
-          status: SocialPostStatus.SCHEDULED,
-          scheduledAt: {
-            gte: weekStart.toUTC().toJSDate(),
-            lt: weekEnd.toUTC().toJSDate(),
-          },
-        },
-      }),
-      prisma.socialPost.count({
-        where: {
-          ...postScope,
-          status: SocialPostStatus.FAILED,
-        },
-      }),
       isAdmin ? getRecentActivityFeed() : Promise.resolve([]),
       isAdmin
         ? getQueueOverview(timezone)
@@ -101,7 +67,7 @@ export default async function DashboardPage() {
             tomorrow: [],
             thisWeek: [],
           }),
-    ]);
+  ]);
 
   const quickActions: QuickActionCard[] = [
     {
@@ -124,37 +90,6 @@ export default async function DashboardPage() {
       description: "Review your media assets and content variants.",
       accentClass: "is-green",
       Icon: GalleryIcon,
-    },
-  ] as const;
-
-  const metricCards = [
-    {
-      label: "Total Posts",
-      value: totalPosts,
-      supporting: "All time",
-      accentClass: "is-blue",
-      Icon: PostsIcon,
-    },
-    {
-      label: "Drafts",
-      value: draftPosts,
-      supporting: "Saved drafts",
-      accentClass: "is-purple",
-      Icon: DraftIcon,
-    },
-    {
-      label: "Scheduled This Week",
-      value: scheduledThisWeekCount,
-      supporting: "Upcoming posts",
-      accentClass: "is-green",
-      Icon: ScheduleIcon,
-    },
-    {
-      label: "Failed Posts",
-      value: failedPostsNeedingAttention,
-      supporting: "Needs attention",
-      accentClass: "is-red",
-      Icon: FailureIcon,
     },
   ] as const;
 
@@ -193,21 +128,6 @@ export default async function DashboardPage() {
           </div>
         </div>
       </section>
-
-      <div className="dashboard-kpi-grid">
-        {metricCards.map(({ label, value, supporting, accentClass, Icon }) => (
-          <article key={label} className={`dashboard-kpi-card ${accentClass}`.trim()}>
-            <div className="dashboard-kpi-icon">
-              <Icon />
-            </div>
-            <div className="dashboard-kpi-copy">
-              <span>{label}</span>
-              <strong>{value}</strong>
-              <p>{supporting}</p>
-            </div>
-          </article>
-        ))}
-      </div>
 
       <section className="panel dashboard-module-card dashboard-recent-card">
         <div className="panel-body">
