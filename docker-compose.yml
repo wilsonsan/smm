@@ -1,27 +1,27 @@
 x-app-environment: &app-environment
-  DATABASE_URL: mysql://root:root_password@db:3306/smm_dev
-  APP_URL: http://127.0.0.1:3196
+  DATABASE_URL: mysql://root:${MYSQL_ROOT_PASSWORD:-root_password}@db:3306/${MYSQL_DATABASE:-smm_dev}
+  APP_URL: ${APP_URL:-http://127.0.0.1:3196}
   UPLOAD_DIR: /app/uploads
-  MAX_UPLOAD_BYTES: "26214400"
-  SESSION_TTL_HOURS: "168"
-  WORKER_MODE: service
-  WORKER_POLL_INTERVAL_MS: "60000"
-  ADMIN_EMAIL: admin@example.com
-  ADMIN_PASSWORD: change-this-before-seeding
-  FACEBOOK_APP_ID: ""
-  FACEBOOK_APP_SECRET: ""
-  FACEBOOK_PAGE_LOOKUP_VALUE: "nctilepro"
-  GOOGLE_CLIENT_ID: ""
-  GOOGLE_CLIENT_SECRET: ""
-  TOKEN_ENCRYPTION_KEY: ""
+  MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-26214400}
+  SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-168}
+  WORKER_MODE: ${WORKER_MODE:-service}
+  WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-60000}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-this-before-seeding}
+  FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+  FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+  FACEBOOK_PAGE_LOOKUP_VALUE: ${FACEBOOK_PAGE_LOOKUP_VALUE:-nctilepro}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
 
 services:
   db:
     image: mysql:8.4
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root_password
-      MYSQL_DATABASE: smm_dev
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-smm_dev}
     ports:
       - "3306:3306"
     volumes:
@@ -31,6 +31,8 @@ services:
     build: .
     depends_on:
       - db
+    env_file:
+      - .env
     environment: *app-environment
     ports:
       - "3196:3000"
@@ -42,6 +44,8 @@ services:
     build: .
     depends_on:
       - db
+    env_file:
+      - .env
     environment: *app-environment
     command: ["npm", "run", "worker:loop"]
     volumes:

@@ -159,23 +159,33 @@ export async function rotateTokenEncryptionKeySetting(nextTokenEncryptionKey: st
     }
 
     if (!currentTokenEncryptionKey.configured || !currentTokenEncryptionKey.value) {
-      throw new Error("The existing encrypted settings could not be migrated because the current token encryption key is missing.");
+      continue;
     }
 
-    decryptedValues.set(setting.key, decryptSettingValueWithKey(currentValue, currentTokenEncryptionKey.value));
+    try {
+      decryptedValues.set(setting.key, decryptSettingValueWithKey(currentValue, currentTokenEncryptionKey.value));
+    } catch {
+      continue;
+    }
   }
 
   await saveTokenEncryptionKeySetting(trimmedNextTokenEncryptionKey);
 
-  for (const [key, value] of decryptedValues.entries()) {
-    if (!value.trim()) {
+  for (const setting of existingSecureSettings) {
+    const value = decryptedValues.get(setting.key);
+    if (!value?.trim()) {
+      await prisma.appSetting.upsert({
+        where: { key: setting.key },
+        update: { value: "" },
+        create: { key: setting.key, value: "" },
+      });
       continue;
     }
 
     await prisma.appSetting.upsert({
-      where: { key },
+      where: { key: setting.key },
       update: { value: encryptSettingValueWithKey(value, trimmedNextTokenEncryptionKey) },
-      create: { key, value: encryptSettingValueWithKey(value, trimmedNextTokenEncryptionKey) },
+      create: { key: setting.key, value: encryptSettingValueWithKey(value, trimmedNextTokenEncryptionKey) },
     });
   }
 }
