@@ -173,6 +173,26 @@ export default async function GoogleChannelSettingsPage({ searchParams }: Google
                 </div>
 
                 <div className="field">
+                  <label htmlFor="googleTokenEncryptionKey">Token Encryption Key</label>
+                  <input
+                    id="googleTokenEncryptionKey"
+                    name="tokenEncryptionKey"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder={
+                      config.tokenEncryptionKeyConfigured
+                        ? "Saved for app use. Enter only to replace it."
+                        : "Enter token encryption key"
+                    }
+                  />
+                  <span className="hint">
+                    {config.tokenEncryptionKeyConfigured
+                      ? `A key is already available from ${config.tokenEncryptionKeySource === "settings" ? "Settings" : "the environment"}. Leave this blank to keep it.`
+                      : "This key encrypts saved Google and Meta tokens at rest."}
+                  </span>
+                </div>
+
+                <div className="field">
                   <label>Callback URL</label>
                   <input value={config.redirectUri} readOnly />
                   <span className="hint">Use this exact callback URL in the Google OAuth client.</span>

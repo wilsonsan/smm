@@ -1,24 +1,26 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { URLSearchParams } from "node:url";
-import { env, hasTokenEncryptionKeyConfigured } from "@/lib/env";
+import { env } from "@/lib/env";
+import { getTokenEncryptionKeyState } from "@/lib/secure-settings";
 import { getAppSettings } from "@/lib/settings";
 
 export type PublicPlatformMediaPlatform = "INSTAGRAM" | "GOOGLE_BUSINESS";
 
-function buildSigningKey() {
-  if (!hasTokenEncryptionKeyConfigured || !env.TOKEN_ENCRYPTION_KEY) {
-    throw new Error("TOKEN_ENCRYPTION_KEY is required for signed public platform media URLs.");
+async function buildSigningKey() {
+  const tokenEncryptionKey = await getTokenEncryptionKeyState();
+  if (!tokenEncryptionKey.configured || !tokenEncryptionKey.value) {
+    throw new Error("A token encryption key is required for signed public platform media URLs.");
   }
 
-  return env.TOKEN_ENCRYPTION_KEY;
+  return tokenEncryptionKey.value;
 }
 
-function buildSignature(input: {
+async function buildSignature(input: {
   platform: PublicPlatformMediaPlatform;
   storagePath: string;
   expiresAt: string;
 }) {
-  return createHmac("sha256", buildSigningKey())
+  return createHmac("sha256", await buildSigningKey())
     .update(`${input.platform}:${input.storagePath}:${input.expiresAt}`)
     .digest("hex");
 }
@@ -69,7 +71,7 @@ export async function createSignedPublicPlatformMediaUrl(input: {
   }
 
   const expiresAt = new Date(Date.now() + (input.expiresInMinutes ?? 30) * 60 * 1000).toISOString();
-  const signature = buildSignature({
+  const signature = await buildSignature({
     platform: input.platform,
     storagePath: input.storagePath,
     expiresAt,
@@ -86,7 +88,7 @@ export async function createSignedPublicPlatformMediaUrl(input: {
   return url.toString();
 }
 
-export function validateSignedPublicPlatformMediaRequest(input: {
+export async function validateSignedPublicPlatformMediaRequest(input: {
   platform: string | null;
   storagePath: string | null;
   expiresAt: string | null;
@@ -114,7 +116,7 @@ export function validateSignedPublicPlatformMediaRequest(input: {
     };
   }
 
-  const expectedSignature = buildSignature({
+  const expectedSignature = await buildSignature({
     platform: input.platform,
     storagePath: input.storagePath,
     expiresAt: input.expiresAt,

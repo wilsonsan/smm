@@ -12,6 +12,7 @@ export const APP_SETTING_KEYS = {
   FACEBOOK_PAGE_LOOKUP_VALUE: "FACEBOOK_PAGE_LOOKUP_VALUE",
   GOOGLE_CLIENT_ID: "GOOGLE_CLIENT_ID",
   GOOGLE_CLIENT_SECRET: "GOOGLE_CLIENT_SECRET",
+  TOKEN_ENCRYPTION_KEY: "TOKEN_ENCRYPTION_KEY",
   GOOGLE_DIAGNOSTIC_SNAPSHOT: "GOOGLE_DIAGNOSTIC_SNAPSHOT",
   FACEBOOK_DIAGNOSTIC_SNAPSHOT: "FACEBOOK_DIAGNOSTIC_SNAPSHOT",
   WORKER_LAST_RUN_AT: "WORKER_LAST_RUN_AT",
@@ -66,6 +67,7 @@ export async function getAppSettings() {
     facebookPageLookupValue: byKey.get(APP_SETTING_KEYS.FACEBOOK_PAGE_LOOKUP_VALUE) || env.FACEBOOK_PAGE_LOOKUP_VALUE || "nctilepro",
     googleClientId: byKey.get(APP_SETTING_KEYS.GOOGLE_CLIENT_ID) || env.GOOGLE_CLIENT_ID || "",
     googleClientSecretConfigured: Boolean(byKey.get(APP_SETTING_KEYS.GOOGLE_CLIENT_SECRET)?.trim()) || Boolean(env.GOOGLE_CLIENT_SECRET),
+    tokenEncryptionKeyConfigured: Boolean(byKey.get(APP_SETTING_KEYS.TOKEN_ENCRYPTION_KEY)?.trim()) || Boolean(env.TOKEN_ENCRYPTION_KEY),
   };
 }
 
@@ -144,6 +146,23 @@ export async function saveGoogleClientIdSetting(clientId: string) {
     where: { key: APP_SETTING_KEYS.GOOGLE_CLIENT_ID },
     update: { value: clientId },
     create: { key: APP_SETTING_KEYS.GOOGLE_CLIENT_ID, value: clientId },
+  });
+}
+
+export async function getStoredTokenEncryptionKeySetting() {
+  const setting = await prisma.appSetting.findUnique({
+    where: { key: APP_SETTING_KEYS.TOKEN_ENCRYPTION_KEY },
+    select: { value: true },
+  });
+
+  return setting?.value?.trim() || "";
+}
+
+export async function saveTokenEncryptionKeySetting(tokenEncryptionKey: string) {
+  await prisma.appSetting.upsert({
+    where: { key: APP_SETTING_KEYS.TOKEN_ENCRYPTION_KEY },
+    update: { value: tokenEncryptionKey.trim() },
+    create: { key: APP_SETTING_KEYS.TOKEN_ENCRYPTION_KEY, value: tokenEncryptionKey.trim() },
   });
 }
 

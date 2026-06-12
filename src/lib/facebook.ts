@@ -11,7 +11,7 @@ import {
   type ConnectedAccount,
 } from "@prisma/client";
 import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
-import { env, hasTokenEncryptionKeyConfigured, isProduction } from "@/lib/env";
+import { env, isProduction } from "@/lib/env";
 import {
   FACEBOOK_SETTINGS_ACTION_URL,
   createOrUpdatePlatformPublishFailedNotification,
@@ -26,7 +26,7 @@ import {
   getAppSettings,
   upsertAppSetting,
 } from "@/lib/settings";
-import { getFacebookAppSecretSetting } from "@/lib/secure-settings";
+import { getFacebookAppSecretSetting, getTokenEncryptionKeyState } from "@/lib/secure-settings";
 import {
   cleanupTemporaryPlatformImage,
   generateTemporaryPlatformImage,
@@ -255,6 +255,8 @@ export type FacebookConfiguration = {
   appId: string;
   appSecretConfigured: boolean;
   appSecretSource: "settings" | "environment" | "missing";
+  tokenEncryptionKeyConfigured: boolean;
+  tokenEncryptionKeySource: "settings" | "environment" | "missing";
   redirectUri: string;
   requiredScopes: string[];
   optionalDiagnosticScopes: string[];
@@ -337,16 +339,17 @@ export class FacebookServiceError extends Error {
   }
 }
 
-function buildTokenEncryptionKey() {
-  if (!hasTokenEncryptionKeyConfigured) {
-    throw new Error("TOKEN_ENCRYPTION_KEY is required before Facebook tokens can be stored securely.");
+async function buildTokenEncryptionKey() {
+  const tokenEncryptionKey = await getTokenEncryptionKeyState();
+  if (!tokenEncryptionKey.configured || !tokenEncryptionKey.value) {
+    throw new Error("A token encryption key is required before Facebook tokens can be stored securely.");
   }
 
-  return createHash("sha256").update(env.TOKEN_ENCRYPTION_KEY || "").digest();
+  return createHash("sha256").update(tokenEncryptionKey.value).digest();
 }
 
-function encryptValue(value: string) {
-  const key = buildTokenEncryptionKey();
+async function encryptValue(value: string) {
+  const key = await buildTokenEncryptionKey();
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   const encrypted = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
@@ -355,8 +358,8 @@ function encryptValue(value: string) {
   return `${iv.toString("base64url")}.${tag.toString("base64url")}.${encrypted.toString("base64url")}`;
 }
 
-function decryptValue(value: string) {
-  const key = buildTokenEncryptionKey();
+async function decryptValue(value: string) {
+  const key = await buildTokenEncryptionKey();
   const parts = value.split(".");
 
   if (parts.length !== 3) {
@@ -644,10 +647,11 @@ function getDiagnosticDataCount(value: unknown) {
 
 export async function getFacebookConfiguration(): Promise<FacebookConfiguration> {
   const settings = await getAppSettings();
+  const tokenEncryptionKey = await getTokenEncryptionKeyState();
   const appId = (settings.facebookAppId || env.FACEBOOK_APP_ID || "").trim();
   const appSecret = (await getFacebookAppSecretSetting()).trim();
   const appSecretSource =
-    settings.facebookAppSecretConfigured && hasTokenEncryptionKeyConfigured && appSecret
+    settings.facebookAppSecretConfigured && tokenEncryptionKey.configured && appSecret
       ? "settings"
       : env.FACEBOOK_APP_SECRET
         ? "environment"
@@ -676,8 +680,13 @@ export async function getFacebookConfiguration(): Promise<FacebookConfiguration>
     {
       key: "TOKEN_ENCRYPTION_KEY",
       label: "Token encryption key",
-      configured: hasTokenEncryptionKeyConfigured,
-      detail: hasTokenEncryptionKeyConfigured ? "Configured in environment" : "Missing",
+      configured: tokenEncryptionKey.configured,
+      detail:
+        tokenEncryptionKey.source === "settings"
+          ? "Configured in Settings"
+          : tokenEncryptionKey.source === "environment"
+            ? "Configured in environment"
+            : "Missing",
     },
     {
       key: "APP_URL",
@@ -701,14 +710,16 @@ export async function getFacebookConfiguration(): Promise<FacebookConfiguration>
     missingConfig.push("FACEBOOK_APP_SECRET");
   }
 
-  if (!hasTokenEncryptionKeyConfigured) {
-    missingConfig.push("TOKEN_ENCRYPTION_KEY");
+  if (!tokenEncryptionKey.configured) {
+    missingConfig.push("Token encryption key");
   }
 
   return {
     appId,
     appSecretConfigured: Boolean(appSecret),
     appSecretSource,
+    tokenEncryptionKeyConfigured: tokenEncryptionKey.configured,
+    tokenEncryptionKeySource: tokenEncryptionKey.source,
     redirectUri,
     requiredScopes: [...FACEBOOK_REQUIRED_SCOPES],
     optionalDiagnosticScopes: [...FACEBOOK_OPTIONAL_DIAGNOSTIC_SCOPES],
@@ -816,7 +827,7 @@ export async function consumeFacebookOauthMode(): Promise<FacebookOauthMode> {
 
 export async function setPendingFacebookPageSelection(payload: PendingFacebookPageSelection) {
   const cookieStore = await cookies();
-  cookieStore.set(FACEBOOK_PENDING_SELECTION_COOKIE_NAME, encryptValue(JSON.stringify(payload)), {
+  cookieStore.set(FACEBOOK_PENDING_SELECTION_COOKIE_NAME, await encryptValue(JSON.stringify(payload)), {
     httpOnly: true,
     sameSite: "lax",
     secure: isProduction,
@@ -839,7 +850,7 @@ export async function getPendingFacebookPageSelection() {
   }
 
   try {
-    const parsed = JSON.parse(decryptValue(encryptedValue)) as PendingFacebookPageSelection;
+    const parsed = JSON.parse(await decryptValue(encryptedValue)) as PendingFacebookPageSelection;
 
     if (!Array.isArray(parsed.pages) || !parsed.accountName || !parsed.accountId) {
       return null;
@@ -886,7 +897,7 @@ export async function getFacebookOauthDebugResult() {
 
 async function setFacebookOauthDebugTokens(payload: FacebookDebugTokenBundle) {
   const cookieStore = await cookies();
-  cookieStore.set(FACEBOOK_OAUTH_DEBUG_TOKENS_COOKIE_NAME, encryptValue(JSON.stringify(payload)), {
+  cookieStore.set(FACEBOOK_OAUTH_DEBUG_TOKENS_COOKIE_NAME, await encryptValue(JSON.stringify(payload)), {
     httpOnly: true,
     sameSite: "lax",
     secure: isProduction,
@@ -904,7 +915,7 @@ async function getFacebookOauthDebugTokens() {
   }
 
   try {
-    const parsed = JSON.parse(decryptValue(encryptedValue)) as FacebookDebugTokenBundle;
+    const parsed = JSON.parse(await decryptValue(encryptedValue)) as FacebookDebugTokenBundle;
 
     if (!parsed.shortLivedAccessToken || !Array.isArray(parsed.requestedScopes) || !Array.isArray(parsed.grantedScopes)) {
       return null;
@@ -1782,7 +1793,7 @@ export async function saveFacebookConnectedPage(input: {
       accountId: input.accountId,
       pageId: input.pageId,
       pageName: input.pageName,
-      accessTokenEncrypted: encryptValue(input.pageAccessToken),
+      accessTokenEncrypted: await encryptValue(input.pageAccessToken),
       tokenExpiresAt: input.tokenExpiresAt ?? null,
       scopes: input.scopes,
       status: ConnectedAccountStatus.CONNECTED,
@@ -1798,7 +1809,7 @@ export async function saveFacebookConnectedPage(input: {
       accountId: input.accountId,
       pageId: input.pageId,
       pageName: input.pageName,
-      accessTokenEncrypted: encryptValue(input.pageAccessToken),
+      accessTokenEncrypted: await encryptValue(input.pageAccessToken),
       tokenExpiresAt: input.tokenExpiresAt ?? null,
       scopes: input.scopes,
       status: ConnectedAccountStatus.CONNECTED,
@@ -1884,7 +1895,7 @@ async function getStoredFacebookConnection(): Promise<FacebookConnection | null>
 
   return {
     ...toFacebookConnectionRecord(record)!,
-    accessToken: decryptValue(record.accessTokenEncrypted),
+    accessToken: await decryptValue(record.accessTokenEncrypted),
   };
 }
 

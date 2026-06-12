@@ -185,6 +185,26 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                 </div>
 
                 <div className="field">
+                  <label htmlFor="facebookTokenEncryptionKey">Token Encryption Key</label>
+                  <input
+                    id="facebookTokenEncryptionKey"
+                    name="tokenEncryptionKey"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder={
+                      config.tokenEncryptionKeyConfigured
+                        ? "Saved securely for app use. Enter only to replace it."
+                        : "Enter token encryption key"
+                    }
+                  />
+                  <span className="hint">
+                    {config.tokenEncryptionKeyConfigured
+                      ? `A key is already available from ${config.tokenEncryptionKeySource === "settings" ? "Settings" : "the environment"}. Leave this blank to keep it.`
+                      : "This key encrypts saved Facebook and Google tokens at rest."}
+                  </span>
+                </div>
+
+                <div className="field">
                   <label>Callback URL</label>
                   <input value={config.redirectUri} readOnly />
                   <span className="hint">Use this exact callback URL in the Meta app.</span>

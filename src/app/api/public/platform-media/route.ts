@@ -8,7 +8,7 @@ import { ensureSafeAbsolutePath, resolveUploadBasePath } from "@/lib/uploads";
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
-    const validation = validateSignedPublicPlatformMediaRequest({
+    const validation = await validateSignedPublicPlatformMediaRequest({
       platform: url.searchParams.get("platform"),
       storagePath: url.searchParams.get("storagePath"),
       expiresAt: url.searchParams.get("expires"),

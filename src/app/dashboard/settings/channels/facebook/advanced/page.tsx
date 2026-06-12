@@ -244,6 +244,26 @@ export default async function FacebookAdvancedChannelSettingsPage({
                 </div>
 
                 <div className="field">
+                  <label htmlFor="facebookTokenEncryptionKey">Token Encryption Key</label>
+                  <input
+                    id="facebookTokenEncryptionKey"
+                    name="tokenEncryptionKey"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder={
+                      config.tokenEncryptionKeyConfigured
+                        ? "Saved for app use. Enter only to replace it."
+                        : "Enter token encryption key"
+                    }
+                  />
+                  <span className="hint">
+                    {config.tokenEncryptionKeyConfigured
+                      ? `A key is already available from ${config.tokenEncryptionKeySource === "settings" ? "Settings" : "the environment"}. Leave this blank to keep it.`
+                      : "This key encrypts saved Facebook and Google tokens before they are stored."}
+                  </span>
+                </div>
+
+                <div className="field">
                   <label htmlFor="facebookPageLookupValue">Preferred Page lookup</label>
                   <input
                     id="facebookPageLookupValue"

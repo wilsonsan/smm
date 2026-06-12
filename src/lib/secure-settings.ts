@@ -1,18 +1,20 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { env, hasTokenEncryptionKeyConfigured } from "@/lib/env";
+import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
-import { APP_SETTING_KEYS } from "@/lib/settings";
+import { APP_SETTING_KEYS, getStoredTokenEncryptionKeySetting, saveTokenEncryptionKeySetting } from "@/lib/settings";
 
-function buildSettingsEncryptionKey() {
-  if (!hasTokenEncryptionKeyConfigured) {
-    throw new Error("TOKEN_ENCRYPTION_KEY is required before secure settings can be stored.");
+const SECURE_SETTING_KEYS = [APP_SETTING_KEYS.FACEBOOK_APP_SECRET, APP_SETTING_KEYS.GOOGLE_CLIENT_SECRET] as const;
+
+function buildSettingsEncryptionKeyFromValue(tokenEncryptionKey: string) {
+  if (!tokenEncryptionKey.trim()) {
+    throw new Error("A token encryption key is required before secure settings can be stored.");
   }
 
-  return createHash("sha256").update(env.TOKEN_ENCRYPTION_KEY || "").digest();
+  return createHash("sha256").update(tokenEncryptionKey).digest();
 }
 
-function encryptSettingValue(value: string) {
-  const key = buildSettingsEncryptionKey();
+function encryptSettingValueWithKey(value: string, tokenEncryptionKey: string) {
+  const key = buildSettingsEncryptionKeyFromValue(tokenEncryptionKey);
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   const encrypted = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
@@ -21,12 +23,12 @@ function encryptSettingValue(value: string) {
   return `enc:${iv.toString("base64url")}.${tag.toString("base64url")}.${encrypted.toString("base64url")}`;
 }
 
-function decryptSettingValue(value: string) {
+function decryptSettingValueWithKey(value: string, tokenEncryptionKey: string) {
   if (!value.startsWith("enc:")) {
     return value;
   }
 
-  const key = buildSettingsEncryptionKey();
+  const key = buildSettingsEncryptionKeyFromValue(tokenEncryptionKey);
   const payload = value.slice(4);
   const parts = payload.split(".");
 
@@ -44,6 +46,32 @@ function decryptSettingValue(value: string) {
   ]).toString("utf8");
 }
 
+export async function getTokenEncryptionKeyState() {
+  const storedValue = await getStoredTokenEncryptionKeySetting();
+  if (storedValue) {
+    return {
+      value: storedValue,
+      configured: true,
+      source: "settings" as const,
+    };
+  }
+
+  const environmentValue = env.TOKEN_ENCRYPTION_KEY?.trim() || "";
+  if (environmentValue) {
+    return {
+      value: environmentValue,
+      configured: true,
+      source: "environment" as const,
+    };
+  }
+
+  return {
+    value: "",
+    configured: false,
+    source: "missing" as const,
+  };
+}
+
 async function getSecureSettingValue(key: string, fallbackValue = "") {
   const setting = await prisma.appSetting.findUnique({
     where: { key },
@@ -55,12 +83,13 @@ async function getSecureSettingValue(key: string, fallbackValue = "") {
       return setting.value;
     }
 
-    if (!hasTokenEncryptionKeyConfigured) {
+    const tokenEncryptionKey = await getTokenEncryptionKeyState();
+    if (!tokenEncryptionKey.configured || !tokenEncryptionKey.value) {
       return fallbackValue;
     }
 
     try {
-      return decryptSettingValue(setting.value);
+      return decryptSettingValueWithKey(setting.value, tokenEncryptionKey.value);
     } catch {
       return fallbackValue;
     }
@@ -76,11 +105,79 @@ async function saveSecureSettingValue(key: string, value: string) {
     return;
   }
 
+  const tokenEncryptionKey = await getTokenEncryptionKeyState();
+  if (!tokenEncryptionKey.configured || !tokenEncryptionKey.value) {
+    throw new Error("A token encryption key is required before secure settings can be stored.");
+  }
+
+  const encryptedValue = encryptSettingValueWithKey(trimmedValue, tokenEncryptionKey.value);
+
   await prisma.appSetting.upsert({
     where: { key },
-    update: { value: encryptSettingValue(trimmedValue) },
-    create: { key, value: encryptSettingValue(trimmedValue) },
+    update: { value: encryptedValue },
+    create: { key, value: encryptedValue },
   });
+}
+
+export async function rotateTokenEncryptionKeySetting(nextTokenEncryptionKey: string) {
+  const trimmedNextTokenEncryptionKey = nextTokenEncryptionKey.trim();
+  if (!trimmedNextTokenEncryptionKey) {
+    return;
+  }
+
+  const currentTokenEncryptionKey = await getTokenEncryptionKeyState();
+  if (
+    currentTokenEncryptionKey.configured &&
+    currentTokenEncryptionKey.source === "settings" &&
+    currentTokenEncryptionKey.value === trimmedNextTokenEncryptionKey
+  ) {
+    return;
+  }
+
+  const existingSecureSettings = await prisma.appSetting.findMany({
+    where: {
+      key: {
+        in: [...SECURE_SETTING_KEYS],
+      },
+    },
+    select: {
+      key: true,
+      value: true,
+    },
+  });
+
+  const decryptedValues = new Map<string, string>();
+  for (const setting of existingSecureSettings) {
+    const currentValue = setting.value?.trim() || "";
+    if (!currentValue) {
+      continue;
+    }
+
+    if (!currentValue.startsWith("enc:")) {
+      decryptedValues.set(setting.key, currentValue);
+      continue;
+    }
+
+    if (!currentTokenEncryptionKey.configured || !currentTokenEncryptionKey.value) {
+      throw new Error("The existing encrypted settings could not be migrated because the current token encryption key is missing.");
+    }
+
+    decryptedValues.set(setting.key, decryptSettingValueWithKey(currentValue, currentTokenEncryptionKey.value));
+  }
+
+  await saveTokenEncryptionKeySetting(trimmedNextTokenEncryptionKey);
+
+  for (const [key, value] of decryptedValues.entries()) {
+    if (!value.trim()) {
+      continue;
+    }
+
+    await prisma.appSetting.upsert({
+      where: { key },
+      update: { value: encryptSettingValueWithKey(value, trimmedNextTokenEncryptionKey) },
+      create: { key, value: encryptSettingValueWithKey(value, trimmedNextTokenEncryptionKey) },
+    });
+  }
 }
 
 export async function getFacebookAppSecretSetting() {

@@ -118,6 +118,26 @@ export default async function InstagramChannelSettingsPage({ searchParams }: Ins
                 </div>
 
                 <div className="field">
+                  <label htmlFor="instagramTokenEncryptionKey">Token Encryption Key</label>
+                  <input
+                    id="instagramTokenEncryptionKey"
+                    name="tokenEncryptionKey"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder={
+                      config.tokenEncryptionKeyConfigured
+                        ? "Saved for app use. Enter only to replace it."
+                        : "Enter token encryption key"
+                    }
+                  />
+                  <span className="hint">
+                    {config.tokenEncryptionKeyConfigured
+                      ? `A key is already available from ${config.tokenEncryptionKeySource === "settings" ? "Settings" : "the environment"}. Leave this blank to keep it.`
+                      : "This shared key encrypts saved Meta tokens at rest."}
+                  </span>
+                </div>
+
+                <div className="field">
                   <label>Callback URL</label>
                   <input value={config.redirectUri} readOnly />
                   <span className="hint">Use this same callback URL in the Meta app for the shared OAuth flow.</span>

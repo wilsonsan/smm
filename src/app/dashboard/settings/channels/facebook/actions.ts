@@ -15,7 +15,7 @@ import {
   testFacebookConnection,
 } from "@/lib/facebook";
 import { getRequestMetadata } from "@/lib/http";
-import { saveFacebookAppSecretSetting } from "@/lib/secure-settings";
+import { rotateTokenEncryptionKeySetting, saveFacebookAppSecretSetting } from "@/lib/secure-settings";
 import {
   saveFacebookAppIdSetting,
   saveFacebookPageLookupSetting,
@@ -68,6 +68,7 @@ export async function saveFacebookSettingsAction(formData: FormData) {
   const parsed = facebookSettingsSchema.safeParse({
     facebookAppId: formData.get("facebookAppId"),
     facebookAppSecret: formData.get("facebookAppSecret"),
+    tokenEncryptionKey: formData.get("tokenEncryptionKey"),
     facebookPageLookupValue: formData.get("facebookPageLookupValue"),
     returnTo: formData.get("returnTo"),
   });
@@ -81,6 +82,7 @@ export async function saveFacebookSettingsAction(formData: FormData) {
         message:
           parsed.error.flatten().fieldErrors.facebookAppId?.[0] ||
           parsed.error.flatten().fieldErrors.facebookAppSecret?.[0] ||
+          parsed.error.flatten().fieldErrors.tokenEncryptionKey?.[0] ||
           parsed.error.flatten().fieldErrors.facebookPageLookupValue?.[0] ||
           parsed.error.flatten().fieldErrors.returnTo?.[0] ||
           "Enter valid Facebook settings.",
@@ -89,8 +91,13 @@ export async function saveFacebookSettingsAction(formData: FormData) {
   }
 
   const nextAppSecret = parsed.data.facebookAppSecret.trim();
+  const nextTokenEncryptionKey = parsed.data.tokenEncryptionKey.trim();
 
   try {
+    if (nextTokenEncryptionKey) {
+      await rotateTokenEncryptionKeySetting(nextTokenEncryptionKey);
+    }
+
     if (nextAppSecret) {
       await saveFacebookAppSecretSetting(nextAppSecret);
     }
@@ -112,6 +119,7 @@ export async function saveFacebookSettingsAction(formData: FormData) {
     metadata: {
       hasFacebookAppId: Boolean(parsed.data.facebookAppId),
       hasFacebookAppSecret: Boolean(nextAppSecret),
+      hasTokenEncryptionKey: Boolean(nextTokenEncryptionKey),
       facebookPageLookupValue: parsed.data.facebookPageLookupValue,
       returnTo: parsed.data.returnTo || "/dashboard/settings/channels/facebook",
     },

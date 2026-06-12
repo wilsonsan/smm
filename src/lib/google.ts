@@ -19,8 +19,8 @@ import {
 } from "@/lib/notifications";
 import { syncSocialPostAggregateState } from "@/lib/publish-state";
 import { prisma } from "@/lib/prisma";
-import { env, hasTokenEncryptionKeyConfigured } from "@/lib/env";
-import { getGoogleClientSecretSetting } from "@/lib/secure-settings";
+import { env } from "@/lib/env";
+import { getGoogleClientSecretSetting, getTokenEncryptionKeyState } from "@/lib/secure-settings";
 import {
   APP_SETTING_KEYS,
   getAppSettingValue,
@@ -108,6 +108,8 @@ export type GoogleConfiguration = {
   clientId: string;
   clientSecretConfigured: boolean;
   clientSecretSource: "settings" | "environment" | "missing";
+  tokenEncryptionKeyConfigured: boolean;
+  tokenEncryptionKeySource: "settings" | "environment" | "missing";
   redirectUri: string;
   requiredScopes: string[];
   missingConfig: string[];
@@ -204,16 +206,17 @@ type GoogleApiErrorPayload = {
   };
 };
 
-function buildTokenEncryptionKey() {
-  if (!hasTokenEncryptionKeyConfigured) {
-    throw new Error("TOKEN_ENCRYPTION_KEY is required before Google tokens can be stored securely.");
+async function buildTokenEncryptionKey() {
+  const tokenEncryptionKey = await getTokenEncryptionKeyState();
+  if (!tokenEncryptionKey.configured || !tokenEncryptionKey.value) {
+    throw new Error("A token encryption key is required before Google tokens can be stored securely.");
   }
 
-  return createHash("sha256").update(env.TOKEN_ENCRYPTION_KEY || "").digest();
+  return createHash("sha256").update(tokenEncryptionKey.value).digest();
 }
 
-function encryptValue(value: string) {
-  const key = buildTokenEncryptionKey();
+async function encryptValue(value: string) {
+  const key = await buildTokenEncryptionKey();
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   const encrypted = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
@@ -222,8 +225,8 @@ function encryptValue(value: string) {
   return `${iv.toString("base64url")}.${tag.toString("base64url")}.${encrypted.toString("base64url")}`;
 }
 
-function decryptValue(value: string) {
-  const key = buildTokenEncryptionKey();
+async function decryptValue(value: string) {
+  const key = await buildTokenEncryptionKey();
   const [ivPart, tagPart, encryptedPart] = value.split(".");
 
   if (!ivPart || !tagPart || !encryptedPart) {
@@ -483,10 +486,11 @@ async function getGoogleCookieValue(name: string) {
 
 export async function getGoogleConfiguration(): Promise<GoogleConfiguration> {
   const settings = await getAppSettings();
+  const tokenEncryptionKey = await getTokenEncryptionKeyState();
   const clientId = (await getGoogleClientIdSetting()).trim();
   const clientSecret = (await getGoogleClientSecretSetting()).trim();
   const clientSecretSource =
-    settings.googleClientSecretConfigured && hasTokenEncryptionKeyConfigured && clientSecret
+    settings.googleClientSecretConfigured && tokenEncryptionKey.configured && clientSecret
       ? "settings"
       : env.GOOGLE_CLIENT_SECRET
         ? "environment"
@@ -503,14 +507,16 @@ export async function getGoogleConfiguration(): Promise<GoogleConfiguration> {
     missingConfig.push("Google Client Secret");
   }
 
-  if (!hasTokenEncryptionKeyConfigured) {
-    missingConfig.push("TOKEN_ENCRYPTION_KEY");
+  if (!tokenEncryptionKey.configured) {
+    missingConfig.push("Token encryption key");
   }
 
   return {
     clientId,
     clientSecretConfigured: Boolean(clientSecret),
     clientSecretSource,
+    tokenEncryptionKeyConfigured: tokenEncryptionKey.configured,
+    tokenEncryptionKeySource: tokenEncryptionKey.source,
     redirectUri,
     requiredScopes: [...GOOGLE_OAUTH_SCOPES],
     missingConfig,
@@ -630,13 +636,13 @@ async function updateGoogleConnectionStatus(input: {
       accessTokenEncrypted:
         input.accessToken !== undefined
           ? input.accessToken
-            ? encryptValue(input.accessToken)
+            ? await encryptValue(input.accessToken)
             : null
           : undefined,
       refreshTokenEncrypted:
         input.refreshToken !== undefined
           ? input.refreshToken
-            ? encryptValue(input.refreshToken)
+            ? await encryptValue(input.refreshToken)
             : null
           : undefined,
       metadata: input.metadata ?? undefined,
@@ -685,8 +691,8 @@ export async function saveGoogleConnectedLocation(input: {
       accountId: input.userProfile.sub,
       pageId: input.location.locationId,
       pageName: input.location.title,
-      accessTokenEncrypted: encryptValue(input.accessToken),
-      refreshTokenEncrypted: encryptValue(input.refreshToken),
+      accessTokenEncrypted: await encryptValue(input.accessToken),
+      refreshTokenEncrypted: await encryptValue(input.refreshToken),
       tokenExpiresAt: input.tokenExpiresAt,
       scopes: input.scopes,
       status: ConnectedAccountStatus.CONNECTED,
@@ -699,8 +705,8 @@ export async function saveGoogleConnectedLocation(input: {
       accountId: input.userProfile.sub,
       pageId: input.location.locationId,
       pageName: input.location.title,
-      accessTokenEncrypted: encryptValue(input.accessToken),
-      refreshTokenEncrypted: encryptValue(input.refreshToken),
+      accessTokenEncrypted: await encryptValue(input.accessToken),
+      refreshTokenEncrypted: await encryptValue(input.refreshToken),
       tokenExpiresAt: input.tokenExpiresAt,
       scopes: input.scopes,
       status: ConnectedAccountStatus.CONNECTED,
@@ -775,8 +781,8 @@ export async function getGoogleConnection(): Promise<GoogleConnection | null> {
     metadata: connection.metadata,
     createdAt: connection.createdAt,
     updatedAt: connection.updatedAt,
-    accessToken: connection.accessTokenEncrypted ? decryptValue(connection.accessTokenEncrypted) : "",
-    refreshToken: connection.refreshTokenEncrypted ? decryptValue(connection.refreshTokenEncrypted) : null,
+    accessToken: connection.accessTokenEncrypted ? await decryptValue(connection.accessTokenEncrypted) : "",
+    refreshToken: connection.refreshTokenEncrypted ? await decryptValue(connection.refreshTokenEncrypted) : null,
   };
 }
 

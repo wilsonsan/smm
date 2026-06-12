@@ -167,6 +167,12 @@ export const facebookSettingsSchema = z.object({
     .max(100, "Facebook App ID must be 100 characters or less.")
     .refine((value) => value.length === 0 || /^\d+$/.test(value), "Facebook App ID must contain numbers only."),
   facebookAppSecret: z.string().trim().max(200, "Facebook App Secret must be 200 characters or less.").optional().default(""),
+  tokenEncryptionKey: z
+    .string()
+    .trim()
+    .max(500, "Token encryption key must be 500 characters or less.")
+    .optional()
+    .default(""),
   facebookPageLookupValue: z
     .string()
     .trim()
@@ -212,6 +218,12 @@ export const googleSettingsSchema = z.object({
     .string()
     .trim()
     .max(200, "Google Client Secret must be 200 characters or less.")
+    .optional()
+    .default(""),
+  tokenEncryptionKey: z
+    .string()
+    .trim()
+    .max(500, "Token encryption key must be 500 characters or less.")
     .optional()
     .default(""),
   returnTo: z

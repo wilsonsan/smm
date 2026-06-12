@@ -12,7 +12,7 @@ import {
   testGoogleConnection,
 } from "@/lib/google";
 import { getRequestMetadata } from "@/lib/http";
-import { saveGoogleClientSecretSetting } from "@/lib/secure-settings";
+import { rotateTokenEncryptionKeySetting, saveGoogleClientSecretSetting } from "@/lib/secure-settings";
 import { saveGoogleClientIdSetting } from "@/lib/settings";
 import { googleLocationSelectionSchema, googleSettingsSchema } from "@/lib/validation";
 
@@ -60,6 +60,7 @@ export async function saveGoogleSettingsAction(formData: FormData) {
   const parsed = googleSettingsSchema.safeParse({
     googleClientId: formData.get("googleClientId"),
     googleClientSecret: formData.get("googleClientSecret"),
+    tokenEncryptionKey: formData.get("tokenEncryptionKey"),
     returnTo: formData.get("returnTo"),
   });
 
@@ -71,6 +72,7 @@ export async function saveGoogleSettingsAction(formData: FormData) {
         message:
           parsed.error.flatten().fieldErrors.googleClientId?.[0] ||
           parsed.error.flatten().fieldErrors.googleClientSecret?.[0] ||
+          parsed.error.flatten().fieldErrors.tokenEncryptionKey?.[0] ||
           parsed.error.flatten().fieldErrors.returnTo?.[0] ||
           "Enter valid Google Business settings.",
       }),
@@ -78,8 +80,13 @@ export async function saveGoogleSettingsAction(formData: FormData) {
   }
 
   const nextClientSecret = parsed.data.googleClientSecret.trim();
+  const nextTokenEncryptionKey = parsed.data.tokenEncryptionKey.trim();
 
   try {
+    if (nextTokenEncryptionKey) {
+      await rotateTokenEncryptionKeySetting(nextTokenEncryptionKey);
+    }
+
     if (nextClientSecret) {
       await saveGoogleClientSecretSetting(nextClientSecret);
     }
@@ -100,6 +107,7 @@ export async function saveGoogleSettingsAction(formData: FormData) {
     metadata: {
       hasGoogleClientId: Boolean(parsed.data.googleClientId),
       hasGoogleClientSecret: Boolean(nextClientSecret),
+      hasTokenEncryptionKey: Boolean(nextTokenEncryptionKey),
       returnTo: parsed.data.returnTo || "/dashboard/settings/channels/google",
     },
   });
