@@ -1,14 +1,28 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element */
-import { useActionState, useEffect, useMemo, useRef, useState, type ReactNode, type SVGProps } from "react";
+import { SocialPlatform } from "@prisma/client";
+import {
+  useActionState,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  type SVGProps,
+} from "react";
 import { savePostAction } from "@/app/dashboard/posts/actions";
 import {
   CalendarIcon,
+  ChevronDownIcon,
   ClockIcon,
   ComposeIcon,
   FacebookIcon,
   GalleryIcon,
+  GoogleBusinessIcon,
+  SuccessIcon,
 } from "@/components/dashboard-icons";
 import { MediaUploadField } from "@/components/media-upload-field";
 import { SubmitButton } from "@/components/submit-button";
@@ -18,12 +32,19 @@ import {
   type MediaAssetGallerySummary,
   type MediaAssetSummary,
 } from "@/lib/media-presentation";
+import { resolveRenderedPlatformContent } from "@/lib/posts";
 import {
   getCaptionMaxForPlatforms,
   getCaptionMaxLabelForPlatforms,
   getMaxMediaCountForPlatforms,
   getPlatformMediaLimitMessage,
 } from "@/lib/platform-rules";
+import { normalizeHashtagList, type HashtagSettings } from "@/lib/hashtags";
+import {
+  buildTemplateVariableValueMap,
+  renderTemplateVariables,
+  type TemplateVariableDefinition,
+} from "@/lib/template-variables";
 import { getSchedulerTimezoneLabel, SCHEDULER_MINUTE_OPTIONS } from "@/lib/time";
 import { initialFormState } from "@/lib/validation";
 import type { GoogleFoundationState } from "@/lib/google";
@@ -38,7 +59,14 @@ const GOOGLE_PLATFORM = "GOOGLE_BUSINESS";
 type PostEditorFormProps = {
   post?: {
     id: string;
-    caption: string;
+    caption?: string;
+    descriptionMain?: string;
+    descriptionFacebook?: string;
+    descriptionInstagram?: string;
+    descriptionGoogleBusiness?: string;
+    instagramFirstComment?: string;
+    hashtags?: string[];
+    includeHashtagsInGoogle?: boolean;
     scheduledDate: string;
     scheduledHour: string;
     scheduledMinute: string;
@@ -57,9 +85,12 @@ type PostEditorFormProps = {
     createdAtLabel?: string;
     updatedByLabel?: string;
     updatedAtLabel?: string;
+    instagramFirstCommentStatusLabel?: string;
   };
   recentMediaAssets: MediaAssetGallerySummary[];
   timezone: string;
+  templateVariables?: TemplateVariableDefinition[];
+  hashtagSettings?: HashtagSettings;
   instagramFoundation?: InstagramFoundationState;
   googleFoundation?: GoogleFoundationState;
   previewProfiles?: {
@@ -101,6 +132,34 @@ function UploadCloudIcon(props: SVGProps<SVGSVGElement>) {
       <path d="M8.5 18.5h8a4 4 0 0 0 .6-8 5.5 5.5 0 0 0-10.7-1.1A4.2 4.2 0 0 0 8.5 18.5Z" />
       <path d="M12 8.5v8" />
       <path d="m9.2 11.3 2.8-2.8 2.8 2.8" />
+    </svg>
+  );
+}
+
+function QuestionCircleIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M9.7 9.4a2.6 2.6 0 0 1 4.6 1.6c0 1.8-1.8 2.3-2.3 3.4" />
+      <path d="M12 17h.01" />
+    </svg>
+  );
+}
+
+function FolderIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h4l2 2h6A2.5 2.5 0 0 1 20.5 9.5v7A2.5 2.5 0 0 1 18 19H6a2.5 2.5 0 0 1-2.5-2.5v-9Z" />
+      <path d="M3.5 9.5h17" />
+    </svg>
+  );
+}
+
+function PlusIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
     </svg>
   );
 }
@@ -291,10 +350,20 @@ function formatCharacterCount(value: number) {
   return value.toLocaleString();
 }
 
+function formatHashtagChipLabel(value: string) {
+  return value.startsWith("#") ? value : `#${value}`;
+}
+
+function parseHashtagInput(value: string) {
+  return normalizeHashtagList(value.split(/[\s,]+/).map((entry) => entry.trim()));
+}
+
 export function PostEditorForm({
   post,
   recentMediaAssets,
   timezone,
+  templateVariables = [],
+  hashtagSettings,
   instagramFoundation,
   googleFoundation,
   previewProfiles,
@@ -303,12 +372,33 @@ export function PostEditorForm({
 }: PostEditorFormProps) {
   const [state, formAction] = useActionState(savePostAction, initialFormState);
   const formRef = useRef<HTMLFormElement | null>(null);
+  const descriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const facebookOverrideTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const instagramOverrideTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const googleOverrideTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const instagramFirstCommentTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const hashtagInputRef = useRef<HTMLInputElement | null>(null);
   const [previewPlatform, setPreviewPlatform] = useState<PreviewPlatform>("FACEBOOK");
   const timezoneLabel = getSchedulerTimezoneLabel(timezone);
+  const templateVariableOptions = useMemo(
+    () => templateVariables.filter((variable) => variable.format.trim()),
+    [templateVariables],
+  );
+  const templateVariableValueMap = useMemo(
+    () => buildTemplateVariableValueMap(templateVariables),
+    [templateVariables],
+  );
 
   const fallbackValues = useMemo(
     () => ({
-      caption: post?.caption ?? "",
+      descriptionMain: post?.descriptionMain ?? post?.caption ?? "",
+      descriptionFacebook: post?.descriptionFacebook ?? "",
+      descriptionInstagram: post?.descriptionInstagram ?? "",
+      descriptionGoogleBusiness: post?.descriptionGoogleBusiness ?? "",
+      instagramFirstComment: post?.instagramFirstComment ?? "",
+      hashtags: post?.hashtags ?? [],
+      includeHashtagsInGoogle: post?.includeHashtagsInGoogle ?? false,
+      appliedHashtagGroups: [] as string[],
       scheduledDate: post?.scheduledDate ?? "",
       scheduledHour: post?.scheduledHour ?? "5",
       scheduledMinute: post?.scheduledMinute ?? "00",
@@ -322,7 +412,11 @@ export function PostEditorForm({
 
   const formValues = state.submittedValues ?? fallbackValues;
 
-  const [caption, setCaption] = useState(formValues.caption);
+  const [caption, setCaption] = useState(formValues.descriptionMain);
+  const [descriptionFacebook, setDescriptionFacebook] = useState(formValues.descriptionFacebook);
+  const [descriptionInstagram, setDescriptionInstagram] = useState(formValues.descriptionInstagram);
+  const [descriptionGoogleBusiness, setDescriptionGoogleBusiness] = useState(formValues.descriptionGoogleBusiness);
+  const [instagramFirstComment, setInstagramFirstComment] = useState(formValues.instagramFirstComment);
   const [scheduledDate, setScheduledDate] = useState(formValues.scheduledDate);
   const [scheduledHour, setScheduledHour] = useState(formValues.scheduledHour);
   const [scheduledMinute, setScheduledMinute] = useState(formValues.scheduledMinute);
@@ -330,9 +424,32 @@ export function PostEditorForm({
   const [selectedMediaAssetIds, setSelectedMediaAssetIds] = useState(formValues.mediaAssetIds);
   const [selectedPlatforms, setSelectedPlatforms] = useState(formValues.platforms);
   const [mediaSelectionSource, setMediaSelectionSource] = useState(formValues.mediaSelectionSource ?? "");
+  const [hashtags, setHashtags] = useState(formValues.hashtags);
+  const [hashtagDraft, setHashtagDraft] = useState("");
+  const [includeHashtagsInGoogle, setIncludeHashtagsInGoogle] = useState(formValues.includeHashtagsInGoogle);
+  const [appliedHashtagGroups, setAppliedHashtagGroups] = useState(formValues.appliedHashtagGroups);
+  const [selectedHashtagGroupId, setSelectedHashtagGroupId] = useState("");
+  const [showHashtagHelp, setShowHashtagHelp] = useState(false);
+  const [showPlatformOverrides, setShowPlatformOverrides] = useState(
+    Boolean(
+      formValues.descriptionFacebook ||
+        formValues.descriptionInstagram ||
+        formValues.descriptionGoogleBusiness,
+    ),
+  );
+  const [showInstagramFirstComment, setShowInstagramFirstComment] = useState(
+    Boolean(formValues.instagramFirstComment),
+  );
+  const [selectedVariableToken, setSelectedVariableToken] = useState(
+    templateVariableOptions[0]?.format ?? "",
+  );
 
   useEffect(() => {
-    setCaption(formValues.caption);
+    setCaption(formValues.descriptionMain);
+    setDescriptionFacebook(formValues.descriptionFacebook);
+    setDescriptionInstagram(formValues.descriptionInstagram);
+    setDescriptionGoogleBusiness(formValues.descriptionGoogleBusiness);
+    setInstagramFirstComment(formValues.instagramFirstComment);
     setScheduledDate(formValues.scheduledDate);
     setScheduledHour(formValues.scheduledHour);
     setScheduledMinute(formValues.scheduledMinute);
@@ -340,11 +457,29 @@ export function PostEditorForm({
     setSelectedMediaAssetIds(formValues.mediaAssetIds);
     setSelectedPlatforms(formValues.platforms);
     setMediaSelectionSource(formValues.mediaSelectionSource ?? "");
+    setHashtags(formValues.hashtags);
+    setIncludeHashtagsInGoogle(formValues.includeHashtagsInGoogle);
+    setAppliedHashtagGroups(formValues.appliedHashtagGroups);
+    setShowPlatformOverrides(
+      Boolean(
+        formValues.descriptionFacebook ||
+          formValues.descriptionInstagram ||
+          formValues.descriptionGoogleBusiness,
+      ),
+    );
+    setShowInstagramFirstComment(Boolean(formValues.instagramFirstComment));
   }, [
-    formValues.caption,
+    formValues.descriptionMain,
+    formValues.descriptionFacebook,
+    formValues.descriptionInstagram,
+    formValues.descriptionGoogleBusiness,
+    formValues.instagramFirstComment,
+    formValues.hashtags,
+    formValues.includeHashtagsInGoogle,
     formValues.mediaAssetIds,
     formValues.mediaSelectionSource,
     formValues.platforms,
+    formValues.appliedHashtagGroups,
     formValues.scheduledDate,
     formValues.scheduledHour,
     formValues.scheduledMeridiem,
@@ -364,6 +499,19 @@ export function PostEditorForm({
       block: "start",
     });
   }, [state.fieldErrors, state.message, state.success]);
+
+  useEffect(() => {
+    if (!templateVariableOptions.length) {
+      setSelectedVariableToken("");
+      return;
+    }
+
+    setSelectedVariableToken((current) =>
+      current && templateVariableOptions.some((variable) => variable.format === current)
+        ? current
+        : templateVariableOptions[0]?.format ?? "",
+    );
+  }, [templateVariableOptions]);
 
   const resolvedSelectedMediaAssets = useMemo(
     () =>
@@ -388,13 +536,15 @@ export function PostEditorForm({
   const previewVariant = previewMediaAsset
     ? getPreferredPreviewVariant(previewMediaAsset.variants)
     : null;
+  const normalizedHashtags = useMemo(() => normalizeHashtagList(hashtags), [hashtags]);
   const maxMediaCount = getMaxMediaCountForPlatforms(selectedPlatforms);
   const captionMax = getCaptionMaxForPlatforms(selectedPlatforms);
   const captionLimitLabel = getCaptionMaxLabelForPlatforms(selectedPlatforms);
   const captionOverallState = caption.length > captionMax ? "over" : "short";
   const mediaLimitMessage =
     selectedMediaAssetIds.length > maxMediaCount ? getPlatformMediaLimitMessage(selectedPlatforms) : null;
-  const captionPreview = caption.trim() || "Fresh tile install with clean lines and warm tones...";
+  const renderedCaptionPreview = renderTemplateVariables(caption, templateVariableValueMap).text.trim();
+  const captionPreview = renderedCaptionPreview || "Fresh tile install with clean lines and warm tones...";
   const scheduledForLabel = formatLocalScheduleLabel({
     scheduledDate,
     scheduledHour,
@@ -416,18 +566,129 @@ export function PostEditorForm({
         day: "numeric",
         year: "numeric",
       }).format(new Date());
-  const instagramPreviewUsername = instagramFoundation?.username || "nctilepros";
-  const instagramCaptionPreview = caption.trim() || "Clean tile lines, sharp details, and a finish that feels built to last.";
+  const instagramPreviewUsername =
+    instagramFoundation?.username && instagramFoundation.username !== "dev_override_instagram"
+      ? instagramFoundation.username
+      : "nctilepros";
   const facebookPreviewName = previewProfiles?.facebook?.name || "NC Tile Pros";
   const facebookPreviewSubtitle = previewProfiles?.facebook?.subtitle || "Just now - Public";
-  const instagramPreviewSubtitle = previewProfiles?.instagram?.subtitle || "Raleigh, North Carolina";
+  const instagramPreviewSubtitle =
+    previewProfiles?.instagram?.subtitle && previewProfiles.instagram.subtitle !== "Developer Override"
+      ? previewProfiles.instagram.subtitle
+      : "Raleigh, North Carolina";
   const googlePreviewName = previewProfiles?.google?.name || "NC Tile Pros";
   const googlePreviewSubtitle = previewProfiles?.google?.subtitle || googlePreviewDateLabel;
+  const hashtagGroups = hashtagSettings?.groups ?? [];
+  const selectedHashtagGroup = hashtagGroups.find((group) => group.id === selectedHashtagGroupId) ?? null;
+  const previewDescriptionValues = {
+    descriptionMain: caption,
+    descriptionFacebook,
+    descriptionInstagram,
+    descriptionGoogleBusiness,
+    instagramFirstComment,
+    hashtags: normalizedHashtags,
+    includeHashtagsInGoogle,
+  };
+  const previewHashtagSettings = hashtagSettings ?? { facebookDefaultLimit: 5 };
+  const facebookPreviewContent = resolveRenderedPlatformContent(
+    previewDescriptionValues,
+    SocialPlatform.FACEBOOK,
+    templateVariableValueMap,
+    previewHashtagSettings,
+  );
+  const instagramPreviewContent = resolveRenderedPlatformContent(
+    previewDescriptionValues,
+    SocialPlatform.INSTAGRAM,
+    templateVariableValueMap,
+    previewHashtagSettings,
+  );
+  const googlePreviewContent = resolveRenderedPlatformContent(
+    previewDescriptionValues,
+    SocialPlatform.GOOGLE_BUSINESS,
+    templateVariableValueMap,
+    previewHashtagSettings,
+  );
+  const facebookCaptionPreview =
+    facebookPreviewContent.descriptionText.trim() || "Fresh tile install with clean lines and warm tones...";
+  const instagramCaptionPreview =
+    instagramPreviewContent.descriptionText.trim() ||
+    "Clean tile lines, sharp details, and a finish that feels built to last.";
+  const googleCaptionPreview =
+    googlePreviewContent.descriptionText.trim() || "Fresh tile install with clean lines and warm tones...";
+  const instagramFirstCommentPreview = instagramPreviewContent.firstCommentText.trim();
+
+  function addHashtagsFromDraft(rawValue: string) {
+    const nextHashtags = parseHashtagInput(rawValue);
+    if (nextHashtags.length === 0) {
+      return;
+    }
+
+    setHashtags((current) => normalizeHashtagList([...current, ...nextHashtags]));
+    setHashtagDraft("");
+  }
+
+  function removeHashtag(tagToRemove: string) {
+    setHashtags((current) => current.filter((tag) => tag !== tagToRemove));
+  }
+
+  function applySelectedHashtagGroup() {
+    if (!selectedHashtagGroupId) {
+      return;
+    }
+
+    const selectedGroup = hashtagSettings?.groups.find((group) => group.id === selectedHashtagGroupId);
+    if (!selectedGroup) {
+      return;
+    }
+
+    setHashtags((current) => normalizeHashtagList([...current, ...selectedGroup.hashtags]));
+    setAppliedHashtagGroups((current) => [...new Set([...current, selectedGroup.name])]);
+  }
+
+  function insertVariableToken(
+    textarea: HTMLTextAreaElement | null,
+    value: string,
+    setValue: Dispatch<SetStateAction<string>>,
+  ) {
+    if (!selectedVariableToken) {
+      return;
+    }
+
+    if (!textarea) {
+      setValue((current) => `${current}${current ? " " : ""}${selectedVariableToken}`);
+      return;
+    }
+
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? textarea.value.length;
+    const nextValue = `${value.slice(0, start)}${selectedVariableToken}${value.slice(end)}`;
+    setValue(nextValue);
+
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const nextCaret = start + selectedVariableToken.length;
+      textarea.setSelectionRange(nextCaret, nextCaret);
+    });
+  }
+
   return (
     <form ref={formRef} action={formAction} className="composer-shell">
       <input type="hidden" name="postId" value={post?.id ?? ""} />
       <input type="hidden" name="createdFrom" value={post?.createdFrom ?? ""} />
       <input type="hidden" name="mediaSelectionSource" value={mediaSelectionSource} />
+      <input type="hidden" name="descriptionFacebook" value={descriptionFacebook} />
+      <input type="hidden" name="descriptionInstagram" value={descriptionInstagram} />
+      <input type="hidden" name="descriptionGoogleBusiness" value={descriptionGoogleBusiness} />
+      <input type="hidden" name="instagramFirstComment" value={instagramFirstComment} />
+      {normalizedHashtags.map((hashtag) => (
+        <input key={hashtag} type="hidden" name="hashtags" value={hashtag} />
+      ))}
+      {appliedHashtagGroups.map((groupName) => (
+        <input key={groupName} type="hidden" name="appliedHashtagGroups" value={groupName} />
+      ))}
+      {includeHashtagsInGoogle ? (
+        <input type="hidden" name="includeHashtagsInGoogle" value="on" />
+      ) : null}
       {selectedPlatforms.map((platform) => (
         <input key={platform} type="hidden" name="platforms" value={platform} />
       ))}
@@ -475,48 +736,7 @@ export function PostEditorForm({
 
           <section className="composer-section-card">
             <div className="composer-section-heading">
-              <span className="composer-step-badge">1</span>
-              <div>
-                <h2>Caption</h2>
-              </div>
-            </div>
-
-            <div className="composer-caption-shell">
-              <span className="composer-caption-sparkle" aria-hidden="true">
-                <SparkleIcon />
-              </span>
-              <textarea
-                id="caption"
-                name="caption"
-                value={caption}
-                onChange={(event) => setCaption(event.target.value)}
-                placeholder="Fresh tile install with clean lines and warm tones..."
-                disabled={isReadOnly}
-                maxLength={captionMax}
-                className="composer-caption-textarea"
-              />
-              <div className="composer-caption-footer">
-                <div className="composer-caption-guidance">
-                  <span className={`composer-character-count is-${captionOverallState}`.trim()}>
-                    {formatCharacterCount(caption.length)} / {formatCharacterCount(captionMax)}
-                  </span>
-                  <span className="composer-caption-help">
-                    {captionLimitLabel}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {state.fieldErrors?.caption?.map((error) => (
-              <span key={error} className="error-text">
-                {error}
-              </span>
-            ))}
-          </section>
-
-          <section className="composer-section-card">
-            <div className="composer-section-heading">
-              <span className="composer-step-badge is-blue">2</span>
+              <span className="composer-step-badge is-blue">1</span>
               <div>
                 <h2>Choose Platforms</h2>
               </div>
@@ -574,6 +794,241 @@ export function PostEditorForm({
 
           <section className="composer-section-card">
             <div className="composer-section-heading">
+              <span className="composer-step-badge">2</span>
+              <div>
+                <h2>Caption</h2>
+              </div>
+            </div>
+
+            <div className="composer-caption-shell">
+              <span className="composer-caption-sparkle" aria-hidden="true">
+                <SparkleIcon />
+              </span>
+              <textarea
+                ref={descriptionTextareaRef}
+                id="descriptionMain"
+                name="descriptionMain"
+                value={caption}
+                onChange={(event) => setCaption(event.target.value)}
+                placeholder="Fresh tile install with clean lines and warm tones..."
+                disabled={isReadOnly}
+                maxLength={captionMax}
+                className="composer-caption-textarea"
+              />
+              <div className="composer-caption-footer">
+                <div className="composer-caption-guidance">
+                  <span className={`composer-character-count is-${captionOverallState}`.trim()}>
+                    {formatCharacterCount(caption.length)} / {formatCharacterCount(captionMax)}
+                  </span>
+                  <span className="composer-caption-help">
+                    {captionLimitLabel}
+                  </span>
+                </div>
+                {templateVariableOptions.length > 0 ? (
+                  <div className="composer-card-actions">
+                    <select
+                      value={selectedVariableToken}
+                      onChange={(event) => setSelectedVariableToken(event.target.value)}
+                      className="composer-variable-select"
+                      disabled={isReadOnly}
+                    >
+                      {templateVariableOptions.map((variable) => (
+                        <option key={variable.id} value={variable.format}>
+                          {variable.format}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="ghost-link-button"
+                      onClick={() =>
+                        insertVariableToken(descriptionTextareaRef.current, caption, setCaption)
+                      }
+                      disabled={isReadOnly || !selectedVariableToken}
+                    >
+                      Insert
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="composer-description-block">
+              <div className="composer-description-header">
+                <div>
+                  <strong>Main Description</strong>
+                  <p>This is the default copy used unless a platform override replaces it.</p>
+                </div>
+                <button
+                  type="button"
+                  className={`composer-override-toggle${showPlatformOverrides ? " is-active" : ""}`.trim()}
+                  onClick={() => setShowPlatformOverrides((current) => !current)}
+                >
+                  Customize per platform
+                </button>
+              </div>
+
+              {showPlatformOverrides ? (
+                <div className="composer-override-grid">
+                  {selectedPlatforms.includes(FACEBOOK_PLATFORM) ? (
+                    <div className="composer-override-card">
+                      <div className="composer-override-card-head">
+                        <div>
+                          <strong>Facebook Override</strong>
+                          <p>Leave blank to use Main Description.</p>
+                        </div>
+                        <span className="composer-override-pill is-selected">Facebook</span>
+                      </div>
+                      <textarea
+                        ref={facebookOverrideTextareaRef}
+                        className="composer-override-textarea"
+                        value={descriptionFacebook}
+                        onChange={(event) => setDescriptionFacebook(event.target.value)}
+                        placeholder="Optional Facebook-specific copy..."
+                        disabled={isReadOnly}
+                        maxLength={63206}
+                      />
+                      <div className="composer-caption-footer">
+                        <span className="composer-character-count">
+                          {formatCharacterCount(descriptionFacebook.length)} / 63,206
+                        </span>
+                        {templateVariableOptions.length > 0 ? (
+                          <div className="composer-card-actions">
+                            <button
+                              type="button"
+                              className="ghost-link-button"
+                              onClick={() =>
+                                insertVariableToken(
+                                  facebookOverrideTextareaRef.current,
+                                  descriptionFacebook,
+                                  setDescriptionFacebook,
+                                )
+                              }
+                              disabled={isReadOnly || !selectedVariableToken}
+                            >
+                              Insert {selectedVariableToken || "variable"}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                      {state.fieldErrors?.descriptionFacebook?.map((error) => (
+                        <span key={error} className="error-text">
+                          {error}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {selectedPlatforms.includes(INSTAGRAM_PLATFORM) ? (
+                    <div className="composer-override-card">
+                      <div className="composer-override-card-head">
+                        <div>
+                          <strong>Instagram Override</strong>
+                          <p>Leave blank to use Main Description.</p>
+                        </div>
+                        <span className="composer-override-pill is-selected">Instagram</span>
+                      </div>
+                      <textarea
+                        ref={instagramOverrideTextareaRef}
+                        className="composer-override-textarea"
+                        value={descriptionInstagram}
+                        onChange={(event) => setDescriptionInstagram(event.target.value)}
+                        placeholder="Optional Instagram-specific caption..."
+                        disabled={isReadOnly}
+                        maxLength={2200}
+                      />
+                      <div className="composer-caption-footer">
+                        <span className="composer-character-count">
+                          {formatCharacterCount(descriptionInstagram.length)} / 2,200
+                        </span>
+                        {templateVariableOptions.length > 0 ? (
+                          <div className="composer-card-actions">
+                            <button
+                              type="button"
+                              className="ghost-link-button"
+                              onClick={() =>
+                                insertVariableToken(
+                                  instagramOverrideTextareaRef.current,
+                                  descriptionInstagram,
+                                  setDescriptionInstagram,
+                                )
+                              }
+                              disabled={isReadOnly || !selectedVariableToken}
+                            >
+                              Insert {selectedVariableToken || "variable"}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                      {state.fieldErrors?.descriptionInstagram?.map((error) => (
+                        <span key={error} className="error-text">
+                          {error}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {selectedPlatforms.includes(GOOGLE_PLATFORM) ? (
+                    <div className="composer-override-card">
+                      <div className="composer-override-card-head">
+                        <div>
+                          <strong>Google Business Override</strong>
+                          <p>Leave blank to use Main Description.</p>
+                        </div>
+                        <span className="composer-override-pill is-selected">Google</span>
+                      </div>
+                      <textarea
+                        ref={googleOverrideTextareaRef}
+                        className="composer-override-textarea"
+                        value={descriptionGoogleBusiness}
+                        onChange={(event) => setDescriptionGoogleBusiness(event.target.value)}
+                        placeholder="Optional Google-specific update..."
+                        disabled={isReadOnly}
+                        maxLength={1500}
+                      />
+                      <div className="composer-caption-footer">
+                        <span className="composer-character-count">
+                          {formatCharacterCount(descriptionGoogleBusiness.length)} / 1,500
+                        </span>
+                        {templateVariableOptions.length > 0 ? (
+                          <div className="composer-card-actions">
+                            <button
+                              type="button"
+                              className="ghost-link-button"
+                              onClick={() =>
+                                insertVariableToken(
+                                  googleOverrideTextareaRef.current,
+                                  descriptionGoogleBusiness,
+                                  setDescriptionGoogleBusiness,
+                                )
+                              }
+                              disabled={isReadOnly || !selectedVariableToken}
+                            >
+                              Insert {selectedVariableToken || "variable"}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                      {state.fieldErrors?.descriptionGoogleBusiness?.map((error) => (
+                        <span key={error} className="error-text">
+                          {error}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            {state.fieldErrors?.descriptionMain?.map((error) => (
+              <span key={error} className="error-text">
+                {error}
+              </span>
+            ))}
+          </section>
+
+          <section className="composer-section-card">
+            <div className="composer-section-heading">
               <span className="composer-step-badge is-violet">3</span>
               <div>
                 <h2>Media</h2>
@@ -595,6 +1050,153 @@ export function PostEditorForm({
               </span>
             ))}
           </section>
+
+          <section className="composer-section-card composer-section-card--compact">
+            <div className="composer-section-heading">
+              <span className="composer-step-badge is-blue">3A</span>
+              <div>
+                <h2>Hashtags</h2>
+              </div>
+            </div>
+
+            <div className="composer-hashtag-card">
+              <div className="composer-hashtag-toolbar">
+                {hashtagSettings?.groups.length ? (
+                  <div className="composer-hashtag-group-controls">
+                    <select
+                      value={selectedHashtagGroupId}
+                      onChange={(event) => setSelectedHashtagGroupId(event.target.value)}
+                      disabled={isReadOnly}
+                    >
+                      <option value="">Apply Hashtag Group</option>
+                      {hashtagSettings.groups.map((group) => (
+                        <option key={group.id} value={group.id}>
+                          {group.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="ghost-link-button"
+                      onClick={applySelectedHashtagGroup}
+                      disabled={isReadOnly || !selectedHashtagGroupId}
+                    >
+                      Apply
+                    </button>
+                  </div>
+                ) : null}
+
+                <div className="composer-hashtag-input-row">
+                  <input
+                    type="text"
+                    className="composer-hashtag-input"
+                    value={hashtagDraft}
+                    onChange={(event) => setHashtagDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === "," || event.key === " ") {
+                        event.preventDefault();
+                        addHashtagsFromDraft(hashtagDraft);
+                      }
+                    }}
+                    placeholder="Type a hashtag, then press space, comma, or Enter"
+                    disabled={isReadOnly}
+                  />
+                  <button
+                    type="button"
+                    className="ghost-link-button"
+                    onClick={() => addHashtagsFromDraft(hashtagDraft)}
+                    disabled={isReadOnly || !hashtagDraft.trim()}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              <div className="composer-hashtag-meta">
+                <span>{normalizedHashtags.length} hashtag{normalizedHashtags.length === 1 ? "" : "s"} added</span>
+              </div>
+
+              {normalizedHashtags.length > 0 ? (
+                <div className="composer-hashtag-chip-list">
+                  {normalizedHashtags.map((tag) => (
+                    <span key={tag} className="composer-hashtag-chip">
+                      {formatHashtagChipLabel(tag)}
+                      <button
+                        type="button"
+                        onClick={() => removeHashtag(tag)}
+                        disabled={isReadOnly}
+                        aria-label={`Remove ${formatHashtagChipLabel(tag)}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="composer-hashtag-empty">No hashtags added yet.</p>
+              )}
+            </div>
+          </section>
+
+          {selectedPlatforms.includes(INSTAGRAM_PLATFORM) ? (
+            <section className="composer-section-card composer-section-card--compact composer-instagram-comment-card">
+              <div className="composer-description-header">
+                <div>
+                  <strong>Instagram First Comment</strong>
+                  <p>Optional. Useful for hashtags or extra notes posted as the first comment.</p>
+                </div>
+                <button
+                  type="button"
+                  className={`composer-override-toggle${showInstagramFirstComment ? " is-active" : ""}`.trim()}
+                  onClick={() => setShowInstagramFirstComment((current) => !current)}
+                >
+                  {showInstagramFirstComment ? "Hide first comment" : "Show first comment"}
+                </button>
+              </div>
+
+              {showInstagramFirstComment ? (
+                <div className="composer-override-card composer-instagram-comment-card">
+                  <textarea
+                    ref={instagramFirstCommentTextareaRef}
+                    className="composer-override-textarea"
+                    value={instagramFirstComment}
+                    onChange={(event) => setInstagramFirstComment(event.target.value)}
+                    placeholder="Optional first comment for Instagram..."
+                    disabled={isReadOnly}
+                    maxLength={2200}
+                  />
+                  <div className="composer-caption-footer">
+                    <span className="composer-character-count">
+                      {formatCharacterCount(instagramFirstComment.length)} / 2,200
+                    </span>
+                    {templateVariableOptions.length > 0 ? (
+                      <div className="composer-card-actions">
+                        <button
+                          type="button"
+                          className="ghost-link-button"
+                          onClick={() =>
+                            insertVariableToken(
+                              instagramFirstCommentTextareaRef.current,
+                              instagramFirstComment,
+                              setInstagramFirstComment,
+                            )
+                          }
+                          disabled={isReadOnly || !selectedVariableToken}
+                        >
+                          Insert {selectedVariableToken || "variable"}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  {state.fieldErrors?.instagramFirstComment?.map((error) => (
+                    <span key={error} className="error-text">
+                      {error}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
 
           <section className="composer-section-card">
             <div className="composer-section-heading">
@@ -776,7 +1378,7 @@ export function PostEditorForm({
                     <span className="composer-social-more">•••</span>
                   </div>
 
-                  <p className="composer-social-caption">{captionPreview}</p>
+                  <p className="composer-social-caption">{facebookCaptionPreview}</p>
 
                   {previewVariant ? (
                     <div className="composer-social-media">
@@ -859,6 +1461,12 @@ export function PostEditorForm({
                       <p>
                         <span>{instagramPreviewUsername}</span> {instagramCaptionPreview}
                       </p>
+                      {instagramFirstCommentPreview ? (
+                        <div className="composer-instagram-first-comment-preview">
+                          <span>First comment</span>
+                          <p>{instagramFirstCommentPreview}</p>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -894,7 +1502,7 @@ export function PostEditorForm({
                     </div>
                   )}
                   <div className="composer-google-preview-body">
-                    <p>{captionPreview}</p>
+                    <p>{googleCaptionPreview}</p>
                   </div>
                   <div className="composer-google-preview-footer">
                     <ShareIcon />
@@ -903,7 +1511,7 @@ export function PostEditorForm({
               )}
             </section>
 
-            <section className="composer-summary-card">
+            {post?.id ? <section className="composer-summary-card">
               <div className="composer-summary-header">
                 <h2>Post Summary</h2>
               </div>
@@ -984,7 +1592,7 @@ export function PostEditorForm({
                 ) : null}
               </div>
 
-            </section>
+            </section> : null}
           </div>
         </aside>
       </div>

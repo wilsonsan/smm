@@ -64,6 +64,11 @@ export function getCaptionRulesForPlatforms(platforms: Array<SocialPlatform | st
   return normalizedPlatforms.map((platform) => PLATFORM_CAPTION_RULES[platform]);
 }
 
+export function getCaptionRuleForPlatform(platform: SocialPlatform | string) {
+  const normalized = normalizeSelectedPlatforms([String(platform)])[0];
+  return normalized ? PLATFORM_CAPTION_RULES[normalized] : null;
+}
+
 export function getCaptionMaxForPlatforms(platforms: Array<SocialPlatform | string>) {
   const rules = getCaptionRulesForPlatforms(platforms);
 

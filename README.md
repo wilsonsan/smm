@@ -6,10 +6,10 @@ This foundation now includes the secure admin shell, media processing pipeline, 
 
 ## Included
 
-- Protected admin dashboard with session-cookie auth
-- Admin-only login/logout
+- Protected dashboard with session-cookie auth
+- Authenticated user login/logout with optional MFA challenge
 - Prisma schema and initial MySQL migration
-- Environment-seeded admin account
+- First-run-only environment bootstrap for the initial admin account
 - Draft/save/edit/delete/schedule/cancel workflow for Facebook-ready posts
 - Authenticated local media upload with original preservation and temporary publish-time optimization
 - Sharp-based Facebook JPEG generation at publish time with cleanup tooling
@@ -31,7 +31,7 @@ This foundation now includes the secure admin shell, media processing pipeline, 
 - Database: MySQL via `DATABASE_URL`
 - Auth: server-side session records plus secure `HttpOnly` cookies
 - Storage: local filesystem uploads directory
-- Secrets: environment variables only
+- Secrets: database-backed account credentials plus encrypted runtime secrets
 
 ## Initial Data Model
 
@@ -80,13 +80,15 @@ Post status enum:
 & 'C:\Program Files\nodejs\npm.cmd' run prisma:migrate
 ```
 
-6. Seed the admin account and default settings:
+6. Seed the initial admin account and default settings:
 
 ```powershell
 & 'C:\Program Files\nodejs\npm.cmd' run db:seed
 ```
 
 This command loads values from the local `.env` file, including `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
+Those values are only used for the very first bootstrap when no users exist yet.
+After the first user is created, the database becomes the source of truth for email, password, and MFA settings.
 
 7. Start the app:
 
@@ -101,6 +103,7 @@ This command loads values from the local `.env` file, including `ADMIN_EMAIL` an
 ```
 
 9. Visit [http://127.0.0.1:3196](http://127.0.0.1:3196) and sign in with the seeded admin credentials.
+10. Open `Account Settings` after sign-in to update the email, rotate the password, and enable MFA.
 
 ## Environment Variables
 
@@ -111,8 +114,8 @@ Required or recommended values:
 - `UPLOAD_DIR`: local upload directory, default `./uploads`
 - `MAX_UPLOAD_BYTES`: max accepted upload size in bytes
 - `SESSION_TTL_HOURS`: admin session lifetime
-- `ADMIN_EMAIL`: seed admin email
-- `ADMIN_PASSWORD`: seed admin password
+- `ADMIN_EMAIL`: first-run-only bootstrap email for the initial admin
+- `ADMIN_PASSWORD`: first-run-only bootstrap password for the initial admin
 - `FACEBOOK_APP_ID`: optional env fallback if you do not store it in Settings
 - `FACEBOOK_APP_SECRET`: required env secret for the Meta app
 - `TOKEN_ENCRYPTION_KEY`: required env secret used to encrypt stored Facebook Page access tokens
@@ -131,6 +134,8 @@ Recommended production checklist:
 - All write actions require authentication.
 - Session cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` in production.
 - Passwords are hashed with `bcryptjs`.
+- MFA uses standard TOTP-compatible authenticator apps and stores the secret encrypted at rest.
+- Recovery codes are generated once per setup/regeneration and only hashed values are stored.
 - Uploads are validated server-side for size, type, and image dimensions.
 - The upload path is generated server-side; client file metadata is not trusted.
 - Uploads are stored outside the public web root by default.
@@ -138,6 +143,34 @@ Recommended production checklist:
 - Post state transitions are validated server-side before writes are accepted.
 - Audit records are written for login, logout, create/update/schedule/cancel/delete/return-to-draft post actions, settings save, media upload, and media changes.
 - Facebook access tokens are encrypted at rest with `TOKEN_ENCRYPTION_KEY`.
+
+## Account Credentials And MFA
+
+- `ADMIN_EMAIL` and `ADMIN_PASSWORD` are bootstrap values only.
+- Seed creates the first admin only when the database has no users.
+- If users already exist, seed logs `Users already exist; skipping env admin bootstrap` and does not overwrite email, password, or role.
+- After bootstrap, change account email and password from `Account Settings`.
+- All logged-in users can open `/dashboard/account` or `/account/settings` to manage their own account.
+- MFA supports standard TOTP apps including Google Authenticator, 1Password, Authy, and Microsoft Authenticator.
+- Enabling MFA requires scanning the QR code and confirming a valid 6-digit code.
+- Recovery codes are shown once after MFA setup or regeneration. Save them before leaving the page.
+- Disabling MFA requires the current password plus a valid authenticator code or recovery code.
+
+## Locked-Out Account Recovery
+
+If you are locked out and cannot use Account Settings:
+
+1. Connect to the server with shell access.
+2. Back up the database first.
+3. Use Prisma Studio, a SQL client, or a one-off script to update the target `AdminUser` record.
+4. If you only need to disable MFA, clear:
+   - `mfaEnabled`
+   - `mfaSecretEncrypted`
+   - `mfaVerifiedAt`
+   - `mfaLastUsedAt`
+   - related `MfaRecoveryCode` rows
+5. If you need a full emergency reset, update the stored `passwordHash` to a newly generated bcrypt hash instead of editing `.env`.
+6. Run the app normally again and sign in with the recovered database-backed credentials.
 - Facebook OAuth uses a server-side state cookie and never exposes tokens to the client.
 - Facebook app secret stays in environment variables only.
 - The scheduled worker is a server-side command, not a public endpoint.

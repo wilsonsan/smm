@@ -25,17 +25,30 @@ import {
 import {
   areSelectedPlatformsPublishableNow,
   doSelectedPlatformsRequireMedia,
+  getCaptionRuleForPlatform,
   getPlatformMediaLimitMessage,
   getRequiredMediaMessageForPlatforms,
   normalizeSelectedPlatforms,
   getMaxMediaCountForPlatforms,
 } from "@/lib/platform-rules";
 import {
+  DEFAULT_FACEBOOK_HASHTAG_LIMIT,
+  normalizeHashtagList,
+  type HashtagSettings,
+} from "@/lib/hashtags";
+import {
   buildInternalPostTitle,
   canCancelScheduled,
   canDeleteDraft,
   canReturnToDraft,
+  getEffectivePostDescription,
+  getFallbackPostDescriptionPreview,
+  getNormalizedPostHashtags,
   isReadOnlyPostStatus,
+  resolveRenderedInstagramFirstComment,
+  resolveRenderedPostDescription,
+  resolveRenderedPlatformContent,
+  type PostDescriptionValues,
   validateAndResolveScheduledAt,
 } from "@/lib/posts";
 import { createOrUpdatePlatformPublishFailedNotification } from "@/lib/notifications";
@@ -43,6 +56,8 @@ import { syncSocialPostAggregateState } from "@/lib/publish-state";
 import { prisma } from "@/lib/prisma";
 import { getRequestMetadata } from "@/lib/http";
 import { initialFormState, postFormSchema, type FormState } from "@/lib/validation";
+import { formatTemplateVariableTokens, type TemplateVariableValueMap } from "@/lib/template-variables";
+import { getBusinessVariableSettings, getHashtagSettings } from "@/lib/settings";
 
 async function createPostAuditLog(input: {
   action: string;
@@ -143,7 +158,14 @@ function assertPostAccess(
 }
 
 function buildSubmittedPostValues(input: {
-  caption?: FormDataEntryValue | string | null;
+  descriptionMain?: FormDataEntryValue | string | null;
+  descriptionFacebook?: FormDataEntryValue | string | null;
+  descriptionInstagram?: FormDataEntryValue | string | null;
+  instagramFirstComment?: FormDataEntryValue | string | null;
+  descriptionGoogleBusiness?: FormDataEntryValue | string | null;
+  hashtags?: Array<FormDataEntryValue | string | null>;
+  includeHashtagsInGoogle?: FormDataEntryValue | string | null;
+  appliedHashtagGroups?: Array<FormDataEntryValue | string | null>;
   scheduledDate?: FormDataEntryValue | string | null;
   scheduledHour?: FormDataEntryValue | string | null;
   scheduledMinute?: FormDataEntryValue | string | null;
@@ -153,7 +175,14 @@ function buildSubmittedPostValues(input: {
   mediaSelectionSource?: FormDataEntryValue | string | null;
 }) {
   return {
-    caption: String(input.caption || ""),
+    descriptionMain: String(input.descriptionMain || ""),
+    descriptionFacebook: String(input.descriptionFacebook || ""),
+    descriptionInstagram: String(input.descriptionInstagram || ""),
+    instagramFirstComment: String(input.instagramFirstComment || ""),
+    descriptionGoogleBusiness: String(input.descriptionGoogleBusiness || ""),
+    hashtags: normalizeHashtagList((input.hashtags ?? []).map((value) => String(value || ""))),
+    includeHashtagsInGoogle: String(input.includeHashtagsInGoogle || "") === "on",
+    appliedHashtagGroups: [...new Set((input.appliedHashtagGroups ?? []).map((value) => String(value || "")).filter(Boolean))],
     scheduledDate: String(input.scheduledDate || ""),
     scheduledHour: String(input.scheduledHour || "5"),
     scheduledMinute: String(input.scheduledMinute || "00"),
@@ -162,6 +191,138 @@ function buildSubmittedPostValues(input: {
     platforms: normalizeSelectedPlatforms((input.platforms ?? []).map((value) => String(value || ""))),
     mediaSelectionSource: String(input.mediaSelectionSource || ""),
   };
+}
+
+function buildPostDescriptionValues(input: {
+  descriptionMain?: string | null;
+  descriptionFacebook?: string | null;
+  descriptionInstagram?: string | null;
+  descriptionGoogleBusiness?: string | null;
+  hashtags?: unknown;
+  includeHashtagsInGoogle?: boolean | null;
+  instagramFirstComment?: string | null;
+}): PostDescriptionValues {
+  return {
+    descriptionMain: input.descriptionMain ?? "",
+    descriptionFacebook: input.descriptionFacebook ?? "",
+    descriptionInstagram: input.descriptionInstagram ?? "",
+    descriptionGoogleBusiness: input.descriptionGoogleBusiness ?? "",
+    hashtags: Array.isArray(input.hashtags) ? input.hashtags.map((value) => String(value || "")) : [],
+    includeHashtagsInGoogle: input.includeHashtagsInGoogle ?? false,
+    instagramFirstComment: input.instagramFirstComment ?? "",
+  };
+}
+
+function buildLegacyCaptionValue(
+  input: PostDescriptionValues,
+  platforms: SocialPlatform[],
+  templateVariableValues: TemplateVariableValueMap,
+) {
+  const preview = getFallbackPostDescriptionPreview(input, platforms);
+  return renderTemplateVariablesForPreview(preview, templateVariableValues);
+}
+
+function renderTemplateVariablesForPreview(
+  preview: string,
+  templateVariableValues: TemplateVariableValueMap,
+) {
+  return resolveRenderedPostDescription({ descriptionMain: preview }, SocialPlatform.FACEBOOK, templateVariableValues).text;
+}
+
+function getDescriptionFieldNameForPlatform(platform: SocialPlatform, usedOverride: boolean) {
+  if (!usedOverride) {
+    return "descriptionMain";
+  }
+
+  if (platform === SocialPlatform.FACEBOOK) {
+    return "descriptionFacebook";
+  }
+
+  if (platform === SocialPlatform.INSTAGRAM) {
+    return "descriptionInstagram";
+  }
+
+  return "descriptionGoogleBusiness";
+}
+
+function collectUnresolvedTemplateFieldErrors(input: {
+  descriptions: PostDescriptionValues;
+  businessVariables: TemplateVariableValueMap;
+  platforms: SocialPlatform[];
+  instagramSelected: boolean;
+}) {
+  const fieldErrors: Record<string, string[]> = {};
+  const missingTokens = new Set<string>();
+
+  for (const platform of input.platforms) {
+    const rendered = resolveRenderedPostDescription(input.descriptions, platform, input.businessVariables);
+    if (rendered.unresolvedVariableNames.length === 0) {
+      continue;
+    }
+
+    const fieldName = getDescriptionFieldNameForPlatform(platform, rendered.usedOverride);
+    fieldErrors[fieldName] = [
+      `These variables are missing values: ${formatTemplateVariableTokens(rendered.unresolvedVariableNames).join(", ")}`,
+    ];
+    for (const token of formatTemplateVariableTokens(rendered.unresolvedVariableNames)) {
+      missingTokens.add(token);
+    }
+  }
+
+  if (input.instagramSelected && input.descriptions.instagramFirstComment?.trim()) {
+    const firstComment = resolveRenderedInstagramFirstComment(input.descriptions, input.businessVariables);
+    if (firstComment.unresolvedVariableNames.length > 0) {
+      fieldErrors.instagramFirstComment = [
+        `These variables are missing values: ${formatTemplateVariableTokens(firstComment.unresolvedVariableNames).join(", ")}`,
+      ];
+      for (const token of formatTemplateVariableTokens(firstComment.unresolvedVariableNames)) {
+        missingTokens.add(token);
+      }
+    }
+  }
+
+  return {
+    fieldErrors,
+    missingTokens: [...missingTokens],
+  };
+}
+
+function collectFormattedPlatformFieldErrors(input: {
+  descriptions: PostDescriptionValues;
+  businessVariables: TemplateVariableValueMap;
+  hashtagSettings: Pick<HashtagSettings, "facebookDefaultLimit">;
+  platforms: SocialPlatform[];
+}) {
+  const fieldErrors: Record<string, string[]> = {};
+
+  for (const platform of input.platforms) {
+    const rule = getCaptionRuleForPlatform(platform);
+    if (!rule) {
+      continue;
+    }
+
+    const formatted = resolveRenderedPlatformContent(
+      input.descriptions,
+      platform,
+      input.businessVariables,
+      input.hashtagSettings,
+    );
+
+    if (formatted.descriptionText.length > rule.maxChars) {
+      const fieldName = getDescriptionFieldNameForPlatform(platform, formatted.usedOverride);
+      fieldErrors[fieldName] = [
+        `The final ${rule.label} post is ${formatted.descriptionText.length.toLocaleString()} characters. Keep it under ${rule.maxChars.toLocaleString()} after hashtags are added.`,
+      ];
+    }
+
+    if (platform === SocialPlatform.INSTAGRAM && formatted.firstCommentText.length > 2200) {
+      fieldErrors.instagramFirstComment = [
+        `Instagram First Comment is ${formatted.firstCommentText.length.toLocaleString()} characters after hashtags are added. Keep it under 2,200 characters.`,
+      ];
+    }
+  }
+
+  return fieldErrors;
 }
 
 async function markImmediatePublishFailure(input: {
@@ -220,6 +381,7 @@ type ImmediatePublishResult = {
   platform: SocialPlatform;
   outcome: "succeeded" | "failed" | "skipped";
   message: string;
+  warning?: string;
   platformPostId?: string | null;
   platformPostUrl?: string | null;
   finishedAt?: Date;
@@ -267,14 +429,15 @@ function buildImmediatePublishSummary(results: ImmediatePublishResult[]) {
   const succeeded = results.filter((result) => result.outcome === "succeeded").map((result) => result.platform);
   const failed = results.filter((result) => result.outcome === "failed").map((result) => result.platform);
   const skipped = results.filter((result) => result.outcome === "skipped").map((result) => result.platform);
+  const warnings = results.filter((result) => result.warning).map((result) => result.warning as string);
 
   if (succeeded.length > 0 && failed.length === 0) {
     return {
       status: "success" as const,
       message:
         skipped.length > 0
-          ? `Published to ${formatPlatformList(succeeded)}. ${formatPlatformList(skipped)} was already published and was skipped.`
-          : `Published to ${formatPlatformList(succeeded)}.`,
+          ? `Published to ${formatPlatformList(succeeded)}. ${formatPlatformList(skipped)} was already published and was skipped.${warnings.length > 0 ? ` ${warnings.join(" ")}` : ""}`
+          : `Published to ${formatPlatformList(succeeded)}.${warnings.length > 0 ? ` ${warnings.join(" ")}` : ""}`,
     };
   }
 
@@ -316,7 +479,7 @@ async function notifyImmediatePlatformPublishFailure(input: {
 
 async function validateImmediatePublishPrerequisites(input: {
   platform: SocialPlatform;
-  caption: string;
+  description: string;
   primaryMediaAsset: {
     id: string;
     mimeType: string;
@@ -332,20 +495,20 @@ async function validateImmediatePublishPrerequisites(input: {
 }) {
   if (input.platform === SocialPlatform.INSTAGRAM) {
     return validateInstagramPublishPrerequisites({
-      caption: input.caption,
+      caption: input.description,
       mediaAssets: input.mediaAssets,
     });
   }
 
   if (input.platform === SocialPlatform.GOOGLE_BUSINESS) {
     return validateGooglePublishPrerequisites({
-      caption: input.caption,
+      caption: input.description,
       mediaAsset: input.primaryMediaAsset,
     });
   }
 
   return validateFacebookPublishPrerequisites({
-    caption: input.caption,
+    caption: input.description,
     mediaAsset: input.primaryMediaAsset,
   });
 }
@@ -385,7 +548,7 @@ async function executeImmediatePublish(input: {
 async function runImmediatePlatformPublishes(input: {
   actorAdminUserId: string;
   postId: string;
-  caption: string;
+  descriptions: PostDescriptionValues;
   primaryMediaAsset: {
     id: string;
     mimeType: string;
@@ -406,10 +569,12 @@ async function runImmediatePlatformPublishes(input: {
   const results: ImmediatePublishResult[] = [];
 
   for (const platform of input.targetPlatforms) {
+    const effectiveDescription = getEffectivePostDescription(input.descriptions, platform);
+
     try {
       await validateImmediatePublishPrerequisites({
         platform,
-        caption: input.caption,
+        description: effectiveDescription.text,
         primaryMediaAsset: input.primaryMediaAsset,
         mediaAssets: input.mediaAssets,
       });
@@ -422,6 +587,10 @@ async function runImmediatePlatformPublishes(input: {
         postId: input.postId,
         message,
         platform,
+        requestSummary: {
+          usedOverride: effectiveDescription.usedOverride,
+          effectiveDescriptionLength: effectiveDescription.text.length,
+        },
       });
       await notifyImmediatePlatformPublishFailure({
         postId: input.postId,
@@ -468,6 +637,10 @@ async function runImmediatePlatformPublishes(input: {
         postId: input.postId,
         message: claim.message,
         platform,
+        requestSummary: {
+          usedOverride: effectiveDescription.usedOverride,
+          effectiveDescriptionLength: effectiveDescription.text.length,
+        },
       });
       await notifyImmediatePlatformPublishFailure({
         postId: input.postId,
@@ -533,6 +706,12 @@ async function runImmediatePlatformPublishes(input: {
         platform,
         outcome: "succeeded",
         message: `${getPlatformDisplayName(platform)} published successfully.`,
+        warning:
+          platform === SocialPlatform.INSTAGRAM &&
+          "firstComment" in result.result &&
+          result.result.firstComment.status === "failed"
+            ? "Instagram published, but the first comment failed."
+            : undefined,
         platformPostId: result.result.platformPostId,
         platformPostUrl: result.result.platformPostUrl,
         finishedAt: result.finishedAt,
@@ -604,7 +783,14 @@ function getDraftRedirectTarget(postId: string, scheduledAt: Date | null) {
 export async function savePostAction(_: FormState, formData: FormData): Promise<FormState> {
   const adminUser = await requireAuthenticatedUser();
   const submittedValues = buildSubmittedPostValues({
-    caption: formData.get("caption"),
+    descriptionMain: formData.get("descriptionMain"),
+    descriptionFacebook: formData.get("descriptionFacebook"),
+    descriptionInstagram: formData.get("descriptionInstagram"),
+    instagramFirstComment: formData.get("instagramFirstComment"),
+    descriptionGoogleBusiness: formData.get("descriptionGoogleBusiness"),
+    hashtags: formData.getAll("hashtags"),
+    includeHashtagsInGoogle: formData.get("includeHashtagsInGoogle"),
+    appliedHashtagGroups: formData.getAll("appliedHashtagGroups"),
     scheduledDate: formData.get("scheduledDate"),
     scheduledHour: formData.get("scheduledHour"),
     scheduledMinute: formData.get("scheduledMinute"),
@@ -616,7 +802,14 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
   const parsed = postFormSchema.safeParse({
     postId: formData.get("postId"),
     mediaAssetIds: formData.getAll("mediaAssetIds"),
-    caption: formData.get("caption"),
+    descriptionMain: formData.get("descriptionMain"),
+    descriptionFacebook: formData.get("descriptionFacebook"),
+    descriptionInstagram: formData.get("descriptionInstagram"),
+    instagramFirstComment: formData.get("instagramFirstComment"),
+    descriptionGoogleBusiness: formData.get("descriptionGoogleBusiness"),
+    hashtags: formData.getAll("hashtags"),
+    includeHashtagsInGoogle: formData.get("includeHashtagsInGoogle"),
+    appliedHashtagGroups: formData.getAll("appliedHashtagGroups"),
     scheduledDate: formData.get("scheduledDate"),
     scheduledHour: formData.get("scheduledHour"),
     scheduledMinute: formData.get("scheduledMinute"),
@@ -636,6 +829,10 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
 
   try {
     const isImmediatePublish = parsed.data.intent === "publish";
+    const [businessVariables, hashtagSettings] = await Promise.all([
+      getBusinessVariableSettings(),
+      getHashtagSettings(),
+    ]);
     const { scheduledAt, timezone } = await validateAndResolveScheduledAt({
       intent: parsed.data.intent,
       scheduledDate: parsed.data.scheduledDate,
@@ -742,6 +939,61 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       }
     }
 
+    const nextDescriptions = buildPostDescriptionValues({
+      descriptionMain: parsed.data.descriptionMain,
+      descriptionFacebook: parsed.data.descriptionFacebook,
+      descriptionInstagram: parsed.data.descriptionInstagram,
+      instagramFirstComment: parsed.data.instagramFirstComment,
+      descriptionGoogleBusiness: parsed.data.descriptionGoogleBusiness,
+      hashtags: parsed.data.hashtags,
+      includeHashtagsInGoogle: parsed.data.includeHashtagsInGoogle,
+    });
+
+    if (parsed.data.intent !== "draft") {
+      const unresolved = collectUnresolvedTemplateFieldErrors({
+        descriptions: nextDescriptions,
+        businessVariables,
+        platforms: parsed.data.platforms,
+        instagramSelected: parsed.data.platforms.includes(SocialPlatform.INSTAGRAM),
+      });
+
+      if (unresolved.missingTokens.length > 0) {
+        await createPostAuditLog({
+          actorAdminUserId: adminUser.id,
+          action: AUDIT_ACTIONS.POST_PUBLISH_BLOCKED_UNRESOLVED_VARIABLES,
+          targetId: parsed.data.postId || "new",
+          metadata: {
+            intent: parsed.data.intent,
+            platforms: parsed.data.platforms,
+            missingVariables: unresolved.missingTokens,
+          },
+        }).catch(() => undefined);
+
+        return {
+          ...initialFormState,
+          message: `These variables are missing values: ${unresolved.missingTokens.join(", ")}`,
+          fieldErrors: unresolved.fieldErrors,
+          submittedValues,
+        };
+      }
+
+      const formattedFieldErrors = collectFormattedPlatformFieldErrors({
+        descriptions: nextDescriptions,
+        businessVariables,
+        hashtagSettings,
+        platforms: parsed.data.platforms,
+      });
+
+      if (Object.keys(formattedFieldErrors).length > 0) {
+        return {
+          ...initialFormState,
+          message: "Shorten the final platform copy so it fits after hashtags are added.",
+          fieldErrors: formattedFieldErrors,
+          submittedValues,
+        };
+      }
+    }
+
     if (parsed.data.intent === "schedule" && !areSelectedPlatformsPublishableNow(parsed.data.platforms, "schedule")) {
       return {
         ...initialFormState,
@@ -765,9 +1017,17 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
     }
 
     const post = await prisma.$transaction(async (tx) => {
+      const legacyCaption = buildLegacyCaptionValue(nextDescriptions, parsed.data.platforms, businessVariables);
       const data = {
-        internalTitle: buildInternalPostTitle(parsed.data.caption),
-        caption: parsed.data.caption,
+        internalTitle: buildInternalPostTitle(legacyCaption),
+        caption: legacyCaption,
+        descriptionMain: parsed.data.descriptionMain,
+        descriptionFacebook: parsed.data.descriptionFacebook || null,
+        descriptionInstagram: parsed.data.descriptionInstagram || null,
+        instagramFirstComment: parsed.data.instagramFirstComment || null,
+        descriptionGoogleBusiness: parsed.data.descriptionGoogleBusiness || null,
+        hashtags: parsed.data.hashtags,
+        includeHashtagsInGoogle: parsed.data.includeHashtagsInGoogle,
         status: nextStatus,
         scheduledAt: effectiveScheduledAt,
         failureReason: null,
@@ -780,6 +1040,8 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       let previousStatus: SocialPostStatus | null = null;
       let previousScheduledAt: Date | null = null;
       let previousPlatforms: SocialPlatform[] = [];
+      let previousDescriptions: PostDescriptionValues = {};
+      let previousInstagramFirstComment: string | null = null;
       let currentPlatforms: Array<{
         platform: SocialPlatform;
         status: SocialPostStatus;
@@ -833,6 +1095,8 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
         previousStatus = existingPost.status;
         previousScheduledAt = existingPost.scheduledAt;
         previousPlatforms = existingPost.platforms.map((platform) => platform.platform);
+        previousDescriptions = buildPostDescriptionValues(existingPost);
+        previousInstagramFirstComment = existingPost.instagramFirstComment ?? null;
         existingPlatformMap = new Map(
           existingPost.platforms.map((platform) => [platform.platform, platform]),
         );
@@ -939,6 +1203,8 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
         previousStatus,
         previousScheduledAt,
         previousPlatforms,
+        previousDescriptions,
+        previousInstagramFirstComment,
         currentPlatforms,
       };
     });
@@ -979,6 +1245,120 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
           status: nextStatus,
           scheduledAt: effectiveScheduledAt?.toISOString() ?? null,
           timezone,
+        },
+      });
+    }
+
+    const previousInstagramFirstComment = post.previousInstagramFirstComment ?? null;
+    const nextInstagramFirstComment = parsed.data.instagramFirstComment || null;
+    const previousHashtags = getNormalizedPostHashtags(post.previousDescriptions);
+    const nextHashtags = parsed.data.hashtags;
+
+    if (post.previousDescriptions.descriptionMain !== nextDescriptions.descriptionMain) {
+      await createPostAuditLog({
+        actorAdminUserId: adminUser.id,
+        action: AUDIT_ACTIONS.POST_MAIN_DESCRIPTION_CHANGED,
+        targetId: post.post.id,
+        metadata: {
+          previousLength: (post.previousDescriptions.descriptionMain || "").length,
+          nextLength: nextDescriptions.descriptionMain?.length || 0,
+        },
+      });
+    }
+
+    if ((post.previousDescriptions.descriptionFacebook || "") !== (nextDescriptions.descriptionFacebook || "")) {
+      await createPostAuditLog({
+        actorAdminUserId: adminUser.id,
+        action: AUDIT_ACTIONS.POST_FACEBOOK_OVERRIDE_CHANGED,
+        targetId: post.post.id,
+        metadata: {
+          previousLength: (post.previousDescriptions.descriptionFacebook || "").length,
+          nextLength: (nextDescriptions.descriptionFacebook || "").length,
+        },
+      });
+    }
+
+    if ((post.previousDescriptions.descriptionInstagram || "") !== (nextDescriptions.descriptionInstagram || "")) {
+      await createPostAuditLog({
+        actorAdminUserId: adminUser.id,
+        action: AUDIT_ACTIONS.POST_INSTAGRAM_OVERRIDE_CHANGED,
+        targetId: post.post.id,
+        metadata: {
+          previousLength: (post.previousDescriptions.descriptionInstagram || "").length,
+          nextLength: (nextDescriptions.descriptionInstagram || "").length,
+        },
+      });
+    }
+
+    if (!previousInstagramFirstComment && nextInstagramFirstComment) {
+      await createPostAuditLog({
+        actorAdminUserId: adminUser.id,
+        action: AUDIT_ACTIONS.INSTAGRAM_FIRST_COMMENT_ADDED,
+        targetId: post.post.id,
+        metadata: {
+          nextLength: nextInstagramFirstComment.length,
+        },
+      });
+    } else if ((previousInstagramFirstComment || "") !== (nextInstagramFirstComment || "")) {
+      await createPostAuditLog({
+        actorAdminUserId: adminUser.id,
+        action: AUDIT_ACTIONS.INSTAGRAM_FIRST_COMMENT_CHANGED,
+        targetId: post.post.id,
+        metadata: {
+          previousLength: (previousInstagramFirstComment || "").length,
+          nextLength: (nextInstagramFirstComment || "").length,
+        },
+      });
+    }
+
+    const addedHashtags = nextHashtags.filter((tag) => !previousHashtags.includes(tag));
+    const removedHashtags = previousHashtags.filter((tag) => !nextHashtags.includes(tag));
+
+    if (addedHashtags.length > 0) {
+      await createPostAuditLog({
+        actorAdminUserId: adminUser.id,
+        action: AUDIT_ACTIONS.POST_HASHTAG_ADDED,
+        targetId: post.post.id,
+        metadata: {
+          addedHashtags,
+        },
+      });
+    }
+
+    if (removedHashtags.length > 0) {
+      await createPostAuditLog({
+        actorAdminUserId: adminUser.id,
+        action: AUDIT_ACTIONS.POST_HASHTAG_REMOVED,
+        targetId: post.post.id,
+        metadata: {
+          removedHashtags,
+        },
+      });
+    }
+
+    for (const groupName of parsed.data.appliedHashtagGroups) {
+      await createPostAuditLog({
+        actorAdminUserId: adminUser.id,
+        action: AUDIT_ACTIONS.POST_HASHTAG_GROUP_APPLIED,
+        targetId: post.post.id,
+        metadata: {
+          groupName,
+          hashtags: nextHashtags,
+        },
+      });
+    }
+
+    if (
+      (post.previousDescriptions.descriptionGoogleBusiness || "") !==
+      (nextDescriptions.descriptionGoogleBusiness || "")
+    ) {
+      await createPostAuditLog({
+        actorAdminUserId: adminUser.id,
+        action: AUDIT_ACTIONS.POST_GOOGLE_OVERRIDE_CHANGED,
+        targetId: post.post.id,
+        metadata: {
+          previousLength: (post.previousDescriptions.descriptionGoogleBusiness || "").length,
+          nextLength: (nextDescriptions.descriptionGoogleBusiness || "").length,
         },
       });
     }
@@ -1115,7 +1495,7 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
     const publishRun = await runImmediatePlatformPublishes({
       actorAdminUserId: adminUser.id,
       postId: post.post.id,
-      caption: parsed.data.caption,
+      descriptions: nextDescriptions,
       primaryMediaAsset,
       mediaAssets: orderedSelectedMediaAssets,
       targetPlatforms,
@@ -1351,6 +1731,53 @@ export async function publishPostNowAction(formData: FormData) {
     );
   }
 
+  const [businessVariables, hashtagSettings] = await Promise.all([
+    getBusinessVariableSettings(),
+    getHashtagSettings(),
+  ]);
+  const postDescriptionValues = buildPostDescriptionValues(existingPost);
+  const unresolved = collectUnresolvedTemplateFieldErrors({
+    descriptions: postDescriptionValues,
+    businessVariables,
+    platforms,
+    instagramSelected: platforms.includes(SocialPlatform.INSTAGRAM),
+  });
+  if (unresolved.missingTokens.length > 0) {
+    await createPostAuditLog({
+      actorAdminUserId: adminUser.id,
+      action: AUDIT_ACTIONS.POST_PUBLISH_BLOCKED_UNRESOLVED_VARIABLES,
+      targetId: existingPost.id,
+      metadata: {
+        intent: "publish",
+        platforms,
+        missingVariables: unresolved.missingTokens,
+      },
+    }).catch(() => undefined);
+
+    redirect(
+      buildPostDetailHref(postId, {
+        status: "error",
+        message: `These variables are missing values: ${unresolved.missingTokens.join(", ")}`,
+      }),
+    );
+  }
+
+  const formattedFieldErrors = collectFormattedPlatformFieldErrors({
+    descriptions: postDescriptionValues,
+    businessVariables,
+    hashtagSettings,
+    platforms,
+  });
+
+  if (Object.keys(formattedFieldErrors).length > 0) {
+    redirect(
+      buildPostDetailHref(postId, {
+        status: "error",
+        message: "Shorten the final platform copy so it fits after hashtags are added.",
+      }),
+    );
+  }
+
   const publishNowAt = new Date();
   if ((existingPost.scheduledAt?.toISOString() ?? null) !== publishNowAt.toISOString()) {
     await prisma.$transaction(async (tx) => {
@@ -1390,7 +1817,7 @@ export async function publishPostNowAction(formData: FormData) {
   const publishRun = await runImmediatePlatformPublishes({
     actorAdminUserId: adminUser.id,
     postId,
-    caption: existingPost.caption,
+    descriptions: buildPostDescriptionValues(existingPost),
     primaryMediaAsset: existingPost.mediaAsset,
     mediaAssets: existingPost.attachedMedia.map((item) => item.mediaAsset),
     targetPlatforms,

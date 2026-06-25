@@ -7,7 +7,7 @@ import {
 } from "@prisma/client";
 import { DateTime } from "luxon";
 import { prisma } from "@/lib/prisma";
-import { getAggregatePlatformOutcome, getPostCaptionPreview, resolvePostCalendarAt } from "@/lib/posts";
+import { getAggregatePlatformOutcome, getPostDescriptionPreview, resolvePostCalendarAt } from "@/lib/posts";
 import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
 import { getRequestMetadata } from "@/lib/http";
 import { isDeletedArchiveUser } from "@/lib/managed-users";
@@ -723,7 +723,7 @@ export async function getPublishHistory(filters: AnalyticsFilters, timezone: str
       creatorRole: row.createdByAdminUser.role,
       statusLabel: aggregateOutcome.label,
       statusTone: aggregateOutcome.tone,
-      descriptionPreview: getPostCaptionPreview(row.caption),
+      descriptionPreview: getPostDescriptionPreview(row, row.platforms.map((platform) => platform.platform)),
       platforms: row.platforms.map((platform) => ({
         platform: platform.platform,
         status: platform.status,
@@ -825,6 +825,10 @@ export async function getFailureAnalytics(recentLimit = 20) {
         select: {
           id: true,
           caption: true,
+          descriptionMain: true,
+          descriptionFacebook: true,
+          descriptionInstagram: true,
+          descriptionGoogleBusiness: true,
           createdByAdminUser: {
             select: {
               displayName: true,
@@ -895,7 +899,7 @@ export async function getFailureAnalytics(recentLimit = 20) {
     status: attempt.status,
     creatorName: getCreatorDisplayName(attempt.socialPost.createdByAdminUser),
     creatorRole: attempt.socialPost.createdByAdminUser.role,
-    descriptionPreview: getPostCaptionPreview(attempt.socialPost.caption),
+    descriptionPreview: getPostDescriptionPreview(attempt.socialPost, [attempt.platform]),
     errorSummary: normalizeFailureReason({
       errorMessage: attempt.errorMessage,
       errorCode: attempt.errorCode,
@@ -922,6 +926,10 @@ export async function getPublishAttemptInsights(filters: AnalyticsFilters, timez
         select: {
           id: true,
           caption: true,
+          descriptionMain: true,
+          descriptionFacebook: true,
+          descriptionInstagram: true,
+          descriptionGoogleBusiness: true,
           createdByAdminUser: {
             select: {
               displayName: true,
@@ -964,7 +972,7 @@ export async function getPublishAttemptInsights(filters: AnalyticsFilters, timez
     status: attempt.status,
     creatorName: getCreatorDisplayName(attempt.socialPost.createdByAdminUser),
     creatorRole: attempt.socialPost.createdByAdminUser.role,
-    descriptionPreview: getPostCaptionPreview(attempt.socialPost.caption),
+    descriptionPreview: getPostDescriptionPreview(attempt.socialPost, [attempt.platform]),
     errorSummary: normalizeFailureReason({
       errorMessage: attempt.errorMessage,
       errorCode: attempt.errorCode,
@@ -1087,7 +1095,7 @@ export async function getQueueOverview(timezone: string) {
     id: row.id,
     scheduledAt: row.scheduledAt as Date,
     creatorName: getCreatorDisplayName(row.createdByAdminUser),
-    descriptionPreview: getPostCaptionPreview(row.caption),
+    descriptionPreview: getPostDescriptionPreview(row, row.platforms.map((platform) => platform.platform)),
     platforms: row.platforms.map((platform) => ({
       platform: platform.platform,
       status: platform.status,

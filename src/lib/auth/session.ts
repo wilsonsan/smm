@@ -10,6 +10,7 @@ import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
 import { isDeletedArchiveUser } from "@/lib/managed-users";
 
 export const SESSION_COOKIE_NAME = "smm_admin_session";
+export const PENDING_MFA_COOKIE_NAME = "smm_pending_mfa_session";
 
 function hashSessionToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
@@ -30,9 +31,31 @@ async function setSessionCookie(token: string, expiresAt: Date) {
   });
 }
 
+async function setPendingMfaCookie(token: string, expiresAt: Date) {
+  const cookieStore = await cookies();
+  cookieStore.set(PENDING_MFA_COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: isSecureAppUrl,
+    expires: expiresAt,
+    path: "/",
+  });
+}
+
 export async function clearSessionCookie() {
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE_NAME, "", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: isSecureAppUrl,
+    expires: new Date(0),
+    path: "/",
+  });
+}
+
+export async function clearPendingMfaCookie() {
+  const cookieStore = await cookies();
+  cookieStore.set(PENDING_MFA_COOKIE_NAME, "", {
     httpOnly: true,
     sameSite: "lax",
     secure: isSecureAppUrl,
@@ -109,6 +132,44 @@ export async function getCurrentAdminSession() {
 export async function getCurrentAdminUser() {
   const session = await getCurrentAdminSession();
   return session?.adminUser ?? null;
+}
+
+export async function getPendingMfaSessionByToken(token: string | null | undefined) {
+  if (!token) {
+    return null;
+  }
+
+  const tokenHash = hashSessionToken(token);
+  const pendingSession = await prisma.pendingMfaSession.findUnique({
+    where: { tokenHash },
+    include: { adminUser: true },
+  });
+
+  if (!pendingSession) {
+    return null;
+  }
+
+  if (isDeletedArchiveUser(pendingSession.adminUser)) {
+    await prisma.pendingMfaSession.delete({
+      where: { id: pendingSession.id },
+    }).catch(() => undefined);
+    return null;
+  }
+
+  if (pendingSession.expiresAt <= new Date()) {
+    await prisma.pendingMfaSession.delete({
+      where: { id: pendingSession.id },
+    }).catch(() => undefined);
+    return null;
+  }
+
+  return pendingSession;
+}
+
+export async function getCurrentPendingMfaSession() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(PENDING_MFA_COOKIE_NAME)?.value;
+  return getPendingMfaSessionByToken(token);
 }
 
 export function isAdminUserRole(role: AdminUserRole) {
@@ -226,6 +287,80 @@ export async function createSessionForAdminUser(adminUserId: string) {
   await setSessionCookie(token, expiresAt);
 }
 
+export async function rotateCurrentAdminSession(adminUserId: string) {
+  const cookieStore = await cookies();
+  const currentToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+
+  if (currentToken) {
+    const currentSession = await getAdminSessionByToken(currentToken, { touch: false });
+    if (currentSession) {
+      await prisma.adminSession.delete({
+        where: { id: currentSession.id },
+      }).catch(() => undefined);
+    }
+  }
+
+  await createSessionForAdminUser(adminUserId);
+}
+
+export async function createPendingMfaSessionForAdminUser(adminUserId: string, expiresAt: Date) {
+  const token = randomBytes(32).toString("hex");
+  const { ipAddress, userAgent } = await getRequestMetadata();
+  const cookieStore = await cookies();
+  const existingToken = cookieStore.get(PENDING_MFA_COOKIE_NAME)?.value;
+  const existingSession = await getPendingMfaSessionByToken(existingToken);
+
+  if (existingSession) {
+    await deletePendingMfaSessionById(existingSession.id);
+  }
+
+  await prisma.pendingMfaSession.deleteMany({
+    where: {
+      adminUserId,
+    },
+  });
+
+  await prisma.pendingMfaSession.create({
+    data: {
+      tokenHash: hashSessionToken(token),
+      adminUserId,
+      expiresAt,
+      ipAddress,
+      userAgent,
+    },
+  });
+
+  await setPendingMfaCookie(token, expiresAt);
+}
+
+export async function deletePendingMfaSessionById(id: string) {
+  await prisma.pendingMfaSession.delete({
+    where: { id },
+  }).catch(() => undefined);
+}
+
+export async function incrementPendingMfaSessionAttempts(id: string) {
+  return prisma.pendingMfaSession.update({
+    where: { id },
+    data: {
+      attempts: {
+        increment: 1,
+      },
+    },
+  });
+}
+
+export async function clearCurrentPendingMfaSession() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(PENDING_MFA_COOKIE_NAME)?.value;
+  const pendingSession = await getPendingMfaSessionByToken(token);
+  if (pendingSession) {
+    await deletePendingMfaSessionById(pendingSession.id);
+  }
+
+  await clearPendingMfaCookie();
+}
+
 export async function authenticateAdmin(email: string, password: string): Promise<AdminUser | null> {
   const adminUser = await prisma.adminUser.findUnique({
     where: { email: email.trim().toLowerCase() },
@@ -251,6 +386,8 @@ export async function loginAdminUser(adminUser: AdminUser) {
   if (isDeletedArchiveUser(adminUser)) {
     return;
   }
+
+  await clearCurrentPendingMfaSession();
 
   await prisma.adminUser.update({
     where: { id: adminUser.id },

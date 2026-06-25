@@ -1,5 +1,11 @@
 import { SocialPlatform, SocialPostStatus } from "@prisma/client";
+import { applyHashtagsToPlatformContent, normalizeHashtagList, type HashtagSettings } from "@/lib/hashtags";
 import { getResolvedAppTimezone, parseScheduledAtInTimezone } from "@/lib/time";
+import {
+  extractTemplateVariableNames,
+  renderTemplateVariables,
+  type TemplateVariableValueMap,
+} from "@/lib/template-variables";
 
 export const POST_LIST_FILTERS = [
   "ALL",
@@ -22,6 +28,31 @@ export type PlatformPublishSummary = {
 export type AggregatePlatformOutcome = {
   label: string;
   tone: "draft" | "scheduled" | "publishing" | "published" | "failed" | "cancelled";
+};
+
+export type PostDescriptionValues = {
+  caption?: string | null;
+  descriptionMain?: string | null;
+  descriptionFacebook?: string | null;
+  descriptionInstagram?: string | null;
+  instagramFirstComment?: string | null;
+  descriptionGoogleBusiness?: string | null;
+  hashtags?: unknown;
+  includeHashtagsInGoogle?: boolean | null;
+};
+
+export type RenderedPostDescriptionResult = {
+  text: string;
+  usedOverride: boolean;
+  variablesRendered: boolean;
+  unresolvedVariableNames: string[];
+};
+
+export type RenderedPlatformContentResult = RenderedPostDescriptionResult & {
+  descriptionText: string;
+  firstCommentText: string;
+  hashtagsUsed: string[];
+  hashtagPlacement: "description" | "firstComment" | "none";
 };
 
 export function isEditablePostStatus(status: SocialPostStatus) {
@@ -68,6 +99,150 @@ export function canManuallyPublish(status: SocialPostStatus) {
     status === SocialPostStatus.SCHEDULED ||
     status === SocialPostStatus.FAILED
   );
+}
+
+export function normalizePostDescription(value: string | null | undefined) {
+  return (value || "").replace(/\r\n/g, "\n").trim();
+}
+
+export function getMainPostDescription(input: PostDescriptionValues) {
+  return normalizePostDescription(input.descriptionMain ?? input.caption ?? "");
+}
+
+export function getPlatformDescriptionOverride(
+  input: PostDescriptionValues,
+  platform: SocialPlatform,
+) {
+  switch (platform) {
+    case SocialPlatform.FACEBOOK:
+      return normalizePostDescription(input.descriptionFacebook);
+    case SocialPlatform.INSTAGRAM:
+      return normalizePostDescription(input.descriptionInstagram);
+    case SocialPlatform.GOOGLE_BUSINESS:
+      return normalizePostDescription(input.descriptionGoogleBusiness);
+    default:
+      return "";
+  }
+}
+
+export function getEffectivePostDescription(
+  input: PostDescriptionValues,
+  platform: SocialPlatform,
+) {
+  const override = getPlatformDescriptionOverride(input, platform);
+  const main = getMainPostDescription(input);
+
+  return {
+    text: override || main,
+    usedOverride: Boolean(override),
+  };
+}
+
+export function getNormalizedPostHashtags(input: PostDescriptionValues) {
+  return normalizeHashtagList(Array.isArray(input.hashtags) ? input.hashtags.map((value) => String(value || "")) : []);
+}
+
+export function resolveRenderedPostDescription(
+  input: PostDescriptionValues,
+  platform: SocialPlatform,
+  templateVariableValues: TemplateVariableValueMap,
+): RenderedPostDescriptionResult {
+  const effective = getEffectivePostDescription(input, platform);
+  const rendered = renderTemplateVariables(effective.text, templateVariableValues);
+
+  return {
+    text: rendered.text,
+    usedOverride: effective.usedOverride,
+    variablesRendered: extractTemplateVariableNames(effective.text).length > 0,
+    unresolvedVariableNames: rendered.unresolvedVariableNames,
+  };
+}
+
+export function resolveRenderedInstagramFirstComment(
+  input: PostDescriptionValues,
+  templateVariableValues: TemplateVariableValueMap,
+) {
+  const source = normalizePostDescription(input.instagramFirstComment);
+  const rendered = renderTemplateVariables(source, templateVariableValues);
+
+  return {
+    text: rendered.text,
+    variablesRendered: extractTemplateVariableNames(source).length > 0,
+    unresolvedVariableNames: rendered.unresolvedVariableNames,
+  };
+}
+
+export function resolveRenderedPlatformContent(
+  input: PostDescriptionValues,
+  platform: SocialPlatform,
+  templateVariableValues: TemplateVariableValueMap,
+  hashtagSettings: Pick<HashtagSettings, "facebookDefaultLimit">,
+): RenderedPlatformContentResult {
+  const renderedDescription = resolveRenderedPostDescription(input, platform, templateVariableValues);
+  const renderedFirstComment =
+    platform === SocialPlatform.INSTAGRAM
+      ? resolveRenderedInstagramFirstComment(input, templateVariableValues)
+      : {
+          text: "",
+          variablesRendered: false,
+          unresolvedVariableNames: [] as string[],
+        };
+
+  const hashtagContent = applyHashtagsToPlatformContent({
+    platform,
+    descriptionText: renderedDescription.text,
+    firstCommentText: renderedFirstComment.text,
+    hashtags: getNormalizedPostHashtags(input),
+    includeHashtagsInGoogle: Boolean(input.includeHashtagsInGoogle),
+    facebookDefaultLimit: hashtagSettings.facebookDefaultLimit,
+  });
+
+  return {
+    ...renderedDescription,
+    descriptionText: hashtagContent.descriptionText,
+    firstCommentText: hashtagContent.firstCommentText,
+    hashtagsUsed: hashtagContent.hashtagsUsed,
+    hashtagPlacement: hashtagContent.placement,
+    variablesRendered: renderedDescription.variablesRendered || renderedFirstComment.variablesRendered,
+    unresolvedVariableNames: [
+      ...new Set([
+        ...renderedDescription.unresolvedVariableNames,
+        ...renderedFirstComment.unresolvedVariableNames,
+      ]),
+    ],
+  };
+}
+
+export function getFallbackPostDescriptionPreview(
+  input: PostDescriptionValues,
+  platforms: Array<SocialPlatform | string> = [],
+) {
+  const main = getMainPostDescription(input);
+  if (main) {
+    return main;
+  }
+
+  const orderedPlatforms =
+    platforms.length > 0
+      ? platforms.map((platform) => String(platform))
+      : [SocialPlatform.FACEBOOK, SocialPlatform.INSTAGRAM, SocialPlatform.GOOGLE_BUSINESS];
+
+  for (const platform of orderedPlatforms) {
+    if (
+      platform !== SocialPlatform.FACEBOOK &&
+      platform !== SocialPlatform.INSTAGRAM &&
+      platform !== SocialPlatform.GOOGLE_BUSINESS
+    ) {
+      continue;
+    }
+
+    const override = getPlatformDescriptionOverride(input, platform);
+    if (override) {
+      return override;
+    }
+  }
+
+  return normalizePostDescription(input.caption);
 }
 
 export async function validateAndResolveScheduledAt(input: {
@@ -294,4 +469,12 @@ export function getPostCaptionPreview(caption: string | null | undefined, maxLen
 
 export function buildInternalPostTitle(caption: string | null | undefined) {
   return getPostCaptionPreview(caption, 72);
+}
+
+export function getPostDescriptionPreview(
+  input: PostDescriptionValues,
+  platforms: Array<SocialPlatform | string> = [],
+  maxLength = 84,
+) {
+  return getPostCaptionPreview(getFallbackPostDescriptionPreview(input, platforms), maxLength);
 }

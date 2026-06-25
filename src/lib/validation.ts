@@ -1,15 +1,24 @@
 import { SocialPlatform } from "@prisma/client";
 import { z } from "zod";
+import { normalizeHashtagList } from "@/lib/hashtags";
 import {
   areSelectedPlatformsPublishableNow,
   doSelectedPlatformsRequireMedia,
   getCaptionLimitErrorMessage,
+  getCaptionRuleForPlatform,
   getCaptionMaxForPlatforms,
   getMaxMediaCountForPlatforms,
   getRequiredMediaMessageForPlatforms,
   normalizeSelectedPlatforms,
 } from "@/lib/platform-rules";
+import { getEffectivePostDescription, getMainPostDescription, getPlatformDescriptionOverride } from "@/lib/posts";
 import { isValidTimezone } from "@/lib/time";
+
+const descriptionFieldByPlatform: Record<SocialPlatform, "descriptionFacebook" | "descriptionInstagram" | "descriptionGoogleBusiness"> = {
+  [SocialPlatform.FACEBOOK]: "descriptionFacebook",
+  [SocialPlatform.INSTAGRAM]: "descriptionInstagram",
+  [SocialPlatform.GOOGLE_BUSINESS]: "descriptionGoogleBusiness",
+};
 
 export const loginSchema = z.object({
   email: z.string().trim().email("Enter a valid email address."),
@@ -20,7 +29,18 @@ export const postFormSchema = z
   .object({
     postId: z.string().trim().optional().transform((value) => value || ""),
     mediaAssetIds: z.array(z.string().trim()).default([]).transform((value) => value.filter(Boolean)),
-    caption: z.string().trim().max(63206, "Caption must be 63,206 characters or less."),
+    descriptionMain: z.string().trim().max(63206, "Main Description must be 63,206 characters or less."),
+    descriptionFacebook: z.string().trim().max(63206, "Facebook Override must be 63,206 characters or less.").optional().default(""),
+    descriptionInstagram: z.string().trim().max(2200, "Instagram Override must be 2,200 characters or less.").optional().default(""),
+    instagramFirstComment: z.string().trim().max(2200, "Instagram First Comment must be 2,200 characters or less.").optional().default(""),
+    descriptionGoogleBusiness: z.string().trim().max(1500, "Google Business Override must be 1,500 characters or less.").optional().default(""),
+    hashtags: z
+      .array(z.string().trim())
+      .default([])
+      .transform((value) => normalizeHashtagList(value))
+      .refine((value) => value.every((tag) => tag.length <= 40), "Each hashtag must be 40 characters or less."),
+    includeHashtagsInGoogle: z.string().optional().transform((value) => value === "on"),
+    appliedHashtagGroups: z.array(z.string().trim()).default([]).transform((value) => [...new Set(value.filter(Boolean))]),
     scheduledDate: z.string().trim().optional().transform((value) => value || ""),
     scheduledHour: z.string().trim().optional().transform((value) => value || ""),
     scheduledMinute: z.string().trim().optional().transform((value) => value || "00"),
@@ -31,14 +51,22 @@ export const postFormSchema = z
   .superRefine((value, ctx) => {
     const hasAnyTimePart = Boolean(value.scheduledHour);
     const maxMediaCount = getMaxMediaCountForPlatforms(value.platforms);
-    const maxCaptionLength = getCaptionMaxForPlatforms(value.platforms);
+    const mainDescription = getMainPostDescription(value);
 
-    if ((value.intent === "schedule" || value.intent === "publish") && !value.caption) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: value.intent === "publish" ? "Caption is required before posting now." : "Caption is required when scheduling a post.",
-        path: ["caption"],
-      });
+    if ((value.intent === "schedule" || value.intent === "publish") && !mainDescription) {
+      const everySelectedPlatformHasOverride = value.platforms.every((platform) =>
+        Boolean(getPlatformDescriptionOverride(value, platform)),
+      );
+      if (!everySelectedPlatformHasOverride) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            value.intent === "publish"
+              ? "Main Description is required before posting now unless each selected platform has an override."
+              : "Main Description is required when scheduling unless each selected platform has an override.",
+          path: ["descriptionMain"],
+        });
+      }
     }
 
     if (value.platforms.length === 0) {
@@ -49,12 +77,38 @@ export const postFormSchema = z
       });
     }
 
-    if (value.caption.length > maxCaptionLength) {
+    if (mainDescription.length > getCaptionMaxForPlatforms([])) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: getCaptionLimitErrorMessage(value.platforms),
-        path: ["caption"],
+        message: "Main Description must be 63,206 characters or less.",
+        path: ["descriptionMain"],
       });
+    }
+
+    for (const platform of value.platforms) {
+      const rule = getCaptionRuleForPlatform(platform);
+      const effectiveDescription = getEffectivePostDescription(value, platform);
+
+      if (!effectiveDescription.text) {
+        const overrideField = descriptionFieldByPlatform[platform];
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Add a ${rule?.label ?? platform} override or fill Main Description before ${value.intent === "publish" ? "posting now" : "scheduling"}.`,
+          path: [overrideField],
+        });
+        continue;
+      }
+
+      if (rule && effectiveDescription.text.length > rule.maxChars) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            effectiveDescription.usedOverride
+              ? `${rule.label} Override must be ${rule.maxChars.toLocaleString()} characters or less.`
+              : getCaptionLimitErrorMessage([platform]),
+          path: [effectiveDescription.usedOverride ? descriptionFieldByPlatform[platform] : "descriptionMain"],
+        });
+      }
     }
 
     if (value.mediaAssetIds.length > maxMediaCount) {
@@ -152,6 +206,69 @@ export const settingsSchema = z.object({
   uploadDirectory: z.string().trim().min(1, "Upload directory is required."),
   appTimezone: z.string().trim().refine((value) => isValidTimezone(value), "Enter a valid IANA timezone."),
 });
+
+export const templateVariableSettingsSchema = z.object({
+  templateVariablesJson: z.string().trim().min(2, "Template variables payload is required."),
+});
+
+export const developerSettingsSchema = z.object({
+  facebook: z.string().optional().transform((value) => value === "on"),
+  instagram: z.string().optional().transform((value) => value === "on"),
+  google: z.string().optional().transform((value) => value === "on"),
+});
+
+export const hashtagSettingsSchema = z.object({
+  facebookDefaultLimit: z.coerce
+    .number()
+    .int("Facebook hashtag limit must be a whole number.")
+    .min(0, "Facebook hashtag limit cannot be less than 0.")
+    .max(30, "Facebook hashtag limit cannot be more than 30."),
+  groupsJson: z.string().trim().min(2, "Hashtag groups payload is required."),
+});
+
+export const templateVariableEditorSchema = z
+  .array(
+    z.object({
+      id: z.string().trim().min(1, "Variable ID is required."),
+      name: z.string().trim().min(1, "Variable name is required.").max(60, "Variable name must be 60 characters or less."),
+      format: z
+        .string()
+        .trim()
+        .min(1, "Variable format is required.")
+        .max(60, "Variable format must be 60 characters or less.")
+        .refine((value) => /^{{\s*[a-zA-Z][a-zA-Z0-9]*\s*}}$/.test(value), "Use a token like {{projectType}}."),
+      outcome: z.string().trim().max(500, "Variable outcome must be 500 characters or less."),
+    }),
+  )
+  .superRefine((variables, ctx) => {
+    const seenNames = new Set<string>();
+    const seenFormats = new Set<string>();
+
+    variables.forEach((variable, index) => {
+      const normalizedName = variable.name.toLowerCase();
+      const normalizedFormat = variable.format.replace(/\s+/g, "");
+
+      if (seenNames.has(normalizedName)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Variable names must be unique.",
+          path: [index, "name"],
+        });
+      } else {
+        seenNames.add(normalizedName);
+      }
+
+      if (seenFormats.has(normalizedFormat)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Variable formats must be unique.",
+          path: [index, "format"],
+        });
+      } else {
+        seenFormats.add(normalizedFormat);
+      }
+    });
+  });
 
 export const galleryDeletionSchema = z.object({
   confirmation: z
@@ -251,8 +368,23 @@ export const accountProfileSchema = z.object({
     .min(3, "Username must be at least 3 characters.")
     .max(32, "Username must be 32 characters or less.")
     .regex(/^[a-zA-Z0-9_-]+$/, "Use letters, numbers, dashes, or underscores only."),
-  email: z.string().trim().email("Enter a valid email address."),
 });
+
+export const emailChangeSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Enter your current password."),
+    newEmail: z.string().trim().email("Enter a valid email address."),
+    confirmNewEmail: z.string().trim().email("Confirm your new email address."),
+  })
+  .superRefine((value, ctx) => {
+    if (value.newEmail !== value.confirmNewEmail) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "New email and confirmation must match.",
+        path: ["confirmNewEmail"],
+      });
+    }
+  });
 
 export const passwordChangeSchema = z
   .object({
@@ -314,12 +446,41 @@ export const updateManagedUserSchema = z.object({
   role: userRoleSchema,
 });
 
+export const verifyMfaCodeSchema = z.object({
+  verificationCode: z
+    .string()
+    .trim()
+    .transform((value) => value.replace(/\D/g, "").slice(0, 6))
+    .refine((value) => value.length === 6, "Enter a valid 6-digit code."),
+});
+
+export const mfaChallengeSchema = z.object({
+  verificationCode: z.string().trim().min(1, "Enter your authenticator code or a recovery code."),
+});
+
+export const disableMfaSchema = z.object({
+  currentPassword: z.string().min(1, "Enter your current password."),
+  verificationCode: z.string().trim().min(1, "Enter a valid MFA or recovery code."),
+});
+
+export const regenerateMfaRecoveryCodesSchema = z.object({
+  currentPassword: z.string().min(1, "Enter your current password."),
+  verificationCode: z.string().trim().min(1, "Enter a valid MFA or recovery code."),
+});
+
 export type FormState = {
   success: boolean;
   message: string | null;
   fieldErrors?: Record<string, string[] | undefined>;
   submittedValues?: {
-    caption: string;
+    descriptionMain: string;
+    descriptionFacebook: string;
+    descriptionInstagram: string;
+    instagramFirstComment: string;
+    descriptionGoogleBusiness: string;
+    hashtags: string[];
+    includeHashtagsInGoogle: boolean;
+    appliedHashtagGroups: string[];
     scheduledDate: string;
     scheduledHour: string;
     scheduledMinute: string;
@@ -329,6 +490,31 @@ export type FormState = {
     mediaSelectionSource?: string;
   };
 };
+
+export const hashtagGroupEditorSchema = z
+  .array(
+    z.object({
+      id: z.string().trim().min(1, "Group ID is required."),
+      name: z.string().trim().min(1, "Group name is required.").max(60, "Group name must be 60 characters or less."),
+      hashtags: z
+        .array(z.string())
+        .default([])
+        .transform((value) => normalizeHashtagList(value))
+        .refine((value) => value.every((tag) => tag.length <= 40), "Each hashtag must be 40 characters or less."),
+    }),
+  )
+  .transform((groups) => {
+    const seenNames = new Set<string>();
+    return groups.filter((group) => {
+      const normalizedName = group.name.toLowerCase();
+      if (seenNames.has(normalizedName)) {
+        return false;
+      }
+
+      seenNames.add(normalizedName);
+      return true;
+    });
+  });
 
 export const initialFormState: FormState = {
   success: false,

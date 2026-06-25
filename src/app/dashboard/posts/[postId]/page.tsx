@@ -1,11 +1,11 @@
-import { SocialPostStatus } from "@prisma/client";
+import { SocialPlatform, SocialPostStatus } from "@prisma/client";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PostEditorForm } from "@/components/post-editor-form";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { getFacebookConnectionRecord, getFacebookPreviewIdentity } from "@/lib/facebook";
 import { getGoogleFoundationState } from "@/lib/google";
-import { getInstagramFoundationState } from "@/lib/instagram";
+import { getInstagramFirstCommentSummary, getInstagramFoundationState } from "@/lib/instagram";
 import {
   canCancelScheduled,
   canDeleteDraft,
@@ -18,6 +18,7 @@ import {
   getResolvedAppTimezone,
   toDateTimeLocalFields,
 } from "@/lib/time";
+import { getHashtagSettings, getTemplateVariableSettings } from "@/lib/settings";
 import {
   cancelScheduledPostAction,
   deleteDraftPostAction,
@@ -38,7 +39,7 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
   const adminUser = await requireAuthenticatedUser();
   const { postId } = await params;
   const resolvedSearchParams = await searchParams;
-  const [post, recentMediaAssets, timezone, instagramFoundation, googleFoundation] = await Promise.all([
+  const [post, recentMediaAssets, timezone, templateVariables, hashtagSettings, instagramFoundation, googleFoundation] = await Promise.all([
     prisma.socialPost.findUnique({
       where: { id: postId },
       include: {
@@ -54,7 +55,19 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
             },
           },
         },
-        platforms: true,
+        platforms: {
+          include: {
+            publishAttempts: {
+              where: {
+                platform: SocialPlatform.INSTAGRAM,
+              },
+              orderBy: {
+                startedAt: "desc",
+              },
+              take: 1,
+            },
+          },
+        },
         mediaAsset: {
           include: {
             variants: true,
@@ -141,6 +154,8 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
       },
     }),
     getResolvedAppTimezone(),
+    getTemplateVariableSettings(),
+    getHashtagSettings(),
     getInstagramFoundationState({ refreshHealth: true }),
     getGoogleFoundationState({ refreshHealth: true }),
   ]);
@@ -156,6 +171,18 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
   const updatedByLabel = post.updatedByAdminUser.displayName || post.updatedByAdminUser.username;
   const facebookConnection = await getFacebookConnectionRecord();
   const facebookPreview = getFacebookPreviewIdentity(facebookConnection);
+  const latestInstagramAttempt =
+    post.platforms.find((platform) => platform.platform === SocialPlatform.INSTAGRAM)?.publishAttempts[0] ?? null;
+  const instagramFirstCommentSummary = getInstagramFirstCommentSummary(latestInstagramAttempt?.responseSummary);
+  const instagramFirstCommentStatusLabel = post.instagramFirstComment
+    ? instagramFirstCommentSummary.attempted
+      ? instagramFirstCommentSummary.status === "succeeded"
+        ? "Published"
+        : instagramFirstCommentSummary.status === "failed"
+          ? "Failed"
+          : "Saved"
+      : "Saved"
+    : undefined;
 
   return (
     <section className="section-stack">
@@ -172,7 +199,13 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
       <PostEditorForm
         post={{
           id: post.id,
-          caption: post.caption,
+          descriptionMain: post.descriptionMain,
+          descriptionFacebook: post.descriptionFacebook ?? "",
+          descriptionInstagram: post.descriptionInstagram ?? "",
+          instagramFirstComment: post.instagramFirstComment ?? "",
+          descriptionGoogleBusiness: post.descriptionGoogleBusiness ?? "",
+          hashtags: Array.isArray(post.hashtags) ? post.hashtags.map((tag) => String(tag)) : [],
+          includeHashtagsInGoogle: post.includeHashtagsInGoogle,
           scheduledDate: localSchedule.date,
           scheduledHour: localSchedule.hour,
           scheduledMinute: localSchedule.minute,
@@ -186,6 +219,7 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
               status: platform.status,
             }),
           ),
+          instagramFirstCommentStatusLabel,
           createdByLabel,
           createdAtLabel: formatDateTimeForTimezone(post.createdAt, timezone),
           updatedByLabel: hasBeenEdited ? updatedByLabel : undefined,
@@ -193,6 +227,8 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
         }}
         recentMediaAssets={recentMediaAssets.map((asset) => toMediaAssetGallerySummary(asset))}
         timezone={timezone}
+        templateVariables={templateVariables}
+        hashtagSettings={hashtagSettings}
         instagramFoundation={instagramFoundation}
         googleFoundation={googleFoundation}
         previewProfiles={{

@@ -17,6 +17,7 @@ import {
   createOrUpdateGoogleTokenNotification,
   dismissProviderNotifications,
 } from "@/lib/notifications";
+import { resolveRenderedPlatformContent } from "@/lib/posts";
 import { syncSocialPostAggregateState } from "@/lib/publish-state";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
@@ -25,6 +26,9 @@ import {
   APP_SETTING_KEYS,
   getAppSettingValue,
   getAppSettings,
+  getBusinessVariableSettings,
+  getDeveloperSettings,
+  getHashtagSettings,
   getGoogleClientIdSetting,
   upsertAppSetting,
 } from "@/lib/settings";
@@ -41,11 +45,19 @@ const GOOGLE_OAUTH_MODE_COOKIE_NAME = "smm_google_oauth_mode";
 const GOOGLE_PENDING_SELECTION_COOKIE_NAME = "smm_google_pending_selection";
 const GOOGLE_STATE_MAX_AGE_SECONDS = 10 * 60;
 
-export const GOOGLE_OAUTH_SCOPES = [
+const GOOGLE_REQUIRED_OAUTH_SCOPES = [
+  "https://www.googleapis.com/auth/business.manage",
+] as const;
+
+const GOOGLE_IDENTITY_OAUTH_SCOPES = [
   "openid",
   "email",
   "profile",
-  "https://www.googleapis.com/auth/business.manage",
+] as const;
+
+export const GOOGLE_OAUTH_SCOPES = [
+  ...GOOGLE_REQUIRED_OAUTH_SCOPES,
+  ...GOOGLE_IDENTITY_OAUTH_SCOPES,
 ] as const;
 
 export type GoogleOauthMode = "connect" | "reconnect";
@@ -401,6 +413,22 @@ async function getGoogleUserProfile(accessToken: string) {
   });
 }
 
+function hasGoogleIdentityScopes(scopes: string[]) {
+  return GOOGLE_IDENTITY_OAUTH_SCOPES.some((scope) => scopes.includes(scope));
+}
+
+async function getGoogleUserProfileIfAvailable(input: { accessToken: string; scopes: string[] }) {
+  if (!hasGoogleIdentityScopes(input.scopes)) {
+    return null;
+  }
+
+  try {
+    return await getGoogleUserProfile(input.accessToken);
+  } catch {
+    return null;
+  }
+}
+
 async function listGoogleAccounts(accessToken: string) {
   const response = await googleApiJson<{
     accounts?: GoogleAccountResource[];
@@ -518,7 +546,7 @@ export async function getGoogleConfiguration(): Promise<GoogleConfiguration> {
     tokenEncryptionKeyConfigured: tokenEncryptionKey.configured,
     tokenEncryptionKeySource: tokenEncryptionKey.source,
     redirectUri,
-    requiredScopes: [...GOOGLE_OAUTH_SCOPES],
+    requiredScopes: [...GOOGLE_REQUIRED_OAUTH_SCOPES],
     missingConfig,
     publicAppUrl,
   };
@@ -787,7 +815,7 @@ export async function getGoogleConnection(): Promise<GoogleConnection | null> {
 }
 
 function getMissingGoogleScopes(scopes: string[]) {
-  return GOOGLE_OAUTH_SCOPES.filter((scope) => !scopes.includes(scope));
+  return GOOGLE_REQUIRED_OAUTH_SCOPES.filter((scope) => !scopes.includes(scope));
 }
 
 async function refreshGoogleAccessToken(connection: GoogleConnection) {
@@ -975,7 +1003,10 @@ export async function refreshGoogleConnectionHealth(input?: {
     }
 
     const [profile, location] = await Promise.all([
-      getGoogleUserProfile(activeConnection.accessToken),
+      getGoogleUserProfileIfAvailable({
+        accessToken: activeConnection.accessToken,
+        scopes: activeConnection.scopes,
+      }),
       googleApiJson<{
         name?: string;
         title?: string;
@@ -994,9 +1025,9 @@ export async function refreshGoogleConnectionHealth(input?: {
       lastSuccessfulTestAt: testedAt,
       metadata: buildGoogleConnectionMetadata({
         existingMetadata: activeConnection.metadata,
-        accountEmail: profile.email ?? null,
-        accountDisplayName: profile.name ?? null,
-        accountProfilePictureUrl: profile.picture ?? null,
+        accountEmail: profile?.email,
+        accountDisplayName: profile?.name,
+        accountProfilePictureUrl: profile?.picture,
       }),
     });
 
@@ -1101,6 +1132,21 @@ export async function getGoogleDiagnostics(input?: { refreshHealth?: boolean }) 
 }
 
 export async function getGoogleFoundationState(input?: { refreshHealth?: boolean }) {
+  const developerSettings = await getDeveloperSettings();
+  if (developerSettings.google) {
+    return {
+      status: "READY",
+      locationId: "dev-override-google",
+      locationName: "Developer Override",
+      accountName: "Developer Override",
+      accountEmail: null,
+      accountProfilePictureUrl: null,
+      lastCheckedAt: new Date().toISOString(),
+      isSelectableInComposer: true,
+      message: "Developer override enabled. Google Business is unlocked for composer testing without a live login.",
+    } satisfies GoogleFoundationState;
+  }
+
   const diagnostics = await getGoogleDiagnostics({
     refreshHealth: input?.refreshHealth ?? true,
   });
@@ -1187,7 +1233,10 @@ export async function buildGooglePendingSelectionFromCodeExchange(input: {
   scopes: string[];
 }) {
   const [userProfile, discovery] = await Promise.all([
-    getGoogleUserProfile(input.accessToken),
+    getGoogleUserProfileIfAvailable({
+      accessToken: input.accessToken,
+      scopes: input.scopes,
+    }),
     discoverGoogleLocations(input.accessToken),
   ]);
 
@@ -1198,10 +1247,10 @@ export async function buildGooglePendingSelectionFromCodeExchange(input: {
   return {
     mode: input.mode,
     userProfile: {
-      sub: userProfile.sub,
-      email: userProfile.email ?? null,
-      name: userProfile.name ?? null,
-      picture: userProfile.picture ?? null,
+      sub: userProfile?.sub || discovery.locations[0]?.accountResourceName || "google-business-account",
+      email: userProfile?.email ?? null,
+      name: userProfile?.name ?? null,
+      picture: userProfile?.picture ?? null,
     },
     accessToken: input.accessToken,
     refreshToken: input.refreshToken,
@@ -1525,27 +1574,49 @@ export async function executeGooglePublish(input: {
   }
 
   const primaryMediaAsset = platformRecord.socialPost.attachedMedia[0]?.mediaAsset ?? platformRecord.socialPost.mediaAsset;
+  const [businessVariables, hashtagSettings] = await Promise.all([
+    getBusinessVariableSettings(),
+    getHashtagSettings(),
+  ]);
+  const renderedDescription = resolveRenderedPlatformContent(
+    platformRecord.socialPost,
+    SocialPlatform.GOOGLE_BUSINESS,
+    businessVariables,
+    hashtagSettings,
+  );
   const attempt = await prisma.publishAttempt.create({
     data: {
       socialPostId: platformRecord.socialPostId,
-      socialPostPlatformId: platformRecord.id,
-      platform: SocialPlatform.GOOGLE_BUSINESS,
-      status: PublishAttemptStatus.PENDING,
-      requestSummary: {
-        captionLength: platformRecord.socialPost.caption.trim().length,
-        hasMedia: Boolean(primaryMediaAsset),
-        mediaAssetId: primaryMediaAsset?.id ?? null,
+        socialPostPlatformId: platformRecord.id,
         platform: SocialPlatform.GOOGLE_BUSINESS,
+        status: PublishAttemptStatus.PENDING,
+        requestSummary: {
+          captionLength: renderedDescription.descriptionText.length,
+          hasMedia: Boolean(primaryMediaAsset),
+          mediaAssetId: primaryMediaAsset?.id ?? null,
+          platform: SocialPlatform.GOOGLE_BUSINESS,
+          usedOverride: renderedDescription.usedOverride,
+          effectiveDescriptionLength: renderedDescription.descriptionText.length,
+          variablesRendered: renderedDescription.variablesRendered,
+          unresolvedVariablesCount: renderedDescription.unresolvedVariableNames.length,
+          unresolvedVariableNames: renderedDescription.unresolvedVariableNames,
+          hashtagCount: renderedDescription.hashtagsUsed.length,
+          hashtagPlacement: renderedDescription.hashtagPlacement,
+        },
+        startedAt: new Date(),
       },
-      startedAt: new Date(),
-    },
-  });
-
-  try {
-    const result = await publishGoogleBusinessPost({
-      caption: platformRecord.socialPost.caption,
-      mediaAsset: primaryMediaAsset,
     });
+
+    try {
+      if (renderedDescription.unresolvedVariableNames.length > 0) {
+        throw new Error(
+          `These variables are missing values: ${renderedDescription.unresolvedVariableNames.map((name) => `{{${name}}}`).join(", ")}`,
+        );
+      }
+      const result = await publishGoogleBusinessPost({
+        caption: renderedDescription.descriptionText,
+        mediaAsset: primaryMediaAsset,
+      });
     const finishedAt = new Date();
 
     await prisma.$transaction(async (tx) => {

@@ -264,6 +264,62 @@ export function UserIcon(props: IconProps) {
   );
 }
 
+export function ShieldIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <path d="M12 3.8 18.2 6v5.5c0 4.1-2.5 6.9-6.2 8.7-3.7-1.8-6.2-4.6-6.2-8.7V6L12 3.8Z" />
+    </BaseIcon>
+  );
+}
+
+export function LockIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <rect x="5.5" y="10.5" width="13" height="9.5" rx="2.5" />
+      <path d="M8.5 10.5V8.2A3.5 3.5 0 0 1 12 4.7a3.5 3.5 0 0 1 3.5 3.5v2.3" />
+    </BaseIcon>
+  );
+}
+
+export function InfoIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 10.1v4.6" />
+      <path d="M12 7.7h.01" />
+    </BaseIcon>
+  );
+}
+
+export function MailIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <rect x="4" y="6" width="16" height="12" rx="2.5" />
+      <path d="m5.4 7.4 6.6 5 6.6-5" />
+    </BaseIcon>
+  );
+}
+
+export function EyeIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <path d="M2.8 12s3.4-5.6 9.2-5.6 9.2 5.6 9.2 5.6-3.4 5.6-9.2 5.6S2.8 12 2.8 12Z" />
+      <circle cx="12" cy="12" r="2.6" />
+    </BaseIcon>
+  );
+}
+
+export function EyeOffIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <path d="M3.3 3.3 20.7 20.7" />
+      <path d="M10.7 6.6A9 9 0 0 1 12 6.4c5.8 0 9.2 5.6 9.2 5.6a14.8 14.8 0 0 1-3.2 3.8" />
+      <path d="M6.5 8.1A15.2 15.2 0 0 0 2.8 12s3.4 5.6 9.2 5.6c1.2 0 2.3-.2 3.3-.5" />
+      <path d="M10.5 10.5A2.6 2.6 0 0 0 12 14.6a2.6 2.6 0 0 0 1.5-.5" />
+    </BaseIcon>
+  );
+}
+
 export function HeartIcon(props: IconProps) {
   return (
     <BaseIcon {...props}>

@@ -17,6 +17,7 @@ type MediaUploadFieldProps = {
   availableAssets: MediaAssetGallerySummary[];
   selectedMediaAssetIds: string[];
   onSelectedMediaAssetIdsChange: (mediaAssetIds: string[]) => void;
+  onResolvedSelectionChange?: (assets: MediaAssetGallerySummary[]) => void;
   onSelectionSourceChange: (source: "upload" | "gallery" | "manual" | "") => void;
   maxMediaCount: number;
   mediaLimitMessage: string | null;
@@ -71,6 +72,7 @@ export function MediaUploadField({
   availableAssets,
   selectedMediaAssetIds,
   onSelectedMediaAssetIdsChange,
+  onResolvedSelectionChange,
   onSelectionSourceChange,
   maxMediaCount,
   mediaLimitMessage,
@@ -107,6 +109,10 @@ export function MediaUploadField({
         .filter((asset): asset is MediaAssetGallerySummary => asset !== null),
     [mediaOptions, selectedMediaAssetIds],
   );
+
+  useEffect(() => {
+    onResolvedSelectionChange?.(selectedMediaAssets);
+  }, [onResolvedSelectionChange, selectedMediaAssets]);
 
   const galleryTotalPages = getPageCount(mediaOptions.length, GALLERY_PAGE_SIZE);
   const galleryVisibleAssets = mediaOptions.slice((galleryPage - 1) * GALLERY_PAGE_SIZE, galleryPage * GALLERY_PAGE_SIZE);
@@ -273,6 +279,23 @@ export function MediaUploadField({
     );
   }
 
+  function moveMedia(mediaAssetId: string, direction: -1 | 1) {
+    const currentIndex = selectedMediaAssetIds.indexOf(mediaAssetId);
+    if (currentIndex === -1) {
+      return;
+    }
+
+    const nextIndex = currentIndex + direction;
+    if (nextIndex < 0 || nextIndex >= selectedMediaAssetIds.length) {
+      return;
+    }
+
+    const nextIds = [...selectedMediaAssetIds];
+    const [movedId] = nextIds.splice(currentIndex, 1);
+    nextIds.splice(nextIndex, 0, movedId);
+    void updateSelection(nextIds, "manual");
+  }
+
   function togglePendingGallerySelection(mediaAssetId: string) {
     setPendingGallerySelectionIds((current) => {
       if (current.includes(mediaAssetId)) {
@@ -376,11 +399,12 @@ export function MediaUploadField({
           </div>
 
           <div className="composer-attached-media-row">
-            {selectedMediaAssets.map((asset) => {
+            {selectedMediaAssets.map((asset, index) => {
               const previewVariant = getPreferredPreviewVariant(asset.variants);
 
               return (
                 <div key={asset.id} className="composer-attached-media-card">
+                  <div className="composer-attached-media-order-pill">#{index + 1}</div>
                   {previewVariant ? (
                     <img
                       src={getMediaVariantUrl(previewVariant.id)}
@@ -406,6 +430,24 @@ export function MediaUploadField({
                     <span>
                       {formatDimensions(asset.width, asset.height)} - {formatBytes(asset.sizeBytes)}
                     </span>
+                    <div className="composer-attached-media-order-actions">
+                      <button
+                        type="button"
+                        className="composer-attached-media-order-button"
+                        onClick={() => moveMedia(asset.id, -1)}
+                        disabled={disabled || index === 0}
+                      >
+                        Earlier
+                      </button>
+                      <button
+                        type="button"
+                        className="composer-attached-media-order-button"
+                        onClick={() => moveMedia(asset.id, 1)}
+                        disabled={disabled || index === selectedMediaAssets.length - 1}
+                      >
+                        Later
+                      </button>
+                    </div>
                   </div>
                 </div>
               );

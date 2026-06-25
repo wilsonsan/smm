@@ -15,8 +15,13 @@ import {
   type TemporaryMediaCleanupResult,
 } from "@/lib/uploads";
 import { createOrUpdatePlatformPublishFailedNotification } from "@/lib/notifications";
+import {
+  resolveRenderedPlatformContent,
+} from "@/lib/posts";
 import { syncSocialPostAggregateState } from "@/lib/publish-state";
 import { prisma } from "@/lib/prisma";
+import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
+import { getBusinessVariableSettings, getDeveloperSettings, getHashtagSettings } from "@/lib/settings";
 
 export const INSTAGRAM_REQUIRED_SCOPES = [
   "instagram_basic",
@@ -79,8 +84,62 @@ export type InstagramDiagnosticsResult = {
 export type InstagramPublishResult = {
   platformPostId: string;
   platformPostUrl: string | null;
+  firstComment: InstagramFirstCommentResult;
   responseSummary: Prisma.InputJsonValue;
 };
+
+export type InstagramFirstCommentResult = {
+  attempted: boolean;
+  status: "skipped" | "succeeded" | "failed";
+  errorMessage: string | null;
+  commentId: string | null;
+  textLength: number;
+};
+
+export function getInstagramFirstCommentSummary(
+  responseSummary: Prisma.JsonValue | Prisma.InputJsonValue | null | undefined,
+): InstagramFirstCommentResult {
+  if (!responseSummary || typeof responseSummary !== "object" || Array.isArray(responseSummary)) {
+    return {
+      attempted: false,
+      status: "skipped",
+      errorMessage: null,
+      commentId: null,
+      textLength: 0,
+    };
+  }
+
+  const rawFirstComment =
+    "firstComment" in responseSummary &&
+    responseSummary.firstComment &&
+    typeof responseSummary.firstComment === "object" &&
+    !Array.isArray(responseSummary.firstComment)
+      ? (responseSummary.firstComment as Record<string, unknown>)
+      : null;
+
+  if (!rawFirstComment) {
+    return {
+      attempted: false,
+      status: "skipped",
+      errorMessage: null,
+      commentId: null,
+      textLength: 0,
+    };
+  }
+
+  return {
+    attempted: rawFirstComment.attempted === true,
+    status:
+      rawFirstComment.status === "succeeded" ||
+      rawFirstComment.status === "failed" ||
+      rawFirstComment.status === "skipped"
+        ? rawFirstComment.status
+        : "skipped",
+    errorMessage: typeof rawFirstComment.errorMessage === "string" ? rawFirstComment.errorMessage : null,
+    commentId: typeof rawFirstComment.commentId === "string" ? rawFirstComment.commentId : null,
+    textLength: typeof rawFirstComment.textLength === "number" ? rawFirstComment.textLength : 0,
+  };
+}
 
 type InstagramConnection = NonNullable<Awaited<ReturnType<typeof getFacebookConnection>>> & {
   instagramAccountId: string;
@@ -215,6 +274,24 @@ export function getInstagramFoundationStateFromConnection(
 }
 
 export async function getInstagramFoundationState(input?: { refreshHealth?: boolean }) {
+  const developerSettings = await getDeveloperSettings();
+  if (developerSettings.instagram) {
+    return {
+      status: "READY",
+      accountId: "dev-override-instagram",
+      username: "dev_override_instagram",
+      profilePictureUrl: null,
+      source: null,
+      pageId: null,
+      pageName: "Developer Override",
+      facebookStatus: null,
+      lastCheckedAt: new Date().toISOString(),
+      errorMessage: null,
+      isSelectableInComposer: true,
+      message: "Developer override enabled. Instagram is unlocked for composer testing without a live login.",
+    } satisfies InstagramFoundationState;
+  }
+
   if (input?.refreshHealth) {
     await refreshFacebookConnectionHealth({
       createNotification: false,
@@ -411,6 +488,7 @@ export async function validateInstagramPlanningPrerequisites(input: {
 
 export async function validateInstagramPublishPrerequisites(input: {
   caption: string;
+  firstComment?: string;
   mediaAssets: Array<{
     id: string;
     mimeType: string;
@@ -424,6 +502,7 @@ export async function validateInstagramPublishPrerequisites(input: {
   }
 
   const trimmedCaption = input.caption.trim();
+  const trimmedFirstComment = (input.firstComment || "").trim();
   const validatedMediaAssets: typeof input.mediaAssets = [];
 
   for (const mediaAsset of input.mediaAssets) {
@@ -436,8 +515,31 @@ export async function validateInstagramPublishPrerequisites(input: {
   return {
     connection,
     caption: trimmedCaption,
+    firstComment: trimmedFirstComment,
     mediaAssets: validatedMediaAssets,
   };
+}
+
+async function createInstagramComment(input: {
+  instagramMediaId: string;
+  accessToken: string;
+  message: string;
+}) {
+  const body = new URLSearchParams();
+  body.set("access_token", input.accessToken);
+  body.set("message", input.message);
+
+  const response = await instagramGraphRequestJson<{
+    id: string;
+  }>(buildInstagramGraphUrl(`/${input.instagramMediaId}/comments`), {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body,
+  });
+
+  return response.id;
 }
 
 async function createInstagramImageContainer(input: {
@@ -601,6 +703,7 @@ function appendInstagramTempDiagnostics(input: {
 
 export async function publishInstagramPost(input: {
   caption: string;
+  firstComment?: string;
   mediaAssets: Array<{
     id: string;
     mimeType: string;
@@ -612,6 +715,43 @@ export async function publishInstagramPost(input: {
   const cleanupResults: TemporaryMediaCleanupResult[] = [];
 
   try {
+    const buildFirstCommentResult = async (publishedMediaId: string): Promise<InstagramFirstCommentResult> => {
+      if (!validation.firstComment) {
+        return {
+          attempted: false,
+          status: "skipped",
+          errorMessage: null,
+          commentId: null,
+          textLength: 0,
+        };
+      }
+
+      try {
+        const commentId = await createInstagramComment({
+          instagramMediaId: publishedMediaId,
+          accessToken: validation.connection.accessToken,
+          message: validation.firstComment,
+        });
+
+        return {
+          attempted: true,
+          status: "succeeded",
+          errorMessage: null,
+          commentId,
+          textLength: validation.firstComment.length,
+        };
+      } catch (error) {
+        const normalizedError = handleFacebookApiError(error);
+        return {
+          attempted: true,
+          status: "failed",
+          errorMessage: normalizedError.message,
+          commentId: null,
+          textLength: validation.firstComment.length,
+        };
+      }
+    };
+
     const publicImageUrls: string[] = [];
 
     for (const mediaAsset of validation.mediaAssets) {
@@ -650,10 +790,12 @@ export async function publishInstagramPost(input: {
         instagramMediaId: publishedMediaId,
         accessToken: validation.connection.accessToken,
       });
+      const firstComment = await buildFirstCommentResult(publishedMediaId);
 
       return {
         platformPostId: publishedMediaId,
         platformPostUrl,
+        firstComment,
         responseSummary: appendInstagramTempDiagnostics({
           responseSummary: {
             endpoint: "instagram_media_publish",
@@ -664,6 +806,7 @@ export async function publishInstagramPost(input: {
             instagramAccountId: validation.connection.instagramAccountId,
             platformPostUrl,
             mediaCount: publicImageUrls.length,
+            firstComment,
           } satisfies Prisma.InputJsonObject,
           temporaryImages,
           cleanupResults,
@@ -704,10 +847,12 @@ export async function publishInstagramPost(input: {
       instagramMediaId: publishedMediaId,
       accessToken: validation.connection.accessToken,
     });
+    const firstComment = await buildFirstCommentResult(publishedMediaId);
 
     return {
       platformPostId: publishedMediaId,
       platformPostUrl,
+      firstComment,
       responseSummary: appendInstagramTempDiagnostics({
         responseSummary: {
           endpoint: "instagram_carousel_publish",
@@ -719,6 +864,7 @@ export async function publishInstagramPost(input: {
           instagramAccountId: validation.connection.instagramAccountId,
           platformPostUrl,
           mediaCount: publicImageUrls.length,
+          firstComment,
         } satisfies Prisma.InputJsonObject,
         temporaryImages,
         cleanupResults,
@@ -884,27 +1030,54 @@ export async function executeInstagramPublish(input: {
   }
 
   const mediaAssets = platformRecord.socialPost.attachedMedia.map((item) => item.mediaAsset);
+  const [businessVariables, hashtagSettings] = await Promise.all([
+    getBusinessVariableSettings(),
+    getHashtagSettings(),
+  ]);
+  const renderedContent = resolveRenderedPlatformContent(
+    platformRecord.socialPost,
+    SocialPlatform.INSTAGRAM,
+    businessVariables,
+    hashtagSettings,
+  );
   const attempt = await prisma.publishAttempt.create({
     data: {
       socialPostId: platformRecord.socialPostId,
-      socialPostPlatformId: platformRecord.id,
-      platform: SocialPlatform.INSTAGRAM,
-      status: PublishAttemptStatus.PENDING,
-      requestSummary: {
-        captionLength: platformRecord.socialPost.caption.trim().length,
-        mediaCount: mediaAssets.length,
-        mediaAssetIds: mediaAssets.map((asset) => asset.id),
+        socialPostPlatformId: platformRecord.id,
         platform: SocialPlatform.INSTAGRAM,
+        status: PublishAttemptStatus.PENDING,
+        requestSummary: {
+          captionLength: renderedContent.descriptionText.length,
+          mediaCount: mediaAssets.length,
+          mediaAssetIds: mediaAssets.map((asset) => asset.id),
+          platform: SocialPlatform.INSTAGRAM,
+          usedOverride: renderedContent.usedOverride,
+          effectiveDescriptionLength: renderedContent.descriptionText.length,
+          firstCommentAttempted: Boolean(renderedContent.firstCommentText),
+          firstCommentLength: renderedContent.firstCommentText.length,
+          variablesRendered: renderedContent.variablesRendered,
+          unresolvedVariablesCount: renderedContent.unresolvedVariableNames.length,
+          unresolvedVariableNames: renderedContent.unresolvedVariableNames,
+          hashtagCount: renderedContent.hashtagsUsed.length,
+          hashtagPlacement: renderedContent.hashtagPlacement,
+        },
+        startedAt: new Date(),
       },
-      startedAt: new Date(),
-    },
-  });
-
-  try {
-    const result = await publishInstagramPost({
-      caption: platformRecord.socialPost.caption,
-      mediaAssets,
     });
+
+    try {
+      if (renderedContent.unresolvedVariableNames.length > 0) {
+        throw new Error(
+          `These variables are missing values: ${renderedContent.unresolvedVariableNames
+            .map((name) => `{{${name}}}`)
+            .join(", ")}`,
+        );
+      }
+      const result = await publishInstagramPost({
+        caption: renderedContent.descriptionText,
+        firstComment: renderedContent.firstCommentText,
+        mediaAssets,
+      });
     const finishedAt = new Date();
 
     await prisma.$transaction(async (tx) => {
@@ -934,6 +1107,34 @@ export async function executeInstagramPublish(input: {
       });
       await syncSocialPostAggregateState(tx, platformRecord.socialPostId);
     });
+
+    if (result.firstComment.attempted && result.firstComment.status === "succeeded") {
+      await createAuditLog({
+        actorAdminUserId: platformRecord.socialPost.updatedByAdminUserId,
+        action: AUDIT_ACTIONS.INSTAGRAM_FIRST_COMMENT_PUBLISHED,
+        targetType: "SocialPost",
+        targetId: platformRecord.socialPostId,
+        metadata: {
+          platform: SocialPlatform.INSTAGRAM,
+          commentId: result.firstComment.commentId,
+          textLength: result.firstComment.textLength,
+        },
+      }).catch(() => undefined);
+    }
+
+    if (result.firstComment.attempted && result.firstComment.status === "failed") {
+      await createAuditLog({
+        actorAdminUserId: platformRecord.socialPost.updatedByAdminUserId,
+        action: AUDIT_ACTIONS.INSTAGRAM_FIRST_COMMENT_FAILED,
+        targetType: "SocialPost",
+        targetId: platformRecord.socialPostId,
+        metadata: {
+          platform: SocialPlatform.INSTAGRAM,
+          textLength: result.firstComment.textLength,
+          errorMessage: result.firstComment.errorMessage,
+        },
+      }).catch(() => undefined);
+    }
 
     return {
       attemptId: attempt.id,

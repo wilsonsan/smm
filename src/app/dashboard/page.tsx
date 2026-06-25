@@ -2,21 +2,19 @@
 
 import Link from "next/link";
 import { DateTime } from "luxon";
-import { isAdminUserRole, requireAuthenticatedUser } from "@/lib/auth/session";
+import { requireAuthenticatedUser } from "@/lib/auth/session";
+import { openNotificationAction } from "@/app/dashboard/actions";
 import { ClickableTableRow } from "@/components/clickable-table-row";
+import { DashboardNotificationMenu } from "@/components/dashboard-notification-menu";
 import {
   ArrowRightIcon,
   CalendarIcon,
   ComposeIcon,
-  ClockIcon,
-  FailureIcon,
   GalleryIcon,
   PostsIcon,
-  QueueIcon,
-  SuccessIcon,
 } from "@/components/dashboard-icons";
-import { getQueueOverview, getRecentActivityFeed } from "@/lib/analytics";
 import { getMediaVariantUrl, getPreferredPreviewVariant } from "@/lib/media-presentation";
+import { getNotificationCenterSnapshot } from "@/lib/notifications";
 import { getPostCaptionPreview, getPostStatusTone, resolvePostCalendarAt } from "@/lib/posts";
 import { prisma } from "@/lib/prisma";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
@@ -36,38 +34,59 @@ type QuickActionCard = {
   Icon: typeof ComposeIcon;
 };
 
-export default async function DashboardPage() {
+type DashboardPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+function parsePageNumber(value: string | string[] | undefined) {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  const parsed = Number(rawValue);
+
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return 1;
+  }
+
+  return Math.floor(parsed);
+}
+
+export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const adminUser = await requireAuthenticatedUser();
-  const isAdmin = isAdminUserRole(adminUser.role);
+  const resolvedSearchParams = (await searchParams) ?? {};
   const timezone = await getResolvedAppTimezone();
   const now = DateTime.now().setZone(timezone);
   const weekStart = now.startOf("week");
   const weekEnd = weekStart.plus({ weeks: 1 });
   const postScope = {};
+  const postsPerPage = 20;
+  const currentPage = parsePageNumber(resolvedSearchParams.page);
 
-  const [recentPosts, recentActivity, queueOverview] = await Promise.all([
-      prisma.socialPost.findMany({
+  const [recentPostsCount, notificationCenter] = await Promise.all([
+      prisma.socialPost.count({
         where: postScope,
-        orderBy: { updatedAt: "desc" },
-        take: 6,
-        include: {
-          platforms: true,
-          mediaAsset: {
-            include: {
-              variants: true,
-            },
-          },
-        },
       }),
-      isAdmin ? getRecentActivityFeed() : Promise.resolve([]),
-      isAdmin
-        ? getQueueOverview(timezone)
-        : Promise.resolve({
-            today: [],
-            tomorrow: [],
-            thisWeek: [],
-          }),
+      getNotificationCenterSnapshot(),
   ]);
+  const totalPages = Math.max(1, Math.ceil(recentPostsCount / postsPerPage));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const skip = (safeCurrentPage - 1) * postsPerPage;
+  const recentPosts = await prisma.socialPost.findMany({
+    where: postScope,
+    orderBy: { updatedAt: "desc" },
+    skip,
+    take: postsPerPage,
+    include: {
+      platforms: true,
+      mediaAsset: {
+        include: {
+          variants: true,
+        },
+      },
+    },
+  });
+  const visibleStart = recentPostsCount === 0 ? 0 : (safeCurrentPage - 1) * postsPerPage + 1;
+  const visibleEnd = recentPostsCount === 0 ? 0 : Math.min(safeCurrentPage * postsPerPage, recentPostsCount);
+  const previousPageHref = safeCurrentPage > 1 ? `/dashboard?page=${safeCurrentPage - 1}#recent-posts` : null;
+  const nextPageHref = safeCurrentPage < totalPages ? `/dashboard?page=${safeCurrentPage + 1}#recent-posts` : null;
 
   const quickActions: QuickActionCard[] = [
     {
@@ -105,6 +124,19 @@ export default async function DashboardPage() {
             <CalendarIcon />
             <span>{formatDateRangeLabel(weekStart, weekEnd)}</span>
           </Link>
+          <DashboardNotificationMenu
+            unreadCount={notificationCenter.unreadCount}
+            notifications={notificationCenter.unreadNotifications.map((notification) => ({
+              id: notification.id,
+              title: notification.title,
+              message: notification.message,
+              actionUrl: notification.actionUrl,
+              provider: notification.provider,
+              severity: notification.severity,
+              createdLabel: formatDateTimeForTimezone(notification.createdAt, timezone),
+            }))}
+            openNotificationAction={openNotificationAction}
+          />
         </div>
       </header>
 
@@ -129,7 +161,7 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      <section className="panel dashboard-module-card dashboard-recent-card">
+      <section id="recent-posts" className="panel dashboard-module-card dashboard-recent-card">
         <div className="panel-body">
           <div className="dashboard-module-heading">
             <div className="dashboard-module-title">
@@ -233,97 +265,38 @@ export default async function DashboardPage() {
               })
             )}
           </div>
+
+          <div className="dashboard-recent-pagination" aria-label="Recent posts pages">
+            <div className="dashboard-recent-pagination-copy">
+              <strong>Page {safeCurrentPage}</strong>
+              <span>
+                {visibleStart}-{visibleEnd} of {recentPostsCount}
+              </span>
+            </div>
+            <div className="dashboard-recent-pagination-controls">
+              {previousPageHref ? (
+                <Link href={previousPageHref} className="secondary-button">
+                  <span>Previous</span>
+                </Link>
+              ) : (
+                <span className="secondary-button is-disabled" aria-disabled="true">
+                  <span>Previous</span>
+                </span>
+              )}
+              {nextPageHref ? (
+                <Link href={nextPageHref} className="secondary-button">
+                  <span>Next</span>
+                </Link>
+              ) : (
+                <span className="secondary-button is-disabled" aria-disabled="true">
+                  <span>Next</span>
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </section>
 
-      {isAdmin ? (
-        <div className="analytics-section-grid">
-          <section className="panel dashboard-module-card">
-            <div className="panel-body">
-              <div className="dashboard-module-heading">
-                <div className="dashboard-module-title">
-                  <span className="dashboard-module-icon is-blue">
-                    <SuccessIcon />
-                  </span>
-                  <div>
-                    <h3>Recent Activity</h3>
-                    <p>Publishing, scheduling, and connection activity across the team.</p>
-                  </div>
-                </div>
-                <Link href="/dashboard/analytics" className="secondary-button dashboard-secondary-inline">
-                  <span>Open Analytics</span>
-                </Link>
-              </div>
-
-              <div className="analytics-activity-feed">
-                {recentActivity.length === 0 ? (
-                  <p className="muted">No recent activity yet.</p>
-                ) : (
-                  recentActivity.map((activity) => (
-                    <article key={activity.id} className={`analytics-activity-item is-${activity.tone}`.trim()}>
-                      <div className={`analytics-activity-marker is-${activity.tone}`.trim()}>
-                        {activity.tone === "error" ? <FailureIcon /> : activity.tone === "success" ? <SuccessIcon /> : <ClockIcon />}
-                      </div>
-                      <div className="analytics-activity-copy">
-                        <strong>{activity.message}</strong>
-                        <p>{formatDateTimeForTimezone(activity.createdAt, timezone)}</p>
-                      </div>
-                    </article>
-                  ))
-                )}
-              </div>
-            </div>
-          </section>
-
-          <section className="panel dashboard-module-card">
-            <div className="panel-body">
-              <div className="dashboard-module-heading">
-                <div className="dashboard-module-title">
-                  <span className="dashboard-module-icon is-purple">
-                    <QueueIcon />
-                  </span>
-                  <div>
-                    <h3>Upcoming Queue</h3>
-                    <p>Quick access to what is scheduled next.</p>
-                  </div>
-                </div>
-                <Link href="/dashboard/analytics" className="secondary-button dashboard-secondary-inline">
-                  <span>View Queue</span>
-                </Link>
-              </div>
-
-              <div className="analytics-queue-groups">
-                {[
-                  { label: "Today", items: queueOverview.today },
-                  { label: "Tomorrow", items: queueOverview.tomorrow },
-                  { label: "This Week", items: queueOverview.thisWeek.slice(0, 4) },
-                ].map((group) => (
-                  <div key={group.label} className="analytics-queue-group">
-                    <div className="analytics-queue-group-head">
-                      <strong>{group.label}</strong>
-                      <span>{group.items.length}</span>
-                    </div>
-                    {group.items.length === 0 ? (
-                      <p className="muted">Nothing queued.</p>
-                    ) : (
-                      <div className="analytics-queue-list">
-                        {group.items.map((item) => (
-                          <Link key={item.id} href={`/dashboard/posts/${item.id}`} className="analytics-queue-item">
-                            <div>
-                              <strong>{item.descriptionPreview}</strong>
-                              <p>{formatDateTimeForTimezone(item.scheduledAt, timezone)}</p>
-                            </div>
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-        </div>
-      ) : null}
     </section>
   );
 }

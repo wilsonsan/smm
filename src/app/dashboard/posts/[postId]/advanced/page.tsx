@@ -18,6 +18,7 @@ import {
   getPlatformPublishSummary,
 } from "@/lib/posts";
 import { prisma } from "@/lib/prisma";
+import { getInstagramFirstCommentSummary } from "@/lib/instagram";
 import {
   formatDateTimeForTimezone,
   getResolvedAppTimezone,
@@ -106,6 +107,10 @@ export default async function PostAdvancedPage({ params, searchParams }: PostAdv
     (left, right) => right.startedAt.getTime() - left.startedAt.getTime(),
   );
   const lastPublishAttempt = publishAttempts[0] ?? null;
+  const lastInstagramFirstCommentSummary =
+    lastPublishAttempt?.platform === "INSTAGRAM"
+      ? getInstagramFirstCommentSummary(lastPublishAttempt.responseSummary)
+      : null;
   const needsImmediatePublishConfirmation =
     resolvedSearchParams?.confirmImmediate === "1" &&
     post.status === "SCHEDULED" &&
@@ -314,6 +319,23 @@ export default async function PostAdvancedPage({ params, searchParams }: PostAdv
                     <label>Platform post ID</label>
                     <input value={lastPublishAttempt.platformPostId || "Not available"} readOnly />
                   </div>
+                  {lastPublishAttempt.platform === "INSTAGRAM" && post.instagramFirstComment ? (
+                    <div className="field">
+                      <label>First comment</label>
+                      <input
+                        value={
+                          lastInstagramFirstCommentSummary?.attempted
+                            ? lastInstagramFirstCommentSummary.status === "succeeded"
+                              ? "Published"
+                              : lastInstagramFirstCommentSummary.status === "failed"
+                                ? "Failed"
+                                : "Saved"
+                            : "Saved"
+                        }
+                        readOnly
+                      />
+                    </div>
+                  ) : null}
                 </div>
 
                 {lastPublishAttempt.platformPostUrl ? (

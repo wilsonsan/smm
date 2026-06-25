@@ -16,6 +16,28 @@ const SETTINGS_SECTIONS = [
         title: "System Status",
         description: "Worker health, publish activity, connected Facebook Page, and operational checks.",
       },
+      {
+        href: "/dashboard/settings/developer",
+        title: "Developer",
+        description: "Toggle dev-only platform overrides so the New Post composer can be tested without live channel logins.",
+      },
+    ],
+  },
+  {
+    eyebrow: "Posts",
+    title: "Templates & Composer Helpers",
+    description: "Manage reusable caption tools, variable outcomes, and hashtag groups used while writing posts.",
+    items: [
+      {
+        href: "/dashboard/settings/templates",
+        title: "Templates",
+        description: "View, add, remove, and edit post template variables with a cleaner variable library and editor.",
+      },
+      {
+        href: "/dashboard/settings/hashtags",
+        title: "Hashtags",
+        description: "Manage hashtag groups and Facebook hashtag defaults on a dedicated page.",
+      },
     ],
   },
   {

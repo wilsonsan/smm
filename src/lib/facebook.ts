@@ -18,12 +18,15 @@ import {
   createOrUpdateFacebookTokenNotification,
   dismissProviderNotifications,
 } from "@/lib/notifications";
+import { resolveRenderedPlatformContent } from "@/lib/posts";
 import { syncSocialPostAggregateState } from "@/lib/publish-state";
 import { prisma } from "@/lib/prisma";
 import {
   APP_SETTING_KEYS,
   getAppSettingValue,
   getAppSettings,
+  getBusinessVariableSettings,
+  getHashtagSettings,
   upsertAppSetting,
 } from "@/lib/settings";
 import { getFacebookAppSecretSetting, getTokenEncryptionKeyState } from "@/lib/secure-settings";
@@ -2895,10 +2898,20 @@ export async function executeFacebookPublish(input: {
     platformRecord.socialPost.attachedMedia.length > 0
       ? platformRecord.socialPost.attachedMedia.map((item) => item.mediaAsset)
       : platformRecord.socialPost.mediaAsset
-        ? [platformRecord.socialPost.mediaAsset]
-        : [];
+          ? [platformRecord.socialPost.mediaAsset]
+          : [];
+  const [businessVariables, hashtagSettings] = await Promise.all([
+    getBusinessVariableSettings(),
+    getHashtagSettings(),
+  ]);
+  const renderedDescription = resolveRenderedPlatformContent(
+    platformRecord.socialPost,
+    SocialPlatform.FACEBOOK,
+    businessVariables,
+    hashtagSettings,
+  );
   const requestPayload = buildFacebookPostPayload({
-    caption: platformRecord.socialPost.caption,
+    caption: renderedDescription.descriptionText,
     mediaAssets,
   });
 
@@ -2908,19 +2921,31 @@ export async function executeFacebookPublish(input: {
       socialPostPlatformId: platformRecord.id,
       platform: SocialPlatform.FACEBOOK,
       status: PublishAttemptStatus.PENDING,
-      requestSummary: {
-        ...requestPayload.summary,
-        statusAtAttempt: platformRecord.status,
+        requestSummary: {
+          ...requestPayload.summary,
+          statusAtAttempt: platformRecord.status,
+          usedOverride: renderedDescription.usedOverride,
+          effectiveDescriptionLength: renderedDescription.descriptionText.length,
+          variablesRendered: renderedDescription.variablesRendered,
+          unresolvedVariablesCount: renderedDescription.unresolvedVariableNames.length,
+          unresolvedVariableNames: renderedDescription.unresolvedVariableNames,
+          hashtagCount: renderedDescription.hashtagsUsed.length,
+          hashtagPlacement: renderedDescription.hashtagPlacement,
+        },
+        startedAt: new Date(),
       },
-      startedAt: new Date(),
-    },
-  });
-
-  try {
-    const result = await publishFacebookPost({
-      caption: platformRecord.socialPost.caption,
-      mediaAssets,
     });
+
+    try {
+      if (renderedDescription.unresolvedVariableNames.length > 0) {
+        throw new Error(
+          `These variables are missing values: ${renderedDescription.unresolvedVariableNames.map((name) => `{{${name}}}`).join(", ")}`,
+        );
+      }
+      const result = await publishFacebookPost({
+        caption: renderedDescription.descriptionText,
+        mediaAssets,
+      });
     const finishedAt = new Date();
 
     await prisma.$transaction(async (tx) => {

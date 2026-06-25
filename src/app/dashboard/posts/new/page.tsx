@@ -8,6 +8,7 @@ import { getGoogleFoundationState } from "@/lib/google";
 import { getInstagramFoundationState } from "@/lib/instagram";
 import { toMediaAssetGallerySummary, toMediaAssetSummary } from "@/lib/media-presentation";
 import { prisma } from "@/lib/prisma";
+import { getHashtagSettings, getTemplateVariableSettings } from "@/lib/settings";
 import { getDefaultScheduleFields, getResolvedAppTimezone } from "@/lib/time";
 
 type NewPostPageProps = {
@@ -25,7 +26,7 @@ type NewPostPageProps = {
 export default async function NewPostPage({ searchParams }: NewPostPageProps) {
   const adminUser = await requireAuthenticatedUser();
   const resolvedSearchParams = await searchParams;
-  const [recentMediaAssets, timezone, instagramFoundation, googleFoundation] = await Promise.all([
+  const [recentMediaAssets, timezone, templateVariables, hashtagSettings, instagramFoundation, googleFoundation] = await Promise.all([
     prisma.mediaAsset.findMany({
       orderBy: {
         createdAt: "desc",
@@ -91,6 +92,8 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
       },
     }),
     getResolvedAppTimezone(),
+    getTemplateVariableSettings(),
+    getHashtagSettings(),
     getInstagramFoundationState({ refreshHealth: true }),
     getGoogleFoundationState({ refreshHealth: true }),
   ]);
@@ -140,7 +143,13 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
       <PostEditorForm
         post={{
           id: "",
-          caption: "",
+          descriptionMain: "",
+          descriptionFacebook: "",
+          descriptionInstagram: "",
+          instagramFirstComment: "",
+          descriptionGoogleBusiness: "",
+          hashtags: [],
+          includeHashtagsInGoogle: false,
           scheduledDate: defaults.date,
           scheduledHour: resolvedHour,
           scheduledMinute: resolvedMinute,
@@ -152,6 +161,8 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
         }}
         recentMediaAssets={recentMediaAssets.map((asset) => toMediaAssetGallerySummary(asset))}
         timezone={timezone}
+        templateVariables={templateVariables}
+        hashtagSettings={hashtagSettings}
         instagramFoundation={instagramFoundation}
         googleFoundation={googleFoundation}
         previewProfiles={{

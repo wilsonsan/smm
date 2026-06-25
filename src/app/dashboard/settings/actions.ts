@@ -4,9 +4,26 @@ import { revalidatePath } from "next/cache";
 import { requireAdminUser } from "@/lib/auth/session";
 import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
 import { getRequestMetadata } from "@/lib/http";
-import { saveAppSettings } from "@/lib/settings";
+import {
+  getHashtagSettings,
+  getTemplateVariableSettings,
+  saveAppSettings,
+  saveDeveloperSettings,
+  saveHashtagSettings,
+  saveTemplateVariableSettings,
+} from "@/lib/settings";
 import { clearStoredGalleryLibrary } from "@/lib/uploads";
-import { galleryDeletionSchema, initialFormState, settingsSchema, type FormState } from "@/lib/validation";
+import {
+  developerSettingsSchema,
+  galleryDeletionSchema,
+  hashtagGroupEditorSchema,
+  hashtagSettingsSchema,
+  initialFormState,
+  settingsSchema,
+  templateVariableEditorSchema,
+  templateVariableSettingsSchema,
+  type FormState,
+} from "@/lib/validation";
 
 export async function saveSettingsAction(_: FormState, formData: FormData): Promise<FormState> {
   const adminUser = await requireAdminUser();
@@ -41,6 +58,66 @@ export async function saveSettingsAction(_: FormState, formData: FormData): Prom
   return {
     success: true,
     message: "Settings saved.",
+  };
+}
+
+export async function saveTemplateVariablesAction(_: FormState, formData: FormData): Promise<FormState> {
+  const adminUser = await requireAdminUser({
+    redirectTo: "/dashboard",
+    targetType: "TemplateSettingsPage",
+  });
+  const previousVariables = await getTemplateVariableSettings();
+  const parsed = templateVariableSettingsSchema.safeParse({
+    templateVariablesJson: formData.get("templateVariablesJson"),
+  });
+
+  if (!parsed.success) {
+    return {
+      ...initialFormState,
+      message: "Fix the template variables and try again.",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  let nextVariables;
+  try {
+    nextVariables = templateVariableEditorSchema.parse(JSON.parse(parsed.data.templateVariablesJson));
+  } catch {
+    return {
+      ...initialFormState,
+      message: "Fix the template variables and try again.",
+      fieldErrors: {
+        templateVariablesJson: ["Template variables could not be parsed."],
+      },
+    };
+  }
+
+  await saveTemplateVariableSettings({
+    templateVariables: nextVariables,
+  });
+
+  const { ipAddress, userAgent } = await getRequestMetadata();
+  await createAuditLog({
+    actorAdminUserId: adminUser.id,
+    action: AUDIT_ACTIONS.BUSINESS_VARIABLE_SETTINGS_CHANGED,
+    targetType: "AppSetting",
+    ipAddress,
+    userAgent,
+    metadata: {
+      previousVariables,
+      nextVariables,
+    },
+  });
+
+  revalidatePath("/dashboard/settings");
+  revalidatePath("/dashboard/settings/templates");
+  revalidatePath("/dashboard/settings/site");
+  revalidatePath("/dashboard/posts/new");
+  revalidatePath("/dashboard/posts");
+
+  return {
+    success: true,
+    message: "Template variables saved.",
   };
 }
 
@@ -84,5 +161,154 @@ export async function clearGalleryLibraryAction(_: FormState, formData: FormData
       summary.failedFileDeleteCount > 0
         ? `Gallery cleared. Removed ${summary.deletedMediaAssetCount} saved items, deleted ${summary.deletedFileCount} files, missed ${summary.missingFileCount} already-missing files, and left ${summary.failedFileDeleteCount} files on disk that could not be removed.`
         : `Gallery cleared. Removed ${summary.deletedMediaAssetCount} saved items, deleted ${summary.deletedFileCount} files, and skipped ${summary.missingFileCount} already-missing files.`,
+  };
+}
+
+export async function saveDeveloperSettingsAction(_: FormState, formData: FormData): Promise<FormState> {
+  const adminUser = await requireAdminUser({
+    redirectTo: "/dashboard",
+    targetType: "DeveloperSettingsPage",
+  });
+  const parsed = developerSettingsSchema.safeParse({
+    facebook: formData.get("facebook"),
+    instagram: formData.get("instagram"),
+    google: formData.get("google"),
+  });
+
+  if (!parsed.success) {
+    return {
+      ...initialFormState,
+      message: "Fix the developer override settings and try again.",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  await saveDeveloperSettings(parsed.data);
+
+  const { ipAddress, userAgent } = await getRequestMetadata();
+  await createAuditLog({
+    actorAdminUserId: adminUser.id,
+    action: AUDIT_ACTIONS.DEVELOPER_SETTINGS_UPDATED,
+    targetType: "AppSetting",
+    ipAddress,
+    userAgent,
+    metadata: parsed.data,
+  });
+
+  revalidatePath("/dashboard/posts/new");
+  revalidatePath("/dashboard/posts");
+  revalidatePath("/dashboard/settings/developer");
+
+  return {
+    success: true,
+    message: "Developer overrides saved.",
+  };
+}
+
+export async function saveHashtagSettingsAction(_: FormState, formData: FormData): Promise<FormState> {
+  const adminUser = await requireAdminUser({
+    redirectTo: "/dashboard",
+    targetType: "HashtagSettingsPage",
+  });
+  const previousSettings = await getHashtagSettings();
+  const parsed = hashtagSettingsSchema.safeParse({
+    facebookDefaultLimit: formData.get("facebookDefaultLimit"),
+    groupsJson: formData.get("groupsJson"),
+  });
+
+  if (!parsed.success) {
+    return {
+      ...initialFormState,
+      message: "Fix the hashtag settings and try again.",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  let nextGroups;
+  try {
+    nextGroups = hashtagGroupEditorSchema.parse(JSON.parse(parsed.data.groupsJson));
+  } catch {
+    return {
+      ...initialFormState,
+      message: "Fix the hashtag groups and try again.",
+      fieldErrors: {
+        groupsJson: ["Hashtag groups could not be parsed."],
+      },
+    };
+  }
+
+  await saveHashtagSettings({
+    facebookDefaultLimit: parsed.data.facebookDefaultLimit,
+    groups: nextGroups,
+  });
+
+  const { ipAddress, userAgent } = await getRequestMetadata();
+  const previousGroupMap = new Map(previousSettings.groups.map((group) => [group.id, group]));
+  const nextGroupMap = new Map(nextGroups.map((group) => [group.id, group]));
+
+  for (const group of nextGroups) {
+    const previousGroup = previousGroupMap.get(group.id);
+    if (!previousGroup) {
+      await createAuditLog({
+        actorAdminUserId: adminUser.id,
+        action: AUDIT_ACTIONS.HASHTAG_GROUP_MODIFIED,
+        targetType: "HashtagGroup",
+        targetId: group.id,
+        ipAddress,
+        userAgent,
+        metadata: {
+          changeType: "created",
+          group,
+        },
+      });
+      continue;
+    }
+
+    if (
+      previousGroup.name !== group.name ||
+      JSON.stringify(previousGroup.hashtags) !== JSON.stringify(group.hashtags)
+    ) {
+      await createAuditLog({
+        actorAdminUserId: adminUser.id,
+        action: AUDIT_ACTIONS.HASHTAG_GROUP_MODIFIED,
+        targetType: "HashtagGroup",
+        targetId: group.id,
+        ipAddress,
+        userAgent,
+        metadata: {
+          changeType: "updated",
+          previousGroup,
+          nextGroup: group,
+        },
+      });
+    }
+  }
+
+  for (const group of previousSettings.groups) {
+    if (nextGroupMap.has(group.id)) {
+      continue;
+    }
+
+    await createAuditLog({
+      actorAdminUserId: adminUser.id,
+      action: AUDIT_ACTIONS.HASHTAG_GROUP_MODIFIED,
+      targetType: "HashtagGroup",
+      targetId: group.id,
+      ipAddress,
+      userAgent,
+      metadata: {
+        changeType: "deleted",
+        group,
+      },
+    });
+  }
+
+  revalidatePath("/dashboard/settings");
+  revalidatePath("/dashboard/settings/templates");
+  revalidatePath("/dashboard/posts/new");
+
+  return {
+    success: true,
+    message: "Hashtag settings saved.",
   };
 }

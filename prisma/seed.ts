@@ -7,33 +7,51 @@ async function main() {
   const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   const adminPassword = process.env.ADMIN_PASSWORD?.trim();
 
-  if (!adminEmail || !adminPassword) {
-    console.warn("Skipping admin seed because ADMIN_EMAIL or ADMIN_PASSWORD is not set.");
-    return;
+  const userCount = await prisma.adminUser.count();
+
+  if (userCount === 0) {
+    if (!adminEmail || !adminPassword) {
+      console.warn("Skipping admin seed because ADMIN_EMAIL or ADMIN_PASSWORD is not set.");
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(adminPassword, 12);
+    const createdAdmin = await prisma.adminUser.create({
+      data: {
+        firstName: "Admin",
+        lastName: null,
+        username: "admin",
+        email: adminEmail,
+        passwordHash,
+        role: "ADMIN",
+        displayName: "Admin",
+      },
+    });
+
+    console.log("Initial admin created from env");
+    await prisma.auditLog.create({
+      data: {
+        actorAdminUserId: createdAdmin.id,
+        action: "INITIAL_ADMIN_CREATED_FROM_ENV",
+        targetType: "AdminUser",
+        targetId: createdAdmin.id,
+        metadata: {
+          email: createdAdmin.email,
+        },
+      },
+    });
+  } else {
+    console.log("Users already exist; skipping env admin bootstrap");
+    await prisma.auditLog.create({
+      data: {
+        action: "ENV_ADMIN_BOOTSTRAP_SKIPPED",
+        targetType: "AdminUser",
+        metadata: {
+          userCount,
+        },
+      },
+    });
   }
-
-  const passwordHash = await bcrypt.hash(adminPassword, 12);
-
-  await prisma.adminUser.upsert({
-    where: { email: adminEmail },
-    update: {
-      passwordHash,
-      username: "admin",
-      role: "ADMIN",
-      firstName: "Admin",
-      lastName: null,
-      displayName: "Admin",
-    },
-    create: {
-      firstName: "Admin",
-      lastName: null,
-      username: "admin",
-      email: adminEmail,
-      passwordHash,
-      role: "ADMIN",
-      displayName: "Admin",
-    },
-  });
 
   const settings = [
     {

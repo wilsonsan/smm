@@ -81,10 +81,16 @@ model AdminUser {
   passwordHash   String
   role           AdminUserRole  @default(ADMIN)
   displayName    String?
+  mfaEnabled     Boolean        @default(false)
+  mfaSecretEncrypted String?    @db.LongText
+  mfaVerifiedAt  DateTime?
+  mfaLastUsedAt  DateTime?
   lastLoginAt    DateTime?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   sessions       AdminSession[]
+  pendingMfaSessions PendingMfaSession[]
+  mfaRecoveryCodes MfaRecoveryCode[]
   uploadedMedia  MediaAsset[]
   createdPosts   SocialPost[]   @relation("CreatedPosts")
   updatedPosts   SocialPost[]   @relation("UpdatedPosts")
@@ -106,6 +112,34 @@ model AdminSession {
 
   @@index([adminUserId])
   @@index([expiresAt])
+}
+
+model PendingMfaSession {
+  id             String    @id @default(cuid())
+  tokenHash      String    @unique
+  adminUserId    String
+  expiresAt      DateTime
+  ipAddress      String?
+  userAgent      String?
+  attempts       Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  adminUser      AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+  @@index([expiresAt])
+}
+
+model MfaRecoveryCode {
+  id           String    @id @default(cuid())
+  adminUserId  String
+  codeHash     String
+  usedAt       DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  adminUser    AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId, usedAt])
 }
 
 model AppSetting {
@@ -159,6 +193,17 @@ model SocialPost {
   id                   String               @id @default(cuid())
   internalTitle        String
   caption              String               @db.Text
+  descriptionMain      String               @db.Text
+  descriptionFacebook  String?              @db.Text
+  descriptionInstagram String?              @db.Text
+  instagramFirstComment String?             @db.Text
+  descriptionGoogleBusiness String?         @db.Text
+  projectType          String?
+  tileType             String?
+  roomType             String?
+  city                 String?
+  hashtags             Json?
+  includeHashtagsInGoogle Boolean          @default(false)
   status               SocialPostStatus     @default(DRAFT)
   scheduledAt          DateTime?
   publishedAt          DateTime?
