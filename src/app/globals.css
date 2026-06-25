@@ -3215,7 +3215,7 @@ th {
   padding: 24px;
 }
 
-.composer-preview-card {
+.composer-preview-rail {
   position: sticky;
   top: 96px;
   align-self: start;
@@ -4893,7 +4893,7 @@ th {
     grid-column: 1;
   }
 
-  .composer-preview-card {
+  .composer-preview-rail {
     position: static;
     max-height: none;
     overflow: visible;
