@@ -819,10 +819,17 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
   });
 
   if (!parsed.success) {
+    const flattened = parsed.error.flatten();
+    const firstVisibleError =
+      flattened.formErrors[0] ||
+      Object.values(flattened.fieldErrors)
+        .flat()
+        .find((error): error is string => Boolean(error));
+
     return {
       ...initialFormState,
-      message: "Fix the highlighted fields and try again.",
-      fieldErrors: parsed.error.flatten().fieldErrors,
+      message: firstVisibleError || "Fix the highlighted fields and try again.",
+      fieldErrors: flattened.fieldErrors,
       submittedValues,
     };
   }

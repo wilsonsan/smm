@@ -1067,6 +1067,12 @@ export function PostEditorForm({
               ) : (
                 <p className="composer-hashtag-empty">No hashtags added yet.</p>
               )}
+
+              {state.fieldErrors?.hashtags?.map((error) => (
+                <span key={error} className="error-text">
+                  {error}
+                </span>
+              ))}
             </div>
           </section>
 
