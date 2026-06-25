@@ -3215,6 +3215,14 @@ th {
   padding: 24px;
 }
 
+.composer-preview-card {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+}
+
 .composer-section-heading {
   display: flex;
   align-items: flex-start;
