@@ -3217,9 +3217,9 @@ th {
 
 .composer-preview-card {
   position: sticky;
-  top: 24px;
+  top: 96px;
   align-self: start;
-  max-height: calc(100vh - 36px);
+  max-height: calc(100vh - 108px);
   overflow-y: auto;
 }
 
