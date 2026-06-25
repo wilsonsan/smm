@@ -3266,21 +3266,82 @@ th {
   line-height: 1.6;
 }
 
-.composer-caption-shell {
-  position: relative;
+.composer-caption-panel,
+.composer-description-block,
+.composer-caption-tip-card {
   display: grid;
-  gap: 14px;
-  padding: 16px;
-  border-radius: 20px;
+  gap: 18px;
+  padding: 24px;
+  border-radius: 24px;
   border: 1px solid rgba(138, 158, 221, 0.12);
   background:
     linear-gradient(180deg, rgba(8, 15, 28, 0.96), rgba(10, 18, 31, 0.94));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 20px 40px rgba(3, 8, 18, 0.24);
+}
+
+.composer-caption-label {
+  display: inline-flex;
+  align-items: center;
+  color: #f4f7ff;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.composer-caption-shell {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(138, 158, 221, 0.12);
+  background:
+    linear-gradient(180deg, rgba(5, 12, 24, 0.98), rgba(8, 16, 30, 0.94));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
 }
 
-.composer-description-block {
+.composer-caption-textarea {
+  width: 100%;
+  min-height: 200px;
+  border: 1px solid rgba(118, 138, 196, 0.14);
+  background: rgba(6, 13, 25, 0.84);
+  color: var(--text);
+  resize: vertical;
+  padding: 18px 20px;
+  border-radius: 18px;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.composer-caption-textarea:focus-visible {
+  outline: 1px solid rgba(109, 127, 248, 0.42);
+  border-color: rgba(109, 127, 248, 0.42);
+}
+
+.composer-caption-meta {
   display: grid;
-  gap: 14px;
+  gap: 12px;
+}
+
+.composer-caption-progress {
+  position: relative;
+  width: min(100%, 180px);
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(75, 92, 131, 0.38);
+}
+
+.composer-caption-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(123, 86, 255, 0.96), rgba(93, 126, 255, 0.96));
+  box-shadow: 0 0 18px rgba(100, 116, 255, 0.3);
+}
+
+.composer-description-block {
+  gap: 18px;
 }
 
 .composer-section-card--compact {
@@ -3290,14 +3351,14 @@ th {
 .composer-description-header {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  padding-right: 52px;
+  gap: 16px;
 }
 
 .composer-description-header strong,
-.composer-override-card-head strong {
+.composer-override-card-head strong,
+.composer-caption-tip-copy strong {
   display: block;
   font-size: 1rem;
   font-weight: 700;
@@ -3305,7 +3366,8 @@ th {
 }
 
 .composer-description-header p,
-.composer-override-card-head p {
+.composer-override-card-head p,
+.composer-caption-tip-copy p {
   margin: 6px 0 0;
   color: #92a7c9;
   font-size: 0.9rem;
@@ -3313,12 +3375,12 @@ th {
 }
 
 .composer-override-toggle {
-  border: 1px solid rgba(126, 149, 222, 0.22);
-  background: rgba(15, 27, 46, 0.88);
-  color: #d5e3ff;
-  min-height: 42px;
-  padding: 0 16px;
-  border-radius: 999px;
+  border: 1px solid rgba(123, 105, 255, 0.32);
+  background: rgba(22, 19, 48, 0.74);
+  color: #e0dbff;
+  min-height: 46px;
+  padding: 0 18px;
+  border-radius: 16px;
   font-size: 0.9rem;
   font-weight: 700;
   cursor: pointer;
@@ -3327,10 +3389,10 @@ th {
 
 .composer-override-toggle:hover:not(:disabled),
 .composer-override-toggle.is-active {
-  border-color: rgba(123, 105, 255, 0.42);
-  background: rgba(64, 48, 124, 0.34);
+  border-color: rgba(140, 118, 255, 0.56);
+  background: rgba(70, 48, 150, 0.28);
   color: #ffffff;
-  box-shadow: 0 16px 30px rgba(79, 63, 163, 0.18);
+  box-shadow: 0 16px 34px rgba(95, 69, 209, 0.22);
 }
 
 .composer-override-toggle:disabled {
@@ -3338,65 +3400,8 @@ th {
   opacity: 0.68;
 }
 
-.composer-variable-select {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  justify-self: start;
-  color: #c9d8f2;
-  font-size: 0.86rem;
-  font-weight: 700;
-}
-
-.composer-variable-select span {
-  white-space: nowrap;
-}
-
-.composer-variable-select select {
-  min-height: 40px;
-  padding: 0 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(126, 149, 222, 0.2);
-  background: rgba(9, 17, 30, 0.82);
-  color: #edf3ff;
-}
-
 .composer-post-details-grid {
   align-items: start;
-}
-
-.composer-caption-sparkle {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  color: #c6b1ff;
-  background: rgba(141, 110, 255, 0.1);
-}
-
-.composer-caption-sparkle svg {
-  width: 16px;
-  height: 16px;
-}
-
-.composer-caption-textarea {
-  width: 100%;
-  min-height: 220px;
-  border: none;
-  background: transparent;
-  color: var(--text);
-  resize: vertical;
-  padding: 8px 4px 0;
-  font-size: 1rem;
-  line-height: 1.7;
-}
-
-.composer-caption-textarea:focus-visible {
-  outline: none;
 }
 
 .composer-caption-footer {
@@ -3444,16 +3449,17 @@ th {
 
 .composer-override-grid {
   display: grid;
-  gap: 14px;
+  gap: 16px;
 }
 
 .composer-override-card {
   display: grid;
-  gap: 12px;
-  padding: 16px;
-  border-radius: 18px;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 20px;
   border: 1px solid rgba(116, 136, 197, 0.16);
-  background: rgba(8, 15, 29, 0.66);
+  background: linear-gradient(180deg, rgba(8, 15, 29, 0.78), rgba(8, 15, 29, 0.64));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
 }
 
 .composer-instagram-comment-card {
@@ -3469,14 +3475,50 @@ th {
 .composer-override-card-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
+.composer-override-card-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.composer-override-card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(10, 18, 34, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.composer-override-card-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.composer-override-card-icon.is-facebook {
+  background: radial-gradient(circle at top left, rgba(65, 117, 255, 0.28), transparent 48%), rgba(11, 22, 42, 0.94);
+}
+
+.composer-override-card-icon.is-instagram {
+  background: radial-gradient(circle at top left, rgba(246, 112, 167, 0.24), transparent 45%), rgba(22, 13, 32, 0.94);
+}
+
+.composer-override-card-icon.is-google {
+  background: radial-gradient(circle at top left, rgba(92, 198, 122, 0.2), transparent 44%), rgba(11, 22, 42, 0.94);
+}
+
 .composer-override-pill {
   align-self: center;
-  padding: 6px 12px;
+  padding: 6px 13px;
   border-radius: 999px;
   border: 1px solid rgba(119, 138, 194, 0.18);
   background: rgba(17, 28, 47, 0.78);
@@ -3487,15 +3529,22 @@ th {
   text-transform: uppercase;
 }
 
-.composer-override-pill.is-selected {
+.composer-override-pill.is-selected,
+.composer-override-pill.is-platform {
   border-color: rgba(97, 239, 180, 0.24);
   background: rgba(29, 76, 63, 0.44);
   color: #a6f6d4;
 }
 
+.composer-override-pill.is-facebook {
+  border-color: rgba(83, 137, 255, 0.24);
+  background: rgba(22, 51, 102, 0.44);
+  color: #a9ceff;
+}
+
 .composer-override-textarea {
   width: 100%;
-  min-height: 140px;
+  min-height: 132px;
   border: 1px solid rgba(118, 138, 196, 0.14);
   background: rgba(7, 14, 26, 0.72);
   color: var(--text);
@@ -3515,6 +3564,38 @@ th {
   cursor: not-allowed;
   color: #6d81a2;
   background: rgba(10, 17, 28, 0.62);
+}
+
+.composer-override-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.composer-caption-tip-card {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+
+.composer-caption-tip-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  color: #d7caff;
+  background: linear-gradient(135deg, rgba(103, 72, 255, 0.56), rgba(88, 113, 255, 0.28));
+  box-shadow: 0 14px 28px rgba(81, 75, 202, 0.22);
+}
+
+.composer-caption-tip-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.composer-caption-tip-copy {
+  min-width: 0;
 }
 
 .composer-platform-grid {
@@ -5555,6 +5636,37 @@ th {
 @media (max-width: 720px) {
   .composer-hero-title-row {
     flex-direction: column;
+  }
+
+  .composer-caption-panel,
+  .composer-description-block,
+  .composer-caption-tip-card {
+    padding: 18px;
+  }
+
+  .composer-caption-shell,
+  .composer-override-card {
+    padding: 14px;
+  }
+
+  .composer-caption-textarea {
+    min-height: 180px;
+    padding: 16px;
+  }
+
+  .composer-caption-progress {
+    width: 100%;
+  }
+
+  .composer-description-header,
+  .composer-override-card-head,
+  .composer-override-card-title,
+  .composer-caption-tip-card {
+    align-items: flex-start;
+  }
+
+  .composer-caption-tip-card {
+    grid-template-columns: 1fr;
   }
 
   .composer-platform-indicator {

@@ -21,7 +21,6 @@ import {
   ComposeIcon,
   FacebookIcon,
   GalleryIcon,
-  GoogleBusinessIcon,
   SuccessIcon,
 } from "@/components/dashboard-icons";
 import { MediaUploadField } from "@/components/media-upload-field";
@@ -35,7 +34,6 @@ import {
 import { resolveRenderedPlatformContent } from "@/lib/posts";
 import {
   getCaptionMaxForPlatforms,
-  getCaptionMaxLabelForPlatforms,
   getMaxMediaCountForPlatforms,
   getPlatformMediaLimitMessage,
 } from "@/lib/platform-rules";
@@ -132,16 +130,6 @@ function UploadCloudIcon(props: SVGProps<SVGSVGElement>) {
       <path d="M8.5 18.5h8a4 4 0 0 0 .6-8 5.5 5.5 0 0 0-10.7-1.1A4.2 4.2 0 0 0 8.5 18.5Z" />
       <path d="M12 8.5v8" />
       <path d="m9.2 11.3 2.8-2.8 2.8 2.8" />
-    </svg>
-  );
-}
-
-function QuestionCircleIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="M9.7 9.4a2.6 2.6 0 0 1 4.6 1.6c0 1.8-1.8 2.3-2.3 3.4" />
-      <path d="M12 17h.01" />
     </svg>
   );
 }
@@ -372,10 +360,6 @@ export function PostEditorForm({
 }: PostEditorFormProps) {
   const [state, formAction] = useActionState(savePostAction, initialFormState);
   const formRef = useRef<HTMLFormElement | null>(null);
-  const descriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const facebookOverrideTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const instagramOverrideTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const googleOverrideTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const instagramFirstCommentTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const hashtagInputRef = useRef<HTMLInputElement | null>(null);
   const [previewPlatform, setPreviewPlatform] = useState<PreviewPlatform>("FACEBOOK");
@@ -539,8 +523,8 @@ export function PostEditorForm({
   const normalizedHashtags = useMemo(() => normalizeHashtagList(hashtags), [hashtags]);
   const maxMediaCount = getMaxMediaCountForPlatforms(selectedPlatforms);
   const captionMax = getCaptionMaxForPlatforms(selectedPlatforms);
-  const captionLimitLabel = getCaptionMaxLabelForPlatforms(selectedPlatforms);
   const captionOverallState = caption.length > captionMax ? "over" : "short";
+  const captionProgressPercent = Math.max(0, Math.min(100, Math.round((caption.length / Math.max(captionMax, 1)) * 100)));
   const mediaLimitMessage =
     selectedMediaAssetIds.length > maxMediaCount ? getPlatformMediaLimitMessage(selectedPlatforms) : null;
   const renderedCaptionPreview = renderTemplateVariables(caption, templateVariableValueMap).text.trim();
@@ -800,56 +784,36 @@ export function PostEditorForm({
               </div>
             </div>
 
-            <div className="composer-caption-shell">
-              <span className="composer-caption-sparkle" aria-hidden="true">
-                <SparkleIcon />
-              </span>
-              <textarea
-                ref={descriptionTextareaRef}
-                id="descriptionMain"
-                name="descriptionMain"
-                value={caption}
-                onChange={(event) => setCaption(event.target.value)}
-                placeholder="Fresh tile install with clean lines and warm tones..."
-                disabled={isReadOnly}
-                maxLength={captionMax}
-                className="composer-caption-textarea"
-              />
-              <div className="composer-caption-footer">
-                <div className="composer-caption-guidance">
-                  <span className={`composer-character-count is-${captionOverallState}`.trim()}>
-                    {formatCharacterCount(caption.length)} / {formatCharacterCount(captionMax)}
-                  </span>
-                  <span className="composer-caption-help">
-                    {captionLimitLabel}
-                  </span>
+            <div className="composer-caption-panel">
+              <label htmlFor="descriptionMain" className="composer-caption-label">
+                Caption
+              </label>
+              <div className="composer-caption-shell">
+                <textarea
+                  id="descriptionMain"
+                  name="descriptionMain"
+                  value={caption}
+                  onChange={(event) => setCaption(event.target.value)}
+                  placeholder="Fresh tile install with clean lines and warm tones..."
+                  disabled={isReadOnly}
+                  maxLength={captionMax}
+                  className="composer-caption-textarea"
+                />
+              </div>
+              <div className="composer-caption-meta">
+                <span className={`composer-character-count is-${captionOverallState}`.trim()}>
+                  {formatCharacterCount(caption.length)} / {formatCharacterCount(captionMax)}
+                </span>
+                <div
+                  className="composer-caption-progress"
+                  role="progressbar"
+                  aria-label={`Caption length ${caption.length} of ${captionMax}`}
+                  aria-valuemin={0}
+                  aria-valuemax={captionMax}
+                  aria-valuenow={Math.min(caption.length, captionMax)}
+                >
+                  <span style={{ width: `${captionProgressPercent}%` }} />
                 </div>
-                {templateVariableOptions.length > 0 ? (
-                  <div className="composer-card-actions">
-                    <select
-                      value={selectedVariableToken}
-                      onChange={(event) => setSelectedVariableToken(event.target.value)}
-                      className="composer-variable-select"
-                      disabled={isReadOnly}
-                    >
-                      {templateVariableOptions.map((variable) => (
-                        <option key={variable.id} value={variable.format}>
-                          {variable.format}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      className="ghost-link-button"
-                      onClick={() =>
-                        insertVariableToken(descriptionTextareaRef.current, caption, setCaption)
-                      }
-                      disabled={isReadOnly || !selectedVariableToken}
-                    >
-                      Insert
-                    </button>
-                  </div>
-                ) : null}
               </div>
             </div>
 
@@ -873,14 +837,18 @@ export function PostEditorForm({
                   {selectedPlatforms.includes(FACEBOOK_PLATFORM) ? (
                     <div className="composer-override-card">
                       <div className="composer-override-card-head">
-                        <div>
-                          <strong>Facebook Override</strong>
-                          <p>Leave blank to use Main Description.</p>
+                        <div className="composer-override-card-title">
+                          <span className="composer-override-card-icon is-facebook">
+                            <FacebookIcon />
+                          </span>
+                          <div>
+                            <strong>Facebook Override</strong>
+                            <p>Leave blank to use Main Description.</p>
+                          </div>
                         </div>
-                        <span className="composer-override-pill is-selected">Facebook</span>
+                        <span className="composer-override-pill is-facebook">Facebook</span>
                       </div>
                       <textarea
-                        ref={facebookOverrideTextareaRef}
                         className="composer-override-textarea"
                         value={descriptionFacebook}
                         onChange={(event) => setDescriptionFacebook(event.target.value)}
@@ -888,28 +856,10 @@ export function PostEditorForm({
                         disabled={isReadOnly}
                         maxLength={63206}
                       />
-                      <div className="composer-caption-footer">
+                      <div className="composer-override-footer">
                         <span className="composer-character-count">
                           {formatCharacterCount(descriptionFacebook.length)} / 63,206
                         </span>
-                        {templateVariableOptions.length > 0 ? (
-                          <div className="composer-card-actions">
-                            <button
-                              type="button"
-                              className="ghost-link-button"
-                              onClick={() =>
-                                insertVariableToken(
-                                  facebookOverrideTextareaRef.current,
-                                  descriptionFacebook,
-                                  setDescriptionFacebook,
-                                )
-                              }
-                              disabled={isReadOnly || !selectedVariableToken}
-                            >
-                              Insert {selectedVariableToken || "variable"}
-                            </button>
-                          </div>
-                        ) : null}
                       </div>
                       {state.fieldErrors?.descriptionFacebook?.map((error) => (
                         <span key={error} className="error-text">
@@ -922,14 +872,18 @@ export function PostEditorForm({
                   {selectedPlatforms.includes(INSTAGRAM_PLATFORM) ? (
                     <div className="composer-override-card">
                       <div className="composer-override-card-head">
-                        <div>
-                          <strong>Instagram Override</strong>
-                          <p>Leave blank to use Main Description.</p>
+                        <div className="composer-override-card-title">
+                          <span className="composer-override-card-icon is-instagram">
+                            <InstagramIcon />
+                          </span>
+                          <div>
+                            <strong>Instagram Override</strong>
+                            <p>Leave blank to use Main Description.</p>
+                          </div>
                         </div>
-                        <span className="composer-override-pill is-selected">Instagram</span>
+                        <span className="composer-override-pill is-platform">Instagram</span>
                       </div>
                       <textarea
-                        ref={instagramOverrideTextareaRef}
                         className="composer-override-textarea"
                         value={descriptionInstagram}
                         onChange={(event) => setDescriptionInstagram(event.target.value)}
@@ -937,28 +891,10 @@ export function PostEditorForm({
                         disabled={isReadOnly}
                         maxLength={2200}
                       />
-                      <div className="composer-caption-footer">
+                      <div className="composer-override-footer">
                         <span className="composer-character-count">
                           {formatCharacterCount(descriptionInstagram.length)} / 2,200
                         </span>
-                        {templateVariableOptions.length > 0 ? (
-                          <div className="composer-card-actions">
-                            <button
-                              type="button"
-                              className="ghost-link-button"
-                              onClick={() =>
-                                insertVariableToken(
-                                  instagramOverrideTextareaRef.current,
-                                  descriptionInstagram,
-                                  setDescriptionInstagram,
-                                )
-                              }
-                              disabled={isReadOnly || !selectedVariableToken}
-                            >
-                              Insert {selectedVariableToken || "variable"}
-                            </button>
-                          </div>
-                        ) : null}
                       </div>
                       {state.fieldErrors?.descriptionInstagram?.map((error) => (
                         <span key={error} className="error-text">
@@ -971,14 +907,18 @@ export function PostEditorForm({
                   {selectedPlatforms.includes(GOOGLE_PLATFORM) ? (
                     <div className="composer-override-card">
                       <div className="composer-override-card-head">
-                        <div>
-                          <strong>Google Business Override</strong>
-                          <p>Leave blank to use Main Description.</p>
+                        <div className="composer-override-card-title">
+                          <span className="composer-override-card-icon is-google">
+                            <GoogleIcon />
+                          </span>
+                          <div>
+                            <strong>Google Business Override</strong>
+                            <p>Leave blank to use Main Description.</p>
+                          </div>
                         </div>
-                        <span className="composer-override-pill is-selected">Google</span>
+                        <span className="composer-override-pill is-platform">Google</span>
                       </div>
                       <textarea
-                        ref={googleOverrideTextareaRef}
                         className="composer-override-textarea"
                         value={descriptionGoogleBusiness}
                         onChange={(event) => setDescriptionGoogleBusiness(event.target.value)}
@@ -986,28 +926,10 @@ export function PostEditorForm({
                         disabled={isReadOnly}
                         maxLength={1500}
                       />
-                      <div className="composer-caption-footer">
+                      <div className="composer-override-footer">
                         <span className="composer-character-count">
                           {formatCharacterCount(descriptionGoogleBusiness.length)} / 1,500
                         </span>
-                        {templateVariableOptions.length > 0 ? (
-                          <div className="composer-card-actions">
-                            <button
-                              type="button"
-                              className="ghost-link-button"
-                              onClick={() =>
-                                insertVariableToken(
-                                  googleOverrideTextareaRef.current,
-                                  descriptionGoogleBusiness,
-                                  setDescriptionGoogleBusiness,
-                                )
-                              }
-                              disabled={isReadOnly || !selectedVariableToken}
-                            >
-                              Insert {selectedVariableToken || "variable"}
-                            </button>
-                          </div>
-                        ) : null}
                       </div>
                       {state.fieldErrors?.descriptionGoogleBusiness?.map((error) => (
                         <span key={error} className="error-text">
@@ -1018,6 +940,16 @@ export function PostEditorForm({
                   ) : null}
                 </div>
               ) : null}
+            </div>
+
+            <div className="composer-caption-tip-card">
+              <span className="composer-caption-tip-icon" aria-hidden="true">
+                <SparkleIcon />
+              </span>
+              <div className="composer-caption-tip-copy">
+                <strong>Tip</strong>
+                <p>Platform overrides let you tailor the same post for each destination.</p>
+              </div>
             </div>
 
             {state.fieldErrors?.descriptionMain?.map((error) => (
