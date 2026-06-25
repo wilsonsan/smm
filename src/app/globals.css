@@ -3215,14 +3215,6 @@ th {
   padding: 24px;
 }
 
-.composer-preview-rail {
-  position: sticky;
-  top: 96px;
-  align-self: start;
-  max-height: calc(100vh - 108px);
-  overflow-y: auto;
-}
-
 .composer-section-heading {
   display: flex;
   align-items: flex-start;
@@ -4880,6 +4872,10 @@ th {
     grid-column: 2;
     min-width: 0;
     align-self: start;
+    position: sticky;
+    top: 96px;
+    max-height: calc(100vh - 108px);
+    overflow-y: auto;
   }
 
   .composer-shell > .composer-full-width-section {
