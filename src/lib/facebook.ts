@@ -53,7 +53,11 @@ const FACEBOOK_STATE_MAX_AGE_SECONDS = 10 * 60;
 const FACEBOOK_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const FACEBOOK_DEBUG_TOKENS_MAX_AGE_SECONDS = 30 * 60;
 const FACEBOOK_OPTIONAL_DIAGNOSTIC_SCOPES = ["business_management"] as const;
-const INSTAGRAM_FOUNDATION_SCOPES = ["instagram_basic", "instagram_content_publish"] as const;
+const INSTAGRAM_FOUNDATION_SCOPES = [
+  "instagram_basic",
+  "instagram_content_publish",
+  "instagram_manage_comments",
+] as const;
 
 export type FacebookOauthMode = "connect" | "reconnect" | "debug";
 

@@ -26,6 +26,7 @@ import { getBusinessVariableSettings, getDeveloperSettings, getHashtagSettings }
 export const INSTAGRAM_REQUIRED_SCOPES = [
   "instagram_basic",
   "instagram_content_publish",
+  "instagram_manage_comments",
   "pages_show_list",
   "pages_read_engagement",
 ] as const;
@@ -33,6 +34,8 @@ export const INSTAGRAM_REQUIRED_SCOPES = [
 const INSTAGRAM_GRAPH_VERSION = "v23.0";
 const INSTAGRAM_CONTAINER_MAX_POLLS = 20;
 const INSTAGRAM_CONTAINER_POLL_INTERVAL_MS = 1500;
+const INSTAGRAM_FIRST_COMMENT_MAX_ATTEMPTS = 3;
+const INSTAGRAM_FIRST_COMMENT_RETRY_DELAY_MS = 2000;
 
 export type InstagramFoundationState = {
   status: "READY" | "NOT_LINKED" | "LOOKUP_ERROR" | "FACEBOOK_DISCONNECTED";
@@ -542,6 +545,30 @@ async function createInstagramComment(input: {
   return response.id;
 }
 
+async function createInstagramCommentWithRetry(input: {
+  instagramMediaId: string;
+  accessToken: string;
+  message: string;
+}) {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= INSTAGRAM_FIRST_COMMENT_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await createInstagramComment(input);
+    } catch (error) {
+      lastError = handleFacebookApiError(error);
+
+      if (attempt >= INSTAGRAM_FIRST_COMMENT_MAX_ATTEMPTS) {
+        break;
+      }
+
+      await sleep(INSTAGRAM_FIRST_COMMENT_RETRY_DELAY_MS * attempt);
+    }
+  }
+
+  throw lastError ?? new Error("Instagram first comment failed.");
+}
+
 async function createInstagramImageContainer(input: {
   instagramAccountId: string;
   accessToken: string;
@@ -727,7 +754,7 @@ export async function publishInstagramPost(input: {
       }
 
       try {
-        const commentId = await createInstagramComment({
+        const commentId = await createInstagramCommentWithRetry({
           instagramMediaId: publishedMediaId,
           accessToken: validation.connection.accessToken,
           message: validation.firstComment,
