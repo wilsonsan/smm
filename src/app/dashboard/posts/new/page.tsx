@@ -1,4 +1,4 @@
-import { SocialPostStatus } from "@prisma/client";
+import { SocialPlatform, SocialPostStatus } from "@prisma/client";
 import { DateTime } from "luxon";
 import { PostEditorForm } from "@/components/post-editor-form";
 import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
@@ -9,7 +9,7 @@ import { getInstagramFoundationState } from "@/lib/instagram";
 import { toMediaAssetGallerySummary, toMediaAssetSummary } from "@/lib/media-presentation";
 import { prisma } from "@/lib/prisma";
 import { getHashtagSettings, getTemplateVariableSettings } from "@/lib/settings";
-import { getDefaultScheduleFields, getResolvedAppTimezone } from "@/lib/time";
+import { getDateKeyForTimezone, getDefaultScheduleFields, getResolvedAppTimezone } from "@/lib/time";
 
 type NewPostPageProps = {
   searchParams?: Promise<{
@@ -97,6 +97,26 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
     getInstagramFoundationState({ refreshHealth: true }),
     getGoogleFoundationState({ refreshHealth: true }),
   ]);
+  const markerRangeStart = DateTime.now().setZone(timezone).startOf("month").minus({ months: 12 }).toUTC().toJSDate();
+  const markerRangeEnd = DateTime.now().setZone(timezone).startOf("month").plus({ months: 13 }).endOf("month").toUTC().toJSDate();
+  const scheduledPlatformRows = await prisma.socialPostPlatform.findMany({
+    where: {
+      scheduledAt: {
+        gte: markerRangeStart,
+        lte: markerRangeEnd,
+      },
+      status: {
+        in: [SocialPostStatus.SCHEDULED, SocialPostStatus.PUBLISHING, SocialPostStatus.PUBLISHED],
+      },
+    },
+    select: {
+      platform: true,
+      scheduledAt: true,
+    },
+    orderBy: {
+      scheduledAt: "asc",
+    },
+  });
   const facebookConnection = await getFacebookConnectionRecord();
   const facebookPreview = getFacebookPreviewIdentity(facebookConnection);
   const requestedDate = resolvedSearchParams?.date?.trim() ?? "";
@@ -118,6 +138,25 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
   const preselectedMediaMessage = requestedMediaId && !preselectedMediaAsset
     ? "That gallery image could not be found. You can choose another image below."
     : null;
+  const scheduledPlatformMarkers = (() => {
+    const markerMap = new Map<string, Set<SocialPlatform>>();
+
+    for (const row of scheduledPlatformRows) {
+      if (!row.scheduledAt) {
+        continue;
+      }
+
+      const dateKey = getDateKeyForTimezone(row.scheduledAt, timezone);
+      const platforms = markerMap.get(dateKey) ?? new Set<SocialPlatform>();
+      platforms.add(row.platform);
+      markerMap.set(dateKey, platforms);
+    }
+
+    return Array.from(markerMap.entries()).map(([dateKey, platforms]) => ({
+      dateKey,
+      platforms: Array.from(platforms),
+    }));
+  })();
 
   if (requestedMediaId) {
     await createAuditLog({
@@ -161,6 +200,7 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
         }}
         recentMediaAssets={recentMediaAssets.map((asset) => toMediaAssetGallerySummary(asset))}
         timezone={timezone}
+        scheduledPlatformMarkers={scheduledPlatformMarkers}
         templateVariables={templateVariables}
         hashtagSettings={hashtagSettings}
         instagramFoundation={instagramFoundation}

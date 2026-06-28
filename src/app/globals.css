@@ -3854,7 +3854,7 @@ th {
 
 .composer-schedule-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.04fr) minmax(320px, 0.96fr);
+  grid-template-columns: minmax(0, 1.08fr) minmax(300px, 0.92fr);
   gap: 28px;
   align-items: start;
 }
@@ -3890,12 +3890,12 @@ th {
 
 .composer-calendar-card {
   gap: 20px;
-  padding-bottom: 0;
+  padding-bottom: 22px;
 }
 
 .composer-calendar-header {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr auto auto;
   align-items: center;
   gap: 16px;
 }
@@ -3932,6 +3932,23 @@ th {
   transform: none;
 }
 
+.composer-calendar-today-button {
+  min-height: 46px;
+  padding: 0 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(126, 148, 205, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: #eff5ff;
+  font-weight: 700;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.composer-calendar-today-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(106, 155, 255, 0.34);
+  background: rgba(28, 59, 138, 0.24);
+}
+
 .composer-calendar-weekdays,
 .composer-calendar-grid {
   display: grid;
@@ -3939,7 +3956,8 @@ th {
 }
 
 .composer-calendar-weekdays {
-  gap: 12px;
+  gap: 0;
+  padding: 0 8px;
 }
 
 .composer-calendar-weekdays span {
@@ -3950,75 +3968,234 @@ th {
   letter-spacing: 0.04em;
 }
 
+.composer-calendar-grid-shell {
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid rgba(126, 148, 205, 0.12);
+  background: rgba(8, 14, 26, 0.6);
+}
+
 .composer-calendar-grid {
-  gap: 12px;
+  gap: 0;
 }
 
 .composer-calendar-day {
   position: relative;
-  min-height: 46px;
+  min-height: 104px;
+  padding: 14px 16px 12px;
   border: none;
-  border-radius: 16px;
-  background: transparent;
+  border-right: 1px solid rgba(126, 148, 205, 0.1);
+  border-bottom: 1px solid rgba(126, 148, 205, 0.1);
+  border-radius: 0;
+  background: rgba(11, 18, 31, 0.34);
   color: #f2f7ff;
   font-size: 1rem;
   font-weight: 700;
   display: grid;
-  place-items: center;
+  align-content: space-between;
+  justify-items: start;
   transition: background 160ms ease, color 160ms ease, transform 160ms ease, opacity 160ms ease;
 }
 
-.composer-calendar-day:hover {
+.composer-calendar-day:nth-child(7n) {
+  border-right: none;
+}
+
+.composer-calendar-day:nth-last-child(-n + 7) {
+  border-bottom: none;
+}
+
+.composer-calendar-day:hover:not(:disabled) {
   transform: translateY(-1px);
   background: rgba(255, 255, 255, 0.04);
 }
 
 .composer-calendar-day.is-muted {
   color: #687b98;
+  background: rgba(7, 13, 24, 0.52);
 }
 
 .composer-calendar-day.is-selected {
-  background: linear-gradient(135deg, #385dff, #8b4fff);
+  background: linear-gradient(135deg, #1f79ff, #315fff);
   color: #fff;
-  box-shadow: 0 18px 32px rgba(73, 88, 255, 0.3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
-.composer-calendar-day small {
-  position: absolute;
-  bottom: -7px;
+.composer-calendar-day.is-today:not(.is-selected) {
+  box-shadow: inset 0 0 0 1px rgba(71, 148, 255, 0.65);
+}
+
+.composer-calendar-day:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.composer-calendar-day-number {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.composer-calendar-day-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 14px;
+}
+
+.composer-calendar-day-dot {
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  background: #cad3ff;
-  box-shadow: 0 0 0 4px rgba(85, 97, 255, 0.26);
+  display: inline-block;
+  flex-shrink: 0;
 }
 
-.composer-calendar-summary {
+.composer-calendar-day-dot.is-facebook {
+  background: #2f83ff;
+}
+
+.composer-calendar-day-dot.is-instagram {
+  background: #f84fa4;
+}
+
+.composer-calendar-day-dot.is-google_business {
+  background: #86d957;
+}
+
+.composer-calendar-legend {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 74px;
-  padding: 0 16px;
-  margin: 0 -24px;
-  border-top: 1px solid rgba(124, 147, 206, 0.14);
+  flex-wrap: wrap;
+  gap: 24px;
   color: #cfdaf0;
-  font-size: 1rem;
+  font-size: 0.98rem;
 }
 
-.composer-schedule-time-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.composer-schedule-time-grid .field {
+.composer-calendar-legend span {
+  display: inline-flex;
+  align-items: center;
   gap: 10px;
 }
 
-.composer-schedule-time-grid label {
-  color: #b6c8e3;
-  font-size: 0.95rem;
+.composer-schedule-panel {
+  gap: 20px;
+}
+
+.composer-schedule-panel-block {
+  display: grid;
+  gap: 14px;
+}
+
+.composer-schedule-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.composer-schedule-time-stack {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.composer-schedule-selected-card,
+.composer-timezone-note--schedule {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 20px 22px;
+  border-radius: 22px;
+  border: 1px solid rgba(128, 149, 206, 0.14);
+  background: rgba(9, 17, 30, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.composer-schedule-selected-icon,
+.composer-timezone-note--schedule svg {
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: #54a3ff;
+  background: linear-gradient(180deg, rgba(23, 74, 178, 0.34), rgba(18, 48, 118, 0.22));
+  border: 1px solid rgba(76, 137, 255, 0.28);
+}
+
+.composer-schedule-selected-icon svg,
+.composer-timezone-note--schedule svg {
+  width: 28px;
+  height: 28px;
+  display: block;
+}
+
+.composer-schedule-selected-copy span,
+.composer-timezone-note--schedule span {
+  display: block;
+  color: #c4d4ed;
+  font-size: 0.98rem;
+}
+
+.composer-schedule-selected-copy strong,
+.composer-timezone-note--schedule strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 1.15rem;
+  color: #f4f7ff;
+}
+
+.composer-schedule-today-pill {
+  justify-self: end;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(71, 148, 255, 0.38);
+  background: rgba(25, 72, 162, 0.18);
+  color: #7fc0ff;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+}
+
+.composer-quick-select-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.composer-quick-select-button {
+  min-height: 54px;
+  padding: 0 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(128, 149, 206, 0.16);
+  background: rgba(8, 15, 28, 0.88);
+  color: #dce8fb;
+  font-size: 1rem;
   font-weight: 600;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.composer-quick-select-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(97, 149, 255, 0.3);
+}
+
+.composer-quick-select-button.is-active {
+  border-color: rgba(77, 145, 255, 0.4);
+  background: linear-gradient(135deg, #1f79ff, #315fff);
+  color: #fff;
+  box-shadow: 0 18px 36px rgba(33, 96, 255, 0.24);
+}
+
+.composer-timezone-note--schedule {
+  grid-template-columns: auto 1fr;
+}
+
+.composer-timezone-note--schedule strong {
+  font-size: 1.04rem;
 }
 
 .composer-best-time-card {
@@ -5600,11 +5777,14 @@ th {
   }
 
   .composer-schedule-layout,
-  .composer-schedule-time-grid,
   .composer-best-time-platform-card,
   .composer-best-time-range-grid,
   .composer-best-time-engagement-grid {
     grid-template-columns: 1fr;
+  }
+
+  .composer-quick-select-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .composer-best-time-range-grid,
@@ -5709,6 +5889,30 @@ th {
   .composer-schedule-card-shell,
   .composer-best-time-modal {
     padding: 22px;
+  }
+
+  .composer-calendar-header,
+  .composer-schedule-selected-card,
+  .composer-timezone-note--schedule {
+    grid-template-columns: 1fr;
+  }
+
+  .composer-calendar-header strong {
+    order: -1;
+  }
+
+  .composer-calendar-nav,
+  .composer-calendar-today-button {
+    width: 100%;
+  }
+
+  .composer-calendar-day {
+    min-height: 84px;
+    padding: 12px;
+  }
+
+  .composer-quick-select-grid {
+    grid-template-columns: 1fr;
   }
 
   .composer-schedule-topbar-badge,

@@ -2,6 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 import { SocialPlatform } from "@prisma/client";
+import { DateTime } from "luxon";
 import {
   useActionState,
   useEffect,
@@ -25,6 +26,7 @@ import {
 } from "@/components/dashboard-icons";
 import { MediaUploadField } from "@/components/media-upload-field";
 import { SubmitButton } from "@/components/submit-button";
+import { buildMonthGrid } from "@/lib/calendar";
 import {
   getMediaVariantUrl,
   getPreferredPreviewVariant,
@@ -43,7 +45,7 @@ import {
   renderTemplateVariables,
   type TemplateVariableDefinition,
 } from "@/lib/template-variables";
-import { getSchedulerTimezoneLabel, SCHEDULER_MINUTE_OPTIONS } from "@/lib/time";
+import { DEFAULT_APP_TIMEZONE, getSchedulerTimezoneLabel, SCHEDULER_MINUTE_OPTIONS } from "@/lib/time";
 import { initialFormState } from "@/lib/validation";
 import type { GoogleFoundationState } from "@/lib/google";
 import type { InstagramFoundationState } from "@/lib/instagram";
@@ -53,6 +55,40 @@ const MERIDIEM_OPTIONS = ["AM", "PM"] as const;
 const FACEBOOK_PLATFORM = "FACEBOOK";
 const INSTAGRAM_PLATFORM = "INSTAGRAM";
 const GOOGLE_PLATFORM = "GOOGLE_BUSINESS";
+const SCHEDULE_WEEKDAY_LABELS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"] as const;
+const QUICK_SCHEDULE_OPTIONS = [
+  { label: "9:00 AM", hour: "9", minute: "00", meridiem: "AM" as const },
+  { label: "12:00 PM", hour: "12", minute: "00", meridiem: "PM" as const },
+  { label: "3:00 PM", hour: "3", minute: "00", meridiem: "PM" as const },
+  { label: "6:00 PM", hour: "6", minute: "00", meridiem: "PM" as const },
+  { label: "7:00 PM", hour: "7", minute: "00", meridiem: "PM" as const },
+  { label: "8:00 PM", hour: "8", minute: "00", meridiem: "PM" as const },
+];
+const SAMPLE_SCHEDULED_PLATFORM_MARKERS: Array<{ dateKey: string; platforms: SocialPlatform[] }> = [
+  { dateKey: "2026-06-10", platforms: [SocialPlatform.FACEBOOK, SocialPlatform.INSTAGRAM] },
+  { dateKey: "2026-06-12", platforms: [SocialPlatform.FACEBOOK] },
+  { dateKey: "2026-06-17", platforms: [SocialPlatform.FACEBOOK, SocialPlatform.INSTAGRAM] },
+  {
+    dateKey: "2026-06-20",
+    platforms: [SocialPlatform.FACEBOOK, SocialPlatform.INSTAGRAM, SocialPlatform.GOOGLE_BUSINESS],
+  },
+  { dateKey: "2026-06-22", platforms: [SocialPlatform.GOOGLE_BUSINESS] },
+  { dateKey: "2026-06-23", platforms: [SocialPlatform.FACEBOOK, SocialPlatform.INSTAGRAM] },
+  {
+    dateKey: "2026-06-25",
+    platforms: [SocialPlatform.FACEBOOK, SocialPlatform.INSTAGRAM, SocialPlatform.GOOGLE_BUSINESS],
+  },
+  {
+    dateKey: "2026-06-28",
+    platforms: [SocialPlatform.FACEBOOK, SocialPlatform.INSTAGRAM, SocialPlatform.GOOGLE_BUSINESS],
+  },
+  { dateKey: "2026-06-30", platforms: [SocialPlatform.INSTAGRAM] },
+];
+
+type ScheduledPlatformMarker = {
+  dateKey: string;
+  platforms: SocialPlatform[];
+};
 
 type PostEditorFormProps = {
   post?: {
@@ -87,6 +123,7 @@ type PostEditorFormProps = {
   };
   recentMediaAssets: MediaAssetGallerySummary[];
   timezone: string;
+  scheduledPlatformMarkers?: ScheduledPlatformMarker[];
   templateVariables?: TemplateVariableDefinition[];
   hashtagSettings?: HashtagSettings;
   instagramFoundation?: InstagramFoundationState;
@@ -350,6 +387,7 @@ export function PostEditorForm({
   post,
   recentMediaAssets,
   timezone,
+  scheduledPlatformMarkers,
   templateVariables = [],
   hashtagSettings,
   instagramFoundation,
@@ -427,6 +465,12 @@ export function PostEditorForm({
   const [selectedVariableToken, setSelectedVariableToken] = useState(
     templateVariableOptions[0]?.format ?? "",
   );
+  const [visibleScheduleMonth, setVisibleScheduleMonth] = useState(() => {
+    const initialDate = DateTime.fromFormat(formValues.scheduledDate, "yyyy-MM-dd", {
+      zone: timezone || DEFAULT_APP_TIMEZONE,
+    });
+    return (initialDate.isValid ? initialDate : DateTime.now().setZone(timezone || DEFAULT_APP_TIMEZONE)).startOf("month");
+  });
 
   useEffect(() => {
     setCaption(formValues.descriptionMain);
@@ -438,6 +482,14 @@ export function PostEditorForm({
     setScheduledHour(formValues.scheduledHour);
     setScheduledMinute(formValues.scheduledMinute);
     setScheduledMeridiem(formValues.scheduledMeridiem);
+    const nextScheduleMonth = DateTime.fromFormat(formValues.scheduledDate, "yyyy-MM-dd", {
+      zone: timezone || DEFAULT_APP_TIMEZONE,
+    });
+    setVisibleScheduleMonth(
+      (nextScheduleMonth.isValid ? nextScheduleMonth : DateTime.now().setZone(timezone || DEFAULT_APP_TIMEZONE)).startOf(
+        "month",
+      ),
+    );
     setSelectedMediaAssetIds(formValues.mediaAssetIds);
     setSelectedPlatforms(formValues.platforms);
     setMediaSelectionSource(formValues.mediaSelectionSource ?? "");
@@ -468,6 +520,7 @@ export function PostEditorForm({
     formValues.scheduledHour,
     formValues.scheduledMeridiem,
     formValues.scheduledMinute,
+    timezone,
   ]);
 
   useEffect(() => {
@@ -515,6 +568,41 @@ export function PostEditorForm({
   )
     ? [...SCHEDULER_MINUTE_OPTIONS]
     : [scheduledMinute || "00", ...SCHEDULER_MINUTE_OPTIONS];
+  const resolvedScheduledPlatformMarkers = useMemo(
+    () =>
+      scheduledPlatformMarkers && scheduledPlatformMarkers.length > 0
+        ? scheduledPlatformMarkers
+        : post?.id
+          ? []
+          : SAMPLE_SCHEDULED_PLATFORM_MARKERS,
+    [post?.id, scheduledPlatformMarkers],
+  );
+  const scheduledPlatformMarkerMap = useMemo(() => {
+    const markerMap = new Map<string, SocialPlatform[]>();
+
+    for (const marker of resolvedScheduledPlatformMarkers) {
+      const platformsForDate = markerMap.get(marker.dateKey) ?? [];
+      for (const platform of marker.platforms) {
+        if (!platformsForDate.includes(platform)) {
+          platformsForDate.push(platform);
+        }
+      }
+      markerMap.set(marker.dateKey, platformsForDate);
+    }
+
+    return markerMap;
+  }, [resolvedScheduledPlatformMarkers]);
+  const todayInTimezone = useMemo(() => DateTime.now().setZone(timezone).startOf("day"), [timezone]);
+  const todayDateKey = todayInTimezone.toFormat("yyyy-MM-dd");
+  const selectedScheduleDate = useMemo(() => {
+    const parsed = DateTime.fromFormat(scheduledDate, "yyyy-MM-dd", { zone: timezone });
+    return (parsed.isValid ? parsed : todayInTimezone).startOf("day");
+  }, [scheduledDate, timezone, todayInTimezone]);
+  const scheduleMonthLabel = visibleScheduleMonth.toFormat("LLLL yyyy");
+  const scheduleCalendarGrid = useMemo(() => buildMonthGrid(visibleScheduleMonth), [visibleScheduleMonth]);
+  const isSelectedDateToday = selectedScheduleDate.toFormat("yyyy-MM-dd") === todayDateKey;
+  const selectedDateWeekdayLabel = selectedScheduleDate.toFormat("cccc");
+  const selectedDateFullLabel = selectedScheduleDate.toFormat("LLLL d, yyyy");
 
   const previewMediaAsset = resolvedSelectedMediaAssets[0] ?? null;
   const previewVariant = previewMediaAsset
@@ -600,6 +688,29 @@ export function PostEditorForm({
   const googleCaptionPreview =
     googlePreviewContent.descriptionText.trim() || "Fresh tile install with clean lines and warm tones...";
   const instagramFirstCommentPreview = instagramPreviewContent.firstCommentText.trim();
+
+  function setScheduleTime(hour: string, minute: string, meridiem: (typeof MERIDIEM_OPTIONS)[number]) {
+    setScheduledHour(hour);
+    setScheduledMinute(minute);
+    setScheduledMeridiem(meridiem);
+  }
+
+  function handleScheduleDateSelect(nextDateKey: string) {
+    const nextDate = DateTime.fromFormat(nextDateKey, "yyyy-MM-dd", { zone: timezone });
+    if (!nextDate.isValid) {
+      return;
+    }
+
+    setScheduledDate(nextDateKey);
+    if (nextDate.month !== visibleScheduleMonth.month || nextDate.year !== visibleScheduleMonth.year) {
+      setVisibleScheduleMonth(nextDate.startOf("month"));
+    }
+  }
+
+  function jumpToToday() {
+    setVisibleScheduleMonth(todayInTimezone.startOf("month"));
+    setScheduledDate(todayDateKey);
+  }
 
   function addHashtagsFromDraft(rawValue: string) {
     const nextHashtags = parseHashtagInput(rawValue);
@@ -720,7 +831,31 @@ export function PostEditorForm({
 
           <section className="composer-section-card">
             <div className="composer-section-heading">
-              <span className="composer-step-badge is-blue">1</span>
+              <span className="composer-step-badge is-violet">1</span>
+              <div>
+                <h2>Media</h2>
+              </div>
+            </div>
+
+            <MediaUploadField
+              availableAssets={recentMediaAssets}
+              selectedMediaAssetIds={selectedMediaAssetIds}
+              onSelectedMediaAssetIdsChange={setSelectedMediaAssetIds}
+              onSelectionSourceChange={setMediaSelectionSource}
+              maxMediaCount={maxMediaCount}
+              mediaLimitMessage={mediaLimitMessage}
+              disabled={isReadOnly}
+            />
+            {state.fieldErrors?.mediaAssetIds?.map((error) => (
+              <span key={error} className="error-text">
+                {error}
+              </span>
+            ))}
+          </section>
+
+          <section className="composer-section-card">
+            <div className="composer-section-heading">
+              <span className="composer-step-badge is-blue">2</span>
               <div>
                 <h2>Choose Platforms</h2>
               </div>
@@ -778,7 +913,7 @@ export function PostEditorForm({
 
           <section className="composer-section-card">
             <div className="composer-section-heading">
-              <span className="composer-step-badge">2</span>
+              <span className="composer-step-badge">3</span>
               <div>
                 <h2>Caption</h2>
               </div>
@@ -959,33 +1094,9 @@ export function PostEditorForm({
             ))}
           </section>
 
-          <section className="composer-section-card">
-            <div className="composer-section-heading">
-              <span className="composer-step-badge is-violet">3</span>
-              <div>
-                <h2>Media</h2>
-              </div>
-            </div>
-
-            <MediaUploadField
-              availableAssets={recentMediaAssets}
-              selectedMediaAssetIds={selectedMediaAssetIds}
-              onSelectedMediaAssetIdsChange={setSelectedMediaAssetIds}
-              onSelectionSourceChange={setMediaSelectionSource}
-              maxMediaCount={maxMediaCount}
-              mediaLimitMessage={mediaLimitMessage}
-              disabled={isReadOnly}
-            />
-            {state.fieldErrors?.mediaAssetIds?.map((error) => (
-              <span key={error} className="error-text">
-                {error}
-              </span>
-            ))}
-          </section>
-
           <section className="composer-section-card composer-section-card--compact">
             <div className="composer-section-heading">
-              <span className="composer-step-badge is-blue">3A</span>
+              <span className="composer-step-badge is-blue">4</span>
               <div>
                 <h2>Hashtags</h2>
               </div>
@@ -1138,27 +1249,108 @@ export function PostEditorForm({
 
           <section className="composer-section-card">
             <div className="composer-section-heading">
-              <span className="composer-step-badge is-cyan">4</span>
+              <span className="composer-step-badge is-cyan">5</span>
               <div>
-                <h2>Schedule</h2>
+                <h2>Schedule Post</h2>
+                <p>Choose when you&apos;d like your post to be published.</p>
               </div>
             </div>
 
-            <div className="composer-schedule-fields is-visible">
-              <div className="composer-schedule-grid">
-                <div className="field">
-                  <label htmlFor="scheduledDate">Date</label>
-                  <div className="composer-input-wrap">
-                    <CalendarIcon />
-                    <input
-                      id="scheduledDate"
-                      name="scheduledDate"
-                      type="date"
-                      value={scheduledDate}
-                      onChange={(event) => setScheduledDate(event.target.value)}
-                      disabled={isReadOnly}
-                    />
+            <div className="composer-schedule-card-shell">
+              <input type="hidden" name="scheduledDate" value={scheduledDate} />
+
+              <div className="composer-schedule-layout">
+                <div className="composer-calendar-card">
+                  <div className="composer-calendar-header">
+                    <button
+                      type="button"
+                      className="composer-calendar-nav"
+                      onClick={() => setVisibleScheduleMonth((current) => current.minus({ months: 1 }))}
+                      aria-label="View previous month"
+                    >
+                      <ChevronDownIcon />
+                    </button>
+                    <strong>{scheduleMonthLabel}</strong>
+                    <button
+                      type="button"
+                      className="composer-calendar-nav is-next"
+                      onClick={() => setVisibleScheduleMonth((current) => current.plus({ months: 1 }))}
+                      aria-label="View next month"
+                    >
+                      <ChevronDownIcon />
+                    </button>
+                    <button
+                      type="button"
+                      className="composer-calendar-today-button"
+                      onClick={jumpToToday}
+                    >
+                      Today
+                    </button>
                   </div>
+
+                  <div className="composer-calendar-weekdays">
+                    {SCHEDULE_WEEKDAY_LABELS.map((label) => (
+                      <span key={label}>{label}</span>
+                    ))}
+                  </div>
+
+                  <div className="composer-calendar-grid-shell">
+                    <div className="composer-calendar-grid">
+                      {scheduleCalendarGrid.map((day) => {
+                        const isSelected = day.dateKey === scheduledDate;
+                        const isToday = day.dateKey === todayDateKey;
+                        const isPastDate = day.dateTime.startOf("day") < todayInTimezone && !isSelected;
+                        const dayPlatforms = scheduledPlatformMarkerMap.get(day.dateKey) ?? [];
+
+                        return (
+                          <button
+                            key={day.dateKey}
+                            type="button"
+                            className={[
+                              "composer-calendar-day",
+                              day.isCurrentMonth ? "" : "is-muted",
+                              isSelected ? "is-selected" : "",
+                              isToday ? "is-today" : "",
+                            ]
+                              .filter(Boolean)
+                              .join(" ")}
+                            onClick={() => handleScheduleDateSelect(day.dateKey)}
+                            disabled={isReadOnly || isPastDate}
+                            aria-pressed={isSelected}
+                            aria-label={day.dateTime.toFormat("LLLL d, yyyy")}
+                          >
+                            <span className="composer-calendar-day-number">{day.dayOfMonth}</span>
+                            {dayPlatforms.length > 0 ? (
+                              <span className="composer-calendar-day-dots" aria-hidden="true">
+                                {dayPlatforms.map((platform) => (
+                                  <span
+                                    key={`${day.dateKey}-${platform}`}
+                                    className={`composer-calendar-day-dot is-${platform.toLowerCase()}`.trim()}
+                                  />
+                                ))}
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="composer-calendar-legend">
+                    <span>
+                      <i className="composer-calendar-day-dot is-facebook" aria-hidden="true" />
+                      Facebook
+                    </span>
+                    <span>
+                      <i className="composer-calendar-day-dot is-instagram" aria-hidden="true" />
+                      Instagram
+                    </span>
+                    <span>
+                      <i className="composer-calendar-day-dot is-google_business" aria-hidden="true" />
+                      Google Business
+                    </span>
+                  </div>
+
                   {state.fieldErrors?.scheduledDate?.map((error) => (
                     <span key={error} className="error-text">
                       {error}
@@ -1166,72 +1358,132 @@ export function PostEditorForm({
                   ))}
                 </div>
 
-                <div className="field">
-                  <label>Time</label>
-                  <div className="composer-time-grid">
-                    <div className="composer-input-wrap">
-                      <ClockIcon />
-                      <select
-                        name="scheduledHour"
-                        value={scheduledHour}
-                        onChange={(event) => setScheduledHour(event.target.value)}
-                        disabled={isReadOnly}
-                      >
-                        {HOUR_OPTIONS.map((hour) => (
-                          <option key={hour} value={hour}>
-                            {hour}
-                          </option>
-                        ))}
-                      </select>
+                <div className="composer-schedule-panel">
+                  <div className="composer-schedule-panel-block">
+                    <div className="composer-schedule-panel-heading">
+                      <h3>Selected Date</h3>
                     </div>
 
-                    <div className="composer-input-wrap">
-                      <ClockIcon />
-                      <select
-                        name="scheduledMinute"
-                        value={scheduledMinute}
-                        onChange={(event) => setScheduledMinute(event.target.value)}
-                        disabled={isReadOnly}
-                      >
-                        {minuteOptions.map((minute) => (
-                          <option key={minute} value={minute}>
-                            {minute}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="composer-input-wrap">
-                      <ClockIcon />
-                      <select
-                        name="scheduledMeridiem"
-                        value={scheduledMeridiem}
-                        onChange={(event) => setScheduledMeridiem(event.target.value)}
-                        disabled={isReadOnly}
-                      >
-                        {MERIDIEM_OPTIONS.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
+                    <div className="composer-schedule-selected-card">
+                      <div className="composer-schedule-selected-icon">
+                        <CalendarIcon />
+                      </div>
+                      <div className="composer-schedule-selected-copy">
+                        <span>{selectedDateWeekdayLabel}</span>
+                        <strong>{selectedDateFullLabel}</strong>
+                      </div>
+                      {isSelectedDateToday ? <span className="composer-schedule-today-pill">Today</span> : null}
                     </div>
                   </div>
-                  {state.fieldErrors?.scheduledHour?.map((error) => (
-                    <span key={error} className="error-text">
-                      {error}
-                    </span>
-                  ))}
-                  {state.fieldErrors?.scheduledMinute?.map((error) => (
-                    <span key={error} className="error-text">
-                      {error}
-                    </span>
-                  ))}
-                  {state.fieldErrors?.scheduledMeridiem?.map((error) => (
-                    <span key={error} className="error-text">
-                      {error}
-                    </span>
-                  ))}
+
+                  <div className="composer-schedule-panel-block">
+                    <div className="composer-schedule-panel-heading">
+                      <h3>Select Time</h3>
+                    </div>
+
+                    <div className="composer-schedule-time-stack">
+                      <div className="composer-input-wrap">
+                        <ClockIcon />
+                        <select
+                          name="scheduledHour"
+                          value={scheduledHour}
+                          onChange={(event) => setScheduledHour(event.target.value)}
+                          disabled={isReadOnly}
+                          aria-label="Scheduled hour"
+                        >
+                          {HOUR_OPTIONS.map((hour) => (
+                            <option key={hour} value={hour}>
+                              {hour.padStart(2, "0")}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="composer-input-wrap">
+                        <ClockIcon />
+                        <select
+                          name="scheduledMinute"
+                          value={scheduledMinute}
+                          onChange={(event) => setScheduledMinute(event.target.value)}
+                          disabled={isReadOnly}
+                          aria-label="Scheduled minute"
+                        >
+                          {minuteOptions.map((minute) => (
+                            <option key={minute} value={minute}>
+                              {minute}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="composer-input-wrap">
+                        <select
+                          name="scheduledMeridiem"
+                          value={scheduledMeridiem}
+                          onChange={(event) => setScheduledMeridiem(event.target.value)}
+                          disabled={isReadOnly}
+                          aria-label="Scheduled meridiem"
+                        >
+                          {MERIDIEM_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {state.fieldErrors?.scheduledHour?.map((error) => (
+                      <span key={error} className="error-text">
+                        {error}
+                      </span>
+                    ))}
+                    {state.fieldErrors?.scheduledMinute?.map((error) => (
+                      <span key={error} className="error-text">
+                        {error}
+                      </span>
+                    ))}
+                    {state.fieldErrors?.scheduledMeridiem?.map((error) => (
+                      <span key={error} className="error-text">
+                        {error}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="composer-schedule-panel-block">
+                    <div className="composer-schedule-panel-heading">
+                      <h3>Quick Select</h3>
+                    </div>
+
+                    <div className="composer-quick-select-grid">
+                      {QUICK_SCHEDULE_OPTIONS.map((option) => {
+                        const isActive =
+                          scheduledHour === option.hour &&
+                          scheduledMinute === option.minute &&
+                          scheduledMeridiem === option.meridiem;
+
+                        return (
+                          <button
+                            key={option.label}
+                            type="button"
+                            className={`composer-quick-select-button${isActive ? " is-active" : ""}`.trim()}
+                            onClick={() => setScheduleTime(option.hour, option.minute, option.meridiem)}
+                            disabled={isReadOnly}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="composer-timezone-note composer-timezone-note--schedule">
+                    <ClockIcon />
+                    <div>
+                      <span>All times are in</span>
+                      <strong>{timezoneLabel === "Eastern Time" ? "Eastern Time (EST)" : timezoneLabel}</strong>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
