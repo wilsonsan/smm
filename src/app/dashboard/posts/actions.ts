@@ -434,6 +434,7 @@ function buildImmediatePublishSummary(results: ImmediatePublishResult[]) {
   if (succeeded.length > 0 && failed.length === 0) {
     return {
       status: "success" as const,
+      hasWarnings: warnings.length > 0,
       message:
         skipped.length > 0
           ? `Published to ${formatPlatformList(succeeded)}. ${formatPlatformList(skipped)} was already published and was skipped.${warnings.length > 0 ? ` ${warnings.join(" ")}` : ""}`
@@ -444,6 +445,7 @@ function buildImmediatePublishSummary(results: ImmediatePublishResult[]) {
   if (succeeded.length > 0 && failed.length > 0) {
     return {
       status: "error" as const,
+      hasWarnings: warnings.length > 0,
       message: `Published to ${formatPlatformList(succeeded)}. Failed on ${formatPlatformList(failed)}.`,
     };
   }
@@ -451,12 +453,14 @@ function buildImmediatePublishSummary(results: ImmediatePublishResult[]) {
   if (failed.length > 0) {
     return {
       status: "error" as const,
+      hasWarnings: warnings.length > 0,
       message: `Publishing failed on ${formatPlatformList(failed)}.`,
     };
   }
 
   return {
     status: "error" as const,
+    hasWarnings: warnings.length > 0,
     message:
       skipped.length > 0
         ? `${formatPlatformList(skipped)} was already published and was skipped.`
@@ -1513,7 +1517,7 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
     const summary = buildImmediatePublishSummary(publishRun.results);
 
     revalidatePostViews(post.post.id);
-    if (summary.status === "success") {
+    if (summary.status === "success" && !summary.hasWarnings) {
       redirect(buildCalendarHref({ flash: "published" }));
     }
 
@@ -1835,7 +1839,7 @@ export async function publishPostNowAction(formData: FormData) {
   const summary = buildImmediatePublishSummary(publishRun.results);
 
   revalidatePostViews(postId);
-  if (summary.status === "success") {
+  if (summary.status === "success" && !summary.hasWarnings) {
     redirect(buildCalendarHref({ flash: "published" }));
   }
 

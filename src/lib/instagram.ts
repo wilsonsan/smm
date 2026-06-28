@@ -34,8 +34,8 @@ export const INSTAGRAM_REQUIRED_SCOPES = [
 const INSTAGRAM_GRAPH_VERSION = "v23.0";
 const INSTAGRAM_CONTAINER_MAX_POLLS = 20;
 const INSTAGRAM_CONTAINER_POLL_INTERVAL_MS = 1500;
-const INSTAGRAM_FIRST_COMMENT_MAX_ATTEMPTS = 3;
-const INSTAGRAM_FIRST_COMMENT_RETRY_DELAY_MS = 2000;
+const INSTAGRAM_FIRST_COMMENT_MAX_ATTEMPTS = 6;
+const INSTAGRAM_FIRST_COMMENT_RETRY_DELAY_MS = 2500;
 
 export type InstagramFoundationState = {
   status: "READY" | "NOT_LINKED" | "LOOKUP_ERROR" | "FACEBOOK_DISCONNECTED";
@@ -97,6 +97,7 @@ export type InstagramFirstCommentResult = {
   errorMessage: string | null;
   commentId: string | null;
   textLength: number;
+  attemptCount?: number;
 };
 
 export function getInstagramFirstCommentSummary(
@@ -109,6 +110,7 @@ export function getInstagramFirstCommentSummary(
       errorMessage: null,
       commentId: null,
       textLength: 0,
+      attemptCount: 0,
     };
   }
 
@@ -141,6 +143,7 @@ export function getInstagramFirstCommentSummary(
     errorMessage: typeof rawFirstComment.errorMessage === "string" ? rawFirstComment.errorMessage : null,
     commentId: typeof rawFirstComment.commentId === "string" ? rawFirstComment.commentId : null,
     textLength: typeof rawFirstComment.textLength === "number" ? rawFirstComment.textLength : 0,
+    attemptCount: typeof rawFirstComment.attemptCount === "number" ? rawFirstComment.attemptCount : undefined,
   };
 }
 
@@ -554,7 +557,11 @@ async function createInstagramCommentWithRetry(input: {
 
   for (let attempt = 1; attempt <= INSTAGRAM_FIRST_COMMENT_MAX_ATTEMPTS; attempt += 1) {
     try {
-      return await createInstagramComment(input);
+      const commentId = await createInstagramComment(input);
+      return {
+        commentId,
+        attemptCount: attempt,
+      };
     } catch (error) {
       lastError = handleFacebookApiError(error);
 
@@ -754,7 +761,7 @@ export async function publishInstagramPost(input: {
       }
 
       try {
-        const commentId = await createInstagramCommentWithRetry({
+        const commentResult = await createInstagramCommentWithRetry({
           instagramMediaId: publishedMediaId,
           accessToken: validation.connection.accessToken,
           message: validation.firstComment,
@@ -764,8 +771,9 @@ export async function publishInstagramPost(input: {
           attempted: true,
           status: "succeeded",
           errorMessage: null,
-          commentId,
+          commentId: commentResult.commentId,
           textLength: validation.firstComment.length,
+          attemptCount: commentResult.attemptCount,
         };
       } catch (error) {
         const normalizedError = handleFacebookApiError(error);
@@ -775,6 +783,7 @@ export async function publishInstagramPost(input: {
           errorMessage: normalizedError.message,
           commentId: null,
           textLength: validation.firstComment.length,
+          attemptCount: INSTAGRAM_FIRST_COMMENT_MAX_ATTEMPTS,
         };
       }
     };
