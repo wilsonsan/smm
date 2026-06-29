@@ -175,13 +175,15 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
     post.platforms.find((platform) => platform.platform === SocialPlatform.INSTAGRAM)?.publishAttempts[0] ?? null;
   const instagramFirstCommentSummary = getInstagramFirstCommentSummary(latestInstagramAttempt?.responseSummary);
   const instagramFirstCommentStatusLabel = post.instagramFirstComment
-    ? instagramFirstCommentSummary.attempted
-      ? instagramFirstCommentSummary.status === "succeeded"
-        ? "Published"
-        : instagramFirstCommentSummary.status === "failed"
-          ? "Failed"
-          : "Saved"
-      : "Saved"
+    ? instagramFirstCommentSummary.fallbackToCaption
+      ? "Included in caption"
+      : instagramFirstCommentSummary.attempted
+        ? instagramFirstCommentSummary.status === "succeeded"
+          ? "Published"
+          : instagramFirstCommentSummary.status === "failed"
+            ? "Failed"
+            : "Saved"
+        : "Saved"
     : undefined;
 
   return (
@@ -243,9 +245,9 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
             profilePictureUrl: instagramFoundation.profilePictureUrl,
           },
           google: {
-            name: googleFoundation.accountName || googleFoundation.locationName,
-            subtitle: googleFoundation.locationName || null,
-            profilePictureUrl: googleFoundation.accountProfilePictureUrl,
+            name: googleFoundation.locationName || googleFoundation.accountName,
+            subtitle: googleFoundation.locationName ? "Google Business Profile" : null,
+            profilePictureUrl: googleFoundation.locationProfilePictureUrl || googleFoundation.accountProfilePictureUrl,
           },
         }}
         isReadOnly={isReadOnly}

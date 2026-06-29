@@ -324,13 +324,15 @@ export default async function PostAdvancedPage({ params, searchParams }: PostAdv
                       <label>First comment</label>
                       <input
                         value={
-                          lastInstagramFirstCommentSummary?.attempted
-                            ? lastInstagramFirstCommentSummary.status === "succeeded"
-                              ? "Published"
-                              : lastInstagramFirstCommentSummary.status === "failed"
-                                ? "Failed"
-                                : "Saved"
-                            : "Saved"
+                          lastInstagramFirstCommentSummary?.fallbackToCaption
+                            ? "Included in caption"
+                            : lastInstagramFirstCommentSummary?.attempted
+                              ? lastInstagramFirstCommentSummary.status === "succeeded"
+                                ? "Published"
+                                : lastInstagramFirstCommentSummary.status === "failed"
+                                  ? "Failed"
+                                  : "Saved"
+                              : "Saved"
                         }
                         readOnly
                       />

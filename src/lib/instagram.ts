@@ -15,6 +15,7 @@ import {
   type TemporaryMediaCleanupResult,
 } from "@/lib/uploads";
 import { createOrUpdatePlatformPublishFailedNotification } from "@/lib/notifications";
+import { appendContentBlock } from "@/lib/hashtags";
 import {
   resolveRenderedPlatformContent,
 } from "@/lib/posts";
@@ -26,10 +27,18 @@ import { getBusinessVariableSettings, getDeveloperSettings, getHashtagSettings }
 export const INSTAGRAM_REQUIRED_SCOPES = [
   "instagram_basic",
   "instagram_content_publish",
+  "pages_show_list",
+  "pages_read_engagement",
   "instagram_manage_comments",
+] as const;
+
+const INSTAGRAM_PUBLISH_REQUIRED_SCOPES = [
+  "instagram_basic",
+  "instagram_content_publish",
   "pages_show_list",
   "pages_read_engagement",
 ] as const;
+const INSTAGRAM_FIRST_COMMENT_SCOPE = "instagram_manage_comments" as const;
 
 const INSTAGRAM_GRAPH_VERSION = "v23.0";
 const INSTAGRAM_CONTAINER_MAX_POLLS = 20;
@@ -98,6 +107,7 @@ export type InstagramFirstCommentResult = {
   commentId: string | null;
   textLength: number;
   attemptCount?: number;
+  fallbackToCaption?: boolean;
 };
 
 export function getInstagramFirstCommentSummary(
@@ -111,6 +121,7 @@ export function getInstagramFirstCommentSummary(
       commentId: null,
       textLength: 0,
       attemptCount: 0,
+      fallbackToCaption: false,
     };
   }
 
@@ -144,6 +155,7 @@ export function getInstagramFirstCommentSummary(
     commentId: typeof rawFirstComment.commentId === "string" ? rawFirstComment.commentId : null,
     textLength: typeof rawFirstComment.textLength === "number" ? rawFirstComment.textLength : 0,
     attemptCount: typeof rawFirstComment.attemptCount === "number" ? rawFirstComment.attemptCount : undefined,
+    fallbackToCaption: rawFirstComment.fallbackToCaption === true,
   };
 }
 
@@ -309,8 +321,14 @@ export async function getInstagramFoundationState(input?: { refreshHealth?: bool
   return getInstagramFoundationStateFromConnection(connection);
 }
 
-function getMissingInstagramScopes(scopes: string[]) {
-  return INSTAGRAM_REQUIRED_SCOPES.filter((scope) => !scopes.includes(scope));
+function getMissingInstagramScopes(
+  scopes: string[],
+  options?: {
+    includeFirstCommentScope?: boolean;
+  },
+) {
+  const requiredScopes = options?.includeFirstCommentScope ? INSTAGRAM_REQUIRED_SCOPES : INSTAGRAM_PUBLISH_REQUIRED_SCOPES;
+  return requiredScopes.filter((scope) => !scopes.includes(scope));
 }
 
 function buildInstagramGraphUrl(pathname: string, params?: Record<string, string | number | undefined | null>) {
@@ -364,7 +382,9 @@ async function instagramGraphRequestJson<T>(input: URL, init: RequestInit) {
 async function getInstagramConnectionForPublishing() {
   const foundation = await getInstagramFoundationState({ refreshHealth: true });
   const connection = await getFacebookConnection();
-  const missingScopes = connection ? getMissingInstagramScopes(connection.scopes) : [...INSTAGRAM_REQUIRED_SCOPES];
+  const missingScopes = connection
+    ? getMissingInstagramScopes(connection.scopes, { includeFirstCommentScope: false })
+    : [...INSTAGRAM_PUBLISH_REQUIRED_SCOPES];
 
   if (!connection || !connection.pageId || !connection.pageName) {
     throw new Error("Connect a Facebook Page before using Instagram publishing.");
@@ -390,7 +410,7 @@ async function getInstagramConnectionForPublishing() {
 export async function getInstagramDiagnostics(input?: { refreshHealth?: boolean }) {
   const foundation = await getInstagramFoundationState({ refreshHealth: input?.refreshHealth !== false });
   const connection = await getFacebookConnectionRecord();
-  const missingScopes = getMissingInstagramScopes(connection?.scopes ?? []);
+  const missingScopes = getMissingInstagramScopes(connection?.scopes ?? [], { includeFirstCommentScope: true });
 
   if (!connection || foundation.status !== "READY" || !foundation.accountId) {
     return {
@@ -747,6 +767,11 @@ export async function publishInstagramPost(input: {
   const validation = await validateInstagramPublishPrerequisites(input);
   const temporaryImages: TemporaryPlatformImage[] = [];
   const cleanupResults: TemporaryMediaCleanupResult[] = [];
+  const canCreateFirstComment = validation.connection.scopes.includes(INSTAGRAM_FIRST_COMMENT_SCOPE);
+  const shouldFallbackFirstCommentToCaption = Boolean(validation.firstComment) && !canCreateFirstComment;
+  const effectiveCaption = shouldFallbackFirstCommentToCaption
+    ? appendContentBlock(validation.caption, validation.firstComment || "")
+    : validation.caption;
 
   try {
     const buildFirstCommentResult = async (publishedMediaId: string): Promise<InstagramFirstCommentResult> => {
@@ -757,6 +782,19 @@ export async function publishInstagramPost(input: {
           errorMessage: null,
           commentId: null,
           textLength: 0,
+          fallbackToCaption: false,
+        };
+      }
+
+      if (shouldFallbackFirstCommentToCaption) {
+        return {
+          attempted: false,
+          status: "skipped",
+          errorMessage: null,
+          commentId: null,
+          textLength: validation.firstComment.length,
+          attemptCount: 0,
+          fallbackToCaption: true,
         };
       }
 
@@ -774,6 +812,7 @@ export async function publishInstagramPost(input: {
           commentId: commentResult.commentId,
           textLength: validation.firstComment.length,
           attemptCount: commentResult.attemptCount,
+          fallbackToCaption: false,
         };
       } catch (error) {
         const normalizedError = handleFacebookApiError(error);
@@ -784,6 +823,7 @@ export async function publishInstagramPost(input: {
           commentId: null,
           textLength: validation.firstComment.length,
           attemptCount: INSTAGRAM_FIRST_COMMENT_MAX_ATTEMPTS,
+          fallbackToCaption: false,
         };
       }
     };
@@ -811,7 +851,7 @@ export async function publishInstagramPost(input: {
         instagramAccountId: validation.connection.instagramAccountId,
         accessToken: validation.connection.accessToken,
         imageUrl: publicImageUrls[0],
-        caption: validation.caption || undefined,
+        caption: effectiveCaption || undefined,
       });
       await waitForInstagramContainerReady({
         creationId,
@@ -842,6 +882,7 @@ export async function publishInstagramPost(input: {
             instagramAccountId: validation.connection.instagramAccountId,
             platformPostUrl,
             mediaCount: publicImageUrls.length,
+            captionFallbackUsed: shouldFallbackFirstCommentToCaption,
             firstComment,
           } satisfies Prisma.InputJsonObject,
           temporaryImages,
@@ -868,7 +909,7 @@ export async function publishInstagramPost(input: {
       instagramAccountId: validation.connection.instagramAccountId,
       accessToken: validation.connection.accessToken,
       childContainerIds,
-      caption: validation.caption,
+      caption: effectiveCaption,
     });
     await waitForInstagramContainerReady({
       creationId: carouselCreationId,
@@ -900,6 +941,7 @@ export async function publishInstagramPost(input: {
           instagramAccountId: validation.connection.instagramAccountId,
           platformPostUrl,
           mediaCount: publicImageUrls.length,
+          captionFallbackUsed: shouldFallbackFirstCommentToCaption,
           firstComment,
         } satisfies Prisma.InputJsonObject,
         temporaryImages,

@@ -217,9 +217,9 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
             profilePictureUrl: instagramFoundation.profilePictureUrl,
           },
           google: {
-            name: googleFoundation.accountName || googleFoundation.locationName,
-            subtitle: googleFoundation.locationName || null,
-            profilePictureUrl: googleFoundation.accountProfilePictureUrl,
+            name: googleFoundation.locationName || googleFoundation.accountName,
+            subtitle: googleFoundation.locationName ? "Google Business Profile" : null,
+            profilePictureUrl: googleFoundation.locationProfilePictureUrl || googleFoundation.accountProfilePictureUrl,
           },
         }}
       />
