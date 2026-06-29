@@ -29,6 +29,8 @@ export const APP_SETTING_KEYS = {
   FACEBOOK_PAGE_LOOKUP_VALUE: "FACEBOOK_PAGE_LOOKUP_VALUE",
   GOOGLE_CLIENT_ID: "GOOGLE_CLIENT_ID",
   GOOGLE_CLIENT_SECRET: "GOOGLE_CLIENT_SECRET",
+  GOOGLE_PREVIEW_DISPLAY_NAME: "GOOGLE_PREVIEW_DISPLAY_NAME",
+  GOOGLE_PREVIEW_IMAGE_PATH: "GOOGLE_PREVIEW_IMAGE_PATH",
   TOKEN_ENCRYPTION_KEY: "TOKEN_ENCRYPTION_KEY",
   GOOGLE_DIAGNOSTIC_SNAPSHOT: "GOOGLE_DIAGNOSTIC_SNAPSHOT",
   FACEBOOK_DIAGNOSTIC_SNAPSHOT: "FACEBOOK_DIAGNOSTIC_SNAPSHOT",
@@ -96,6 +98,8 @@ export async function getAppSettings() {
     facebookPageLookupValue: byKey.get(APP_SETTING_KEYS.FACEBOOK_PAGE_LOOKUP_VALUE) || env.FACEBOOK_PAGE_LOOKUP_VALUE || "nctilepro",
     googleClientId: byKey.get(APP_SETTING_KEYS.GOOGLE_CLIENT_ID) || env.GOOGLE_CLIENT_ID || "",
     googleClientSecretConfigured: Boolean(byKey.get(APP_SETTING_KEYS.GOOGLE_CLIENT_SECRET)?.trim()) || Boolean(env.GOOGLE_CLIENT_SECRET),
+    googlePreviewDisplayName: byKey.get(APP_SETTING_KEYS.GOOGLE_PREVIEW_DISPLAY_NAME) || "",
+    googlePreviewImagePath: byKey.get(APP_SETTING_KEYS.GOOGLE_PREVIEW_IMAGE_PATH) || "",
     tokenEncryptionKeyConfigured: Boolean(byKey.get(APP_SETTING_KEYS.TOKEN_ENCRYPTION_KEY)?.trim()) || Boolean(env.TOKEN_ENCRYPTION_KEY),
     devOverrides: {
       facebook: parseBooleanAppSetting(byKey.get(APP_SETTING_KEYS.DEV_OVERRIDE_FACEBOOK)),
@@ -220,6 +224,33 @@ export async function saveGoogleClientIdSetting(clientId: string) {
     update: { value: clientId },
     create: { key: APP_SETTING_KEYS.GOOGLE_CLIENT_ID, value: clientId },
   });
+}
+
+export async function saveGooglePreviewSettings(input: {
+  displayName: string;
+  imagePath: string;
+}) {
+  await prisma.$transaction([
+    prisma.appSetting.upsert({
+      where: { key: APP_SETTING_KEYS.GOOGLE_PREVIEW_DISPLAY_NAME },
+      update: { value: input.displayName.trim() },
+      create: { key: APP_SETTING_KEYS.GOOGLE_PREVIEW_DISPLAY_NAME, value: input.displayName.trim() },
+    }),
+    prisma.appSetting.upsert({
+      where: { key: APP_SETTING_KEYS.GOOGLE_PREVIEW_IMAGE_PATH },
+      update: { value: input.imagePath.trim() },
+      create: { key: APP_SETTING_KEYS.GOOGLE_PREVIEW_IMAGE_PATH, value: input.imagePath.trim() },
+    }),
+  ]);
+}
+
+export async function getGooglePreviewSettings() {
+  const settings = await getAppSettings();
+
+  return {
+    displayName: settings.googlePreviewDisplayName || "",
+    imagePath: settings.googlePreviewImagePath || "",
+  };
 }
 
 export async function getStoredTokenEncryptionKeySetting() {

@@ -13,8 +13,18 @@ import {
 } from "@/lib/google";
 import { getRequestMetadata } from "@/lib/http";
 import { rotateTokenEncryptionKeySetting, saveGoogleClientSecretSetting } from "@/lib/secure-settings";
-import { saveGoogleClientIdSetting } from "@/lib/settings";
-import { googleLocationSelectionSchema, googleSettingsSchema } from "@/lib/validation";
+import {
+  APP_SETTING_KEYS,
+  getAppSettingValue,
+  saveGoogleClientIdSetting,
+  saveGooglePreviewSettings,
+} from "@/lib/settings";
+import { deleteStoredFile, saveSettingsProfileImage } from "@/lib/uploads";
+import {
+  googleLocationSelectionSchema,
+  googlePreviewSettingsSchema,
+  googleSettingsSchema,
+} from "@/lib/validation";
 
 function buildGoogleSettingsHref(input?: {
   status?: "success" | "error";
@@ -117,6 +127,81 @@ export async function saveGoogleSettingsAction(formData: FormData) {
       returnTo: parsed.data.returnTo || "/dashboard/settings/channels/google",
       status: "success",
       message: "Google Business settings saved.",
+    }),
+  );
+}
+
+export async function saveGooglePreviewIdentityAction(formData: FormData) {
+  const adminUser = await requireAdminUser();
+  const parsed = googlePreviewSettingsSchema.safeParse({
+    displayName: formData.get("displayName"),
+    clearImage: formData.get("clearImage"),
+    returnTo: formData.get("returnTo"),
+  });
+
+  if (!parsed.success) {
+    redirect(
+      buildGoogleSettingsHref({
+        returnTo: typeof formData.get("returnTo") === "string" ? String(formData.get("returnTo")) : undefined,
+        status: "error",
+        message:
+          parsed.error.flatten().fieldErrors.displayName?.[0] ||
+          parsed.error.flatten().fieldErrors.returnTo?.[0] ||
+          "Enter a valid Google preview name.",
+      }),
+    );
+  }
+
+  const previewImageFile = formData.get("previewImage");
+  const hasUploadedImage = previewImageFile instanceof File && previewImageFile.size > 0;
+  const existingImagePath = ((await getAppSettingValue(APP_SETTING_KEYS.GOOGLE_PREVIEW_IMAGE_PATH)) || "").trim();
+  let nextImagePath = existingImagePath;
+
+  try {
+    if (parsed.data.clearImage && existingImagePath) {
+      await deleteStoredFile(existingImagePath).catch(() => undefined);
+      nextImagePath = "";
+    }
+
+    if (hasUploadedImage) {
+      const savedImage = await saveSettingsProfileImage({
+        file: previewImageFile,
+        folder: "google-preview",
+        previousStoragePath: nextImagePath || null,
+      });
+      nextImagePath = savedImage.storagePath;
+    }
+
+    await saveGooglePreviewSettings({
+      displayName: parsed.data.displayName,
+      imagePath: nextImagePath,
+    });
+  } catch (error) {
+    redirect(
+      buildGoogleSettingsHref({
+        returnTo: parsed.data.returnTo || "/dashboard/settings/channels/google",
+        status: "error",
+        message: error instanceof Error ? error.message : "Google preview identity could not be saved.",
+      }),
+    );
+  }
+
+  await writeGoogleAuditLog({
+    actorAdminUserId: adminUser.id,
+    action: AUDIT_ACTIONS.GOOGLE_SETTINGS_UPDATED,
+    metadata: {
+      previewDisplayName: parsed.data.displayName || null,
+      hasPreviewImage: Boolean(nextImagePath),
+      clearedPreviewImage: parsed.data.clearImage,
+      returnTo: parsed.data.returnTo || "/dashboard/settings/channels/google",
+    },
+  });
+
+  redirect(
+    buildGoogleSettingsHref({
+      returnTo: parsed.data.returnTo || "/dashboard/settings/channels/google",
+      status: "success",
+      message: "Google preview identity saved.",
     }),
   );
 }

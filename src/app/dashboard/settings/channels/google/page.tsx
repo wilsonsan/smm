@@ -1,8 +1,10 @@
 import Link from "next/link";
+import Image from "next/image";
 import { ConnectedAccountStatus } from "@prisma/client";
 import {
   clearGooglePendingSelectionAction,
   disconnectGoogleAction,
+  saveGooglePreviewIdentityAction,
   saveGoogleSettingsAction,
   selectGoogleLocationAction,
   testGoogleConnectionAction,
@@ -14,6 +16,7 @@ import {
   getPendingGoogleLocationSelection,
   refreshGoogleConnectionHealth,
 } from "@/lib/google";
+import { getGooglePreviewSettings } from "@/lib/settings";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
 
 type GoogleSettingsPageProps = {
@@ -70,12 +73,13 @@ export default async function GoogleChannelSettingsPage({ searchParams }: Google
     source: "settings_page_load",
   }).catch(() => null);
 
-  const [config, connection, diagnostics, pendingSelection, timezone] = await Promise.all([
+  const [config, connection, diagnostics, pendingSelection, timezone, googlePreviewSettings] = await Promise.all([
     getGoogleConfiguration(),
     getGoogleConnectionRecord(),
     getGoogleDiagnostics({ refreshHealth: false }),
     getPendingGoogleLocationSelection(),
     getResolvedAppTimezone(),
+    getGooglePreviewSettings(),
   ]);
 
   const hasBlockingSetupIssue = config.missingConfig.length > 0;
@@ -292,6 +296,68 @@ export default async function GoogleChannelSettingsPage({ searchParams }: Google
 
             {connection?.lastError ? <p className="error-text">{connection.lastError}</p> : null}
           </div>
+        </section>
+
+        <section className="settings-subcard">
+          <div className="settings-subcard-head">
+            <div>
+              <strong>Preview Identity</strong>
+              <p>Set the Google live preview name and avatar manually instead of pulling them from the connected Google account.</p>
+            </div>
+            <span className="settings-chip">Composer</span>
+          </div>
+
+          <form action={saveGooglePreviewIdentityAction} className="form-grid">
+            <input type="hidden" name="returnTo" value="/dashboard/settings/channels/google" />
+            <div className="grid-2">
+              <div className="field">
+                <label htmlFor="googlePreviewDisplayName">Business display name</label>
+                <input
+                  id="googlePreviewDisplayName"
+                  name="displayName"
+                  defaultValue={googlePreviewSettings.displayName}
+                  placeholder={connection?.locationName || "NC Tile Pros"}
+                />
+                <span className="hint">Leave blank to fall back to the connected Business Profile name.</span>
+              </div>
+
+              <div className="field">
+                <label htmlFor="googlePreviewImage">Profile image</label>
+                <input
+                  id="googlePreviewImage"
+                  name="previewImage"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                />
+                <span className="hint">Uploads here stay outside the gallery and are only used for the Google live preview.</span>
+              </div>
+            </div>
+
+            {googlePreviewSettings.imagePath ? (
+              <div className="field">
+                <label>Current preview image</label>
+                <div className="settings-preview-identity">
+                  <Image
+                    src="/api/admin/settings-images/google-preview"
+                    alt="Google preview identity"
+                    className="settings-preview-avatar"
+                    width={96}
+                    height={96}
+                  />
+                  <label className="checkbox-row">
+                    <input type="checkbox" name="clearImage" />
+                    <span>Remove custom image and fall back to the connected profile.</span>
+                  </label>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="button-row">
+              <button type="submit" className="primary-button">
+                Save Preview Identity
+              </button>
+            </div>
+          </form>
         </section>
 
         {pendingSelection ? (

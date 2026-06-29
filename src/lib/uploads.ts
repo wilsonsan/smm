@@ -581,6 +581,69 @@ export async function cleanupTemporaryPlatformImage(absolutePath: string) {
   }
 }
 
+export async function deleteStoredFile(storagePath: string, input?: { uploadBasePath?: string }) {
+  const uploadBasePath =
+    input?.uploadBasePath ??
+    resolveUploadBasePath((await getUploadDirectory()) || env.UPLOAD_DIR);
+  const absolutePath = ensureSafeAbsolutePath(uploadBasePath, storagePath);
+
+  try {
+    await unlink(absolutePath);
+    return {
+      absolutePath,
+      status: "deleted" as const,
+    };
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return {
+        absolutePath,
+        status: "missing" as const,
+      };
+    }
+
+    throw error;
+  }
+}
+
+export async function saveSettingsProfileImage(input: {
+  file: File;
+  folder: string;
+  previousStoragePath?: string | null;
+  uploadBasePath?: string;
+}) {
+  const occurredAt = new Date();
+  const uploadBasePath =
+    input.uploadBasePath ??
+    resolveUploadBasePath((await getUploadDirectory()) || env.UPLOAD_DIR);
+  const validatedUpload = await validateUploadedFile(input.file);
+  const outputBuffer = await generateVariantBuffer({
+    sourceBuffer: validatedUpload.buffer,
+    sourceMimeType: validatedUpload.mimeType,
+    maxWidth: 1024,
+    maxHeight: 1024,
+    quality: 90,
+  });
+  const storagePath = buildStoragePath(
+    ["settings", input.folder, ...getDetailedDatedPathSegments(occurredAt)],
+    "jpg",
+  );
+  const metadata = await getImageMetadata(outputBuffer, JPEG_MIME_TYPE);
+  const absolutePath = await writeStoredFile(uploadBasePath, storagePath, outputBuffer);
+
+  if (input.previousStoragePath && input.previousStoragePath !== storagePath) {
+    await deleteStoredFile(input.previousStoragePath, { uploadBasePath }).catch(() => undefined);
+  }
+
+  return {
+    absolutePath,
+    storagePath,
+    mimeType: JPEG_MIME_TYPE,
+    width: metadata.width,
+    height: metadata.height,
+    sizeBytes: BigInt(outputBuffer.byteLength),
+  };
+}
+
 async function pruneEmptyDirectories(startingDirectory: string, stopAtDirectory: string) {
   let currentDirectory = startingDirectory;
   const normalizedStopAt = path.resolve(stopAtDirectory);

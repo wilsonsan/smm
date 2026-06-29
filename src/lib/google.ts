@@ -28,6 +28,7 @@ import {
   getAppSettings,
   getBusinessVariableSettings,
   getDeveloperSettings,
+  getGooglePreviewSettings,
   getHashtagSettings,
   getGoogleClientIdSetting,
   upsertAppSetting,
@@ -199,6 +200,8 @@ export type GoogleFoundationState = {
   accountEmail: string | null;
   accountProfilePictureUrl: string | null;
   locationProfilePictureUrl: string | null;
+  previewName: string | null;
+  previewProfilePictureUrl: string | null;
   lastCheckedAt: string | null;
   isSelectableInComposer: boolean;
   message: string;
@@ -1213,6 +1216,11 @@ export async function getGoogleDiagnostics(input?: { refreshHealth?: boolean }) 
 }
 
 export async function getGoogleFoundationState(input?: { refreshHealth?: boolean }) {
+  const googlePreviewSettings = await getGooglePreviewSettings();
+  const customPreviewName = googlePreviewSettings.displayName.trim() || null;
+  const customPreviewProfilePictureUrl = googlePreviewSettings.imagePath
+    ? "/api/admin/settings-images/google-preview"
+    : null;
   const developerSettings = await getDeveloperSettings();
   if (developerSettings.google) {
     return {
@@ -1223,6 +1231,8 @@ export async function getGoogleFoundationState(input?: { refreshHealth?: boolean
       accountEmail: null,
       accountProfilePictureUrl: null,
       locationProfilePictureUrl: null,
+      previewName: customPreviewName || "Developer Override",
+      previewProfilePictureUrl: customPreviewProfilePictureUrl,
       lastCheckedAt: new Date().toISOString(),
       isSelectableInComposer: true,
       message: "Developer override enabled. Google Business is unlocked for composer testing without a live login.",
@@ -1246,6 +1256,11 @@ export async function getGoogleFoundationState(input?: { refreshHealth?: boolean
       accountEmail: diagnostics.location.accountEmail,
       accountProfilePictureUrl: diagnostics.location.accountProfilePictureUrl,
       locationProfilePictureUrl: diagnostics.location.locationProfilePictureUrl,
+      previewName: customPreviewName || diagnostics.location.name || diagnostics.location.accountName,
+      previewProfilePictureUrl:
+        customPreviewProfilePictureUrl ||
+        diagnostics.location.locationProfilePictureUrl ||
+        diagnostics.location.accountProfilePictureUrl,
       lastCheckedAt: diagnostics.lastTest.testedAt,
       isSelectableInComposer: true,
       message: "Google Business Profile is connected and ready to post.",
@@ -1261,6 +1276,11 @@ export async function getGoogleFoundationState(input?: { refreshHealth?: boolean
       accountEmail: diagnostics.location.accountEmail,
       accountProfilePictureUrl: diagnostics.location.accountProfilePictureUrl,
       locationProfilePictureUrl: diagnostics.location.locationProfilePictureUrl,
+      previewName: customPreviewName || diagnostics.location.name || diagnostics.location.accountName,
+      previewProfilePictureUrl:
+        customPreviewProfilePictureUrl ||
+        diagnostics.location.locationProfilePictureUrl ||
+        diagnostics.location.accountProfilePictureUrl,
       lastCheckedAt: diagnostics.lastTest.testedAt,
       isSelectableInComposer: false,
       message:
@@ -1277,6 +1297,8 @@ export async function getGoogleFoundationState(input?: { refreshHealth?: boolean
     accountEmail: null,
     accountProfilePictureUrl: null,
     locationProfilePictureUrl: null,
+    previewName: customPreviewName,
+    previewProfilePictureUrl: customPreviewProfilePictureUrl,
     lastCheckedAt: null,
     isSelectableInComposer: false,
     message: "Connect Google Business and choose a Business Profile location before posting.",

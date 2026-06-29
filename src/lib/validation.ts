@@ -357,6 +357,23 @@ export const googleSettingsSchema = z.object({
     ),
 });
 
+export const googlePreviewSettingsSchema = z.object({
+  displayName: z.string().trim().max(120, "Preview business name must be 120 characters or less.").optional().default(""),
+  clearImage: z.string().optional().transform((value) => value === "on"),
+  returnTo: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => value || "")
+    .refine(
+      (value) =>
+        value.length === 0 ||
+        value === "/dashboard/settings/channels/google" ||
+        value === "/dashboard/settings/channels/google/advanced",
+      "Invalid return destination.",
+    ),
+});
+
 export const googleLocationSelectionSchema = z.object({
   locationName: z.string().trim().min(1, "Choose a Google Business Profile location."),
 });
