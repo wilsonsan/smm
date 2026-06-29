@@ -1077,16 +1077,6 @@ export function PostEditorForm({
               ) : null}
             </div>
 
-            <div className="composer-caption-tip-card">
-              <span className="composer-caption-tip-icon" aria-hidden="true">
-                <SparkleIcon />
-              </span>
-              <div className="composer-caption-tip-copy">
-                <strong>Tip</strong>
-                <p>Platform overrides let you tailor the same post for each destination.</p>
-              </div>
-            </div>
-
             {state.fieldErrors?.descriptionMain?.map((error) => (
               <span key={error} className="error-text">
                 {error}
