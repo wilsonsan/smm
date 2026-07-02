@@ -44,6 +44,9 @@ export default async function InstagramChannelSettingsPage({ searchParams }: Ins
           <p>Keep Instagram setup simple here, and use the advanced page only when you need deeper Meta diagnostics.</p>
         </div>
         <div className="button-row">
+          <Link href="/meta-review-demo" className="secondary-button">
+            Meta Review Demo
+          </Link>
           <Link href="/dashboard/settings/channels/instagram/advanced" className="secondary-button">
             Advanced
           </Link>
