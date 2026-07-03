@@ -3801,6 +3801,7 @@ th {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
   min-height: 56px;
   padding: 0 14px;
   border-radius: 16px;
@@ -3818,6 +3819,7 @@ th {
 .composer-input-wrap input,
 .composer-input-wrap select {
   width: 100%;
+  min-width: 0;
   min-height: 54px;
   border: none;
   background: transparent;
@@ -4148,7 +4150,7 @@ th {
 
 .composer-schedule-time-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(112px, 1fr));
   gap: 14px;
 }
 
@@ -4220,7 +4222,7 @@ th {
 }
 
 .composer-quick-select-grid--wide {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
 }
 
 .composer-quick-select-button {
@@ -4232,7 +4234,19 @@ th {
   color: #dce8fb;
   font-size: 1rem;
   font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
   transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+@media (max-width: 1180px) {
+  .composer-schedule-controls-row {
+    grid-template-columns: 1fr;
+  }
+
+  .composer-quick-select-grid--wide {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .composer-quick-select-button:hover:not(:disabled) {
