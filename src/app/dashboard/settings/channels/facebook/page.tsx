@@ -96,19 +96,12 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
     connection?.status === ConnectedAccountStatus.INVALID ||
     connection?.status === ConnectedAccountStatus.MISSING_SCOPES ||
     connection?.status === ConnectedAccountStatus.ERROR;
-  const connectHref =
-    hasBlockingSetupIssue
-      ? undefined
-      : connection?.pageId
-        ? "/api/facebook/connect?mode=reconnect"
-        : "/api/facebook/connect";
-
   return (
     <section className="section-stack">
       <header className="page-header">
         <div>
           <h2>Facebook</h2>
-          <p>Keep the main Facebook settings simple here, and use the advanced page for diagnostics, runtime details, and deeper troubleshooting.</p>
+          <p>Save your Meta app details, connect the page, and test it here.</p>
         </div>
         <div className="button-row">
           <Link href="/dashboard/settings/channels/facebook/advanced" className="secondary-button">
@@ -135,7 +128,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
           <div>
             <span className="settings-eyebrow">Channel Settings</span>
             <h3>Facebook Connection</h3>
-            <p>Only the essentials live here: Meta app credentials, the callback URL, and the core connection controls.</p>
+            <p>Only the essentials are shown here.</p>
           </div>
           <span className={`badge is-${getStatusTone(connection?.status ?? null)}`.trim()}>
             {getStatusLabel(connection?.status ?? null)}
@@ -146,7 +139,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
           <div className="settings-subcard-head">
             <div>
               <strong>Basic Setup</strong>
-              <p>Save the Meta app credentials here first, then use Connect and Test Connection for the live Facebook Page link.</p>
+              <p>Save your Meta app details first, then connect the page.</p>
             </div>
             <span className="settings-chip">Required</span>
           </div>
@@ -165,7 +158,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                     placeholder="123456789012345"
                     inputMode="numeric"
                   />
-                  <span className="hint">Shared Meta app ID used for Facebook and Instagram OAuth. Numbers only.</span>
+                  <span className="hint">Shared Meta app ID used for Facebook and Instagram. Numbers only.</span>
                 </div>
 
                 <div className="field">
@@ -185,34 +178,9 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                 </div>
 
                 <div className="field">
-                  <label htmlFor="facebookTokenEncryptionKey">Token Encryption Key</label>
-                  <input
-                    id="facebookTokenEncryptionKey"
-                    name="tokenEncryptionKey"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder={
-                      config.tokenEncryptionKeyConfigured
-                        ? "Saved securely for app use. Enter only to replace it."
-                        : "Enter token encryption key"
-                    }
-                  />
-                  <span className="hint">
-                    {config.tokenEncryptionKeyConfigured
-                      ? `A key is already available from ${config.tokenEncryptionKeySource === "settings" ? "Settings" : "the environment"}. Leave this blank to keep it.`
-                      : "This key encrypts saved Facebook and Google tokens at rest."}
-                  </span>
-                </div>
-
-                <div className="field">
                   <label>Callback URL</label>
                   <input value={config.redirectUri} readOnly />
                   <span className="hint">Use this exact callback URL in the Meta app.</span>
-                </div>
-
-                <div className="field">
-                  <label>Public app URL</label>
-                  <input value={config.publicAppUrl} readOnly />
                 </div>
               </div>
               <div className="button-row">
@@ -223,14 +191,13 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
             </form>
 
             <div className="button-row">
-                <a
-                  href={connectHref}
-                  className="secondary-button"
-                  aria-disabled={hasBlockingSetupIssue}
-                  style={hasBlockingSetupIssue ? { pointerEvents: "none", opacity: 0.6 } : undefined}
-                >
-                  {needsReconnect ? "Reconnect Facebook" : hasConnectedPage ? "Reconnect" : "Connect"}
-                </a>
+                <form action="/api/facebook/connect" method="post">
+                  <input type="hidden" name="mode" value={connection?.pageId ? "reconnect" : "connect"} />
+                  <input type="hidden" name="returnTo" value="/dashboard/settings/channels/facebook" />
+                  <button type="submit" className="secondary-button" disabled={hasBlockingSetupIssue}>
+                    {needsReconnect ? "Reconnect Facebook" : hasConnectedPage ? "Reconnect" : "Connect"}
+                  </button>
+                </form>
                 <form action={testFacebookConnectionAction}>
                   <button type="submit" className="secondary-button" disabled={!hasConnectedPage || hasBlockingSetupIssue}>
                     Test Connection
@@ -251,6 +218,13 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                 Facebook setup is incomplete: {config.missingConfig.join(", ")}. Save the missing values here before starting OAuth.
               </p>
             ) : null}
+            <p className={config.tokenEncryptionKeyConfigured ? "hint" : "warning-text"}>
+              {config.tokenEncryptionKeyConfigured
+                ? config.tokenEncryptionKeySource === "legacy_settings"
+                  ? "Encrypted token storage works, but the legacy key should still be moved into the environment."
+                  : "Encrypted token storage is ready."
+                : "Set TOKEN_ENCRYPTION_KEY in the environment before storing connected-account secrets."}
+            </p>
             <p className="hint">Connect uses the currently saved App ID and App Secret. If you changed either field, click Save before connecting.</p>
           </div>
         </section>
@@ -259,7 +233,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
           <div className="settings-subcard-head">
             <div>
               <strong>Connection Summary</strong>
-              <p>Quick status for the active Facebook Page and the linked Instagram account.</p>
+              <p>The current page connection at a glance.</p>
             </div>
             <span className="settings-chip">Overview</span>
           </div>
@@ -268,19 +242,12 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
             <div className="grid-2">
               <div className="field">
                 <label>Connected Page</label>
-                <input
-                  value={
-                    connection?.pageName
-                      ? `${connection.pageName}${connection.pageId ? ` (${connection.pageId})` : ""}`
-                      : "No Facebook Page selected"
-                  }
-                  readOnly
-                />
+                <input value={connection?.pageName || "No Facebook Page selected"} readOnly />
               </div>
 
               <div className="field">
-                <label>Connected account</label>
-                <input value={connection?.accountName || "No Facebook account connected yet"} readOnly />
+                <label>Page ID</label>
+                <input value={connection?.pageId || "Not connected"} readOnly />
               </div>
 
               <div className="field">

@@ -111,9 +111,9 @@ export function HashtagSettingsPanel({ initialValues }: HashtagSettingsPanelProp
     <form action={formAction} className="panel settings-section-card">
       <div className="settings-section-head">
         <div>
-          <span className="settings-eyebrow">Composer Controls</span>
+          <span className="settings-eyebrow">Posts</span>
           <h3>Hashtags</h3>
-          <p>Manage reusable hashtag groups and the default number of hashtags Facebook should append to posts.</p>
+          <p>Build reusable groups your team can apply in one click.</p>
         </div>
         <span className="settings-count">{groups.length} groups</span>
       </div>
@@ -121,8 +121,8 @@ export function HashtagSettingsPanel({ initialValues }: HashtagSettingsPanelProp
       <section className="settings-subcard">
         <div className="settings-subcard-head">
           <div>
-            <strong>Reusable Hashtag Groups</strong>
-            <p>Pick a group on the left, then edit the group name and hashtag list on the right.</p>
+            <strong>Groups</strong>
+            <p>Select a group, update it, and save when you are done.</p>
           </div>
           <button
             type="button"
@@ -165,7 +165,7 @@ export function HashtagSettingsPanel({ initialValues }: HashtagSettingsPanelProp
             ) : (
               <div className="template-variable-empty-state">
                 <strong>No groups yet</strong>
-                <p>Add your first reusable hashtag group to make the composer faster to use.</p>
+                <p>Add your first group to make the composer faster to use.</p>
               </div>
             )}
           </div>
@@ -176,7 +176,7 @@ export function HashtagSettingsPanel({ initialValues }: HashtagSettingsPanelProp
                 <div className="template-variable-editor-head">
                   <div>
                     <strong>{selectedGroup.name.trim() || "Untitled group"}</strong>
-                    <p>Separate hashtags with commas or new lines. Save them without the <code>#</code> if you want.</p>
+                    <p>Separate hashtags with commas or new lines. The <code>#</code> is optional.</p>
                   </div>
                   <button
                     type="button"
@@ -215,7 +215,7 @@ export function HashtagSettingsPanel({ initialValues }: HashtagSettingsPanelProp
             ) : (
               <div className="template-variable-empty-state">
                 <strong>Select a group</strong>
-                <p>Choose a hashtag group from the library or add a new one to edit it here.</p>
+                <p>Choose a group from the left or add a new one.</p>
               </div>
             )}
           </div>

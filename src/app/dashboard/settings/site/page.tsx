@@ -10,7 +10,7 @@ export default async function SiteSettingsPage() {
       <header className="page-header">
         <div>
           <h2>Site Settings</h2>
-          <p>Manage the app name, favicon, public URL, uploads directory, and timezone used across the scheduler.</p>
+          <p>Manage the name, app URL, upload folder, and timezone for this install.</p>
         </div>
         <Link href="/dashboard/settings" className="secondary-button">
           Back To Settings

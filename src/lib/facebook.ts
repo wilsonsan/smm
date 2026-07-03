@@ -263,7 +263,7 @@ export type FacebookConfiguration = {
   appSecretConfigured: boolean;
   appSecretSource: "settings" | "environment" | "missing";
   tokenEncryptionKeyConfigured: boolean;
-  tokenEncryptionKeySource: "settings" | "environment" | "missing";
+  tokenEncryptionKeySource: "legacy_settings" | "environment" | "missing";
   redirectUri: string;
   requiredScopes: string[];
   optionalDiagnosticScopes: string[];
@@ -689,8 +689,8 @@ export async function getFacebookConfiguration(): Promise<FacebookConfiguration>
       label: "Token encryption key",
       configured: tokenEncryptionKey.configured,
       detail:
-        tokenEncryptionKey.source === "settings"
-          ? "Configured in Settings"
+        tokenEncryptionKey.source === "legacy_settings"
+          ? "Using a legacy Settings value. Move TOKEN_ENCRYPTION_KEY to the environment before production."
           : tokenEncryptionKey.source === "environment"
             ? "Configured in environment"
             : "Missing",

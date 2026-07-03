@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { env } from "@/lib/env";
+import { env, isProduction } from "@/lib/env";
 import {
   buildTemplateVariableValueMap,
   DEFAULT_TEMPLATE_VARIABLES,
@@ -330,6 +330,12 @@ export async function saveTokenEncryptionKeySetting(tokenEncryptionKey: string) 
   });
 }
 
+export async function deleteStoredTokenEncryptionKeySetting() {
+  await prisma.appSetting.deleteMany({
+    where: { key: APP_SETTING_KEYS.TOKEN_ENCRYPTION_KEY },
+  });
+}
+
 export async function getAppSettingValue(key: string) {
   const setting = await prisma.appSetting.findUnique({
     where: { key },
@@ -364,6 +370,14 @@ export async function getBusinessVariableSettings() {
 }
 
 export async function getDeveloperSettings() {
+  if (isProduction) {
+    return {
+      facebook: false,
+      instagram: false,
+      google: false,
+    };
+  }
+
   const settings = await getAppSettings();
 
   return {
@@ -378,6 +392,10 @@ export async function saveDeveloperSettings(input: {
   instagram: boolean;
   google: boolean;
 }) {
+  if (isProduction) {
+    throw new Error("Developer overrides are disabled in production.");
+  }
+
   await prisma.$transaction([
     prisma.appSetting.upsert({
       where: { key: APP_SETTING_KEYS.DEV_OVERRIDE_FACEBOOK },

@@ -17,17 +17,17 @@ export function InsertContentSettingsPanel({ initialValues }: InsertContentSetti
     <form action={formAction} className="panel settings-section-card">
       <div className="settings-section-head">
         <div>
-          <span className="settings-eyebrow">Templates</span>
+          <span className="settings-eyebrow">Posts</span>
           <h3>Insert Content</h3>
-          <p>Set the reusable caption snippets used by the composer insert buttons for signature, contact info, and website.</p>
+          <p>These saved snippets power the quick insert buttons in the caption editor.</p>
         </div>
       </div>
 
       <section className="settings-subcard">
         <div className="settings-subcard-head">
           <div>
-            <strong>Composer Insert Buttons</strong>
-            <p>These values are inserted into whichever caption textarea is currently focused on the New Post page.</p>
+            <strong>Saved Snippets</strong>
+            <p>Changes show up in New Post right away.</p>
           </div>
         </div>
 

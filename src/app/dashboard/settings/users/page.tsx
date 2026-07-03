@@ -54,6 +54,7 @@ export default async function UsersPage() {
       <header className="page-header">
         <div>
           <h2>Users</h2>
+          <p>Manage who can sign in and what role they have.</p>
         </div>
         <Link href="/dashboard/settings" className="secondary-button">
           Back To Settings

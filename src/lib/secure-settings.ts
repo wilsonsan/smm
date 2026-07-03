@@ -1,9 +1,19 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
-import { APP_SETTING_KEYS, getStoredTokenEncryptionKeySetting, saveTokenEncryptionKeySetting } from "@/lib/settings";
+import {
+  APP_SETTING_KEYS,
+  deleteStoredTokenEncryptionKeySetting,
+  getStoredTokenEncryptionKeySetting,
+} from "@/lib/settings";
 
 const SECURE_SETTING_KEYS = [APP_SETTING_KEYS.FACEBOOK_APP_SECRET, APP_SETTING_KEYS.GOOGLE_CLIENT_SECRET] as const;
+
+export type TokenEncryptionKeySource = "environment" | "legacy_settings" | "missing";
+
+function getEnvironmentTokenEncryptionKeyValue() {
+  return env.TOKEN_ENCRYPTION_KEY?.trim() || "";
+}
 
 function buildSettingsEncryptionKeyFromValue(tokenEncryptionKey: string) {
   if (!tokenEncryptionKey.trim()) {
@@ -13,7 +23,7 @@ function buildSettingsEncryptionKeyFromValue(tokenEncryptionKey: string) {
   return createHash("sha256").update(tokenEncryptionKey).digest();
 }
 
-function encryptSettingValueWithKey(value: string, tokenEncryptionKey: string) {
+function encryptValueWithKey(value: string, tokenEncryptionKey: string) {
   const key = buildSettingsEncryptionKeyFromValue(tokenEncryptionKey);
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
@@ -23,7 +33,7 @@ function encryptSettingValueWithKey(value: string, tokenEncryptionKey: string) {
   return `enc:${iv.toString("base64url")}.${tag.toString("base64url")}.${encrypted.toString("base64url")}`;
 }
 
-function decryptSettingValueWithKey(value: string, tokenEncryptionKey: string) {
+function decryptValueWithKey(value: string, tokenEncryptionKey: string) {
   if (!value.startsWith("enc:")) {
     return value;
   }
@@ -46,30 +56,66 @@ function decryptSettingValueWithKey(value: string, tokenEncryptionKey: string) {
   ]).toString("utf8");
 }
 
-export async function getTokenEncryptionKeyState() {
-  const storedValue = await getStoredTokenEncryptionKeySetting();
-  if (storedValue) {
-    return {
-      value: storedValue,
-      configured: true,
-      source: "settings" as const,
-    };
+export async function getTokenEncryptionKeyCandidates() {
+  const environmentValue = getEnvironmentTokenEncryptionKeyValue();
+  const storedLegacyValue = await getStoredTokenEncryptionKeySetting();
+  const candidates: Array<{
+    value: string;
+    source: Exclude<TokenEncryptionKeySource, "missing">;
+  }> = [];
+
+  if (environmentValue) {
+    candidates.push({
+      value: environmentValue,
+      source: "environment",
+    });
   }
 
-  const environmentValue = env.TOKEN_ENCRYPTION_KEY?.trim() || "";
-  if (environmentValue) {
+  if (storedLegacyValue && storedLegacyValue !== environmentValue) {
+    candidates.push({
+      value: storedLegacyValue,
+      source: "legacy_settings",
+    });
+  }
+
+  return candidates;
+}
+
+export async function getTokenEncryptionKeyState() {
+  const candidates = await getTokenEncryptionKeyCandidates();
+  const firstCandidate = candidates[0];
+
+  if (!firstCandidate) {
     return {
-      value: environmentValue,
-      configured: true,
-      source: "environment" as const,
+      value: "",
+      configured: false,
+      source: "missing" as const,
     };
   }
 
   return {
-    value: "",
-    configured: false,
-    source: "missing" as const,
+    value: firstCandidate.value,
+    configured: true,
+    source: firstCandidate.source,
   };
+}
+
+async function upgradeSecureSettingValueToEnvironmentKeyIfNeeded(input: {
+  key: string;
+  currentValue: string;
+  decryptedValue: string;
+  decryptedWith: Exclude<TokenEncryptionKeySource, "missing">;
+}) {
+  const environmentValue = getEnvironmentTokenEncryptionKeyValue();
+  if (!environmentValue || input.decryptedWith !== "legacy_settings") {
+    return;
+  }
+
+  await prisma.appSetting.upsert({
+    where: { key: input.key },
+    update: { value: encryptValueWithKey(input.decryptedValue, environmentValue) },
+    create: { key: input.key, value: encryptValueWithKey(input.decryptedValue, environmentValue) },
+  });
 }
 
 async function getSecureSettingValue(key: string, fallbackValue = "") {
@@ -78,20 +124,28 @@ async function getSecureSettingValue(key: string, fallbackValue = "") {
     select: { value: true },
   });
 
-  if (setting?.value?.trim()) {
-    if (!setting.value.startsWith("enc:")) {
-      return setting.value;
-    }
+  const currentValue = setting?.value?.trim() || "";
+  if (!currentValue) {
+    return fallbackValue;
+  }
 
-    const tokenEncryptionKey = await getTokenEncryptionKeyState();
-    if (!tokenEncryptionKey.configured || !tokenEncryptionKey.value) {
-      return fallbackValue;
-    }
+  if (!currentValue.startsWith("enc:")) {
+    return currentValue;
+  }
 
+  const candidates = await getTokenEncryptionKeyCandidates();
+  for (const candidate of candidates) {
     try {
-      return decryptSettingValueWithKey(setting.value, tokenEncryptionKey.value);
+      const decryptedValue = decryptValueWithKey(currentValue, candidate.value);
+      await upgradeSecureSettingValueToEnvironmentKeyIfNeeded({
+        key,
+        currentValue,
+        decryptedValue,
+        decryptedWith: candidate.source,
+      });
+      return decryptedValue;
     } catch {
-      return fallbackValue;
+      continue;
     }
   }
 
@@ -107,10 +161,10 @@ async function saveSecureSettingValue(key: string, value: string) {
 
   const tokenEncryptionKey = await getTokenEncryptionKeyState();
   if (!tokenEncryptionKey.configured || !tokenEncryptionKey.value) {
-    throw new Error("A token encryption key is required before secure settings can be stored.");
+    throw new Error("Configure TOKEN_ENCRYPTION_KEY in the environment before secure settings can be stored.");
   }
 
-  const encryptedValue = encryptSettingValueWithKey(trimmedValue, tokenEncryptionKey.value);
+  const encryptedValue = encryptValueWithKey(trimmedValue, tokenEncryptionKey.value);
 
   await prisma.appSetting.upsert({
     where: { key },
@@ -119,75 +173,165 @@ async function saveSecureSettingValue(key: string, value: string) {
   });
 }
 
-export async function rotateTokenEncryptionKeySetting(nextTokenEncryptionKey: string) {
-  const trimmedNextTokenEncryptionKey = nextTokenEncryptionKey.trim();
-  if (!trimmedNextTokenEncryptionKey) {
-    return;
+export async function migrateStoredTokenEncryptionKeyToEnvironment() {
+  const environmentValue = getEnvironmentTokenEncryptionKeyValue();
+  const storedLegacyValue = await getStoredTokenEncryptionKeySetting();
+
+  if (!environmentValue) {
+    return {
+      migrated: false,
+      clearedLegacyKey: false,
+      migratedSecureSettings: 0,
+      migratedMfaSecrets: 0,
+      reason: "environment_missing" as const,
+    };
   }
 
-  const currentTokenEncryptionKey = await getTokenEncryptionKeyState();
-  if (
-    currentTokenEncryptionKey.configured &&
-    currentTokenEncryptionKey.source === "settings" &&
-    currentTokenEncryptionKey.value === trimmedNextTokenEncryptionKey
-  ) {
-    return;
+  if (!storedLegacyValue) {
+    return {
+      migrated: false,
+      clearedLegacyKey: false,
+      migratedSecureSettings: 0,
+      migratedMfaSecrets: 0,
+      reason: "no_legacy_key" as const,
+    };
   }
 
-  const existingSecureSettings = await prisma.appSetting.findMany({
-    where: {
-      key: {
-        in: [...SECURE_SETTING_KEYS],
+  if (storedLegacyValue === environmentValue) {
+    await deleteStoredTokenEncryptionKeySetting();
+    return {
+      migrated: true,
+      clearedLegacyKey: true,
+      migratedSecureSettings: 0,
+      migratedMfaSecrets: 0,
+      reason: "matching_legacy_key_removed" as const,
+    };
+  }
+
+  const [secureSettings, adminUsersWithMfa] = await Promise.all([
+    prisma.appSetting.findMany({
+      where: {
+        key: {
+          in: [...SECURE_SETTING_KEYS],
+        },
       },
-    },
-    select: {
-      key: true,
-      value: true,
-    },
-  });
+      select: {
+        key: true,
+        value: true,
+      },
+    }),
+    prisma.adminUser.findMany({
+      where: {
+        mfaSecretEncrypted: {
+          not: null,
+        },
+      },
+      select: {
+        id: true,
+        mfaSecretEncrypted: true,
+      },
+    }),
+  ]);
 
-  const decryptedValues = new Map<string, string>();
-  for (const setting of existingSecureSettings) {
+  const secureSettingWrites: Array<ReturnType<typeof prisma.appSetting.upsert>> = [];
+  const mfaWrites: Array<ReturnType<typeof prisma.adminUser.update>> = [];
+  let unresolvedValueCount = 0;
+
+  for (const setting of secureSettings) {
     const currentValue = setting.value?.trim() || "";
     if (!currentValue) {
       continue;
     }
 
     if (!currentValue.startsWith("enc:")) {
-      decryptedValues.set(setting.key, currentValue);
-      continue;
-    }
-
-    if (!currentTokenEncryptionKey.configured || !currentTokenEncryptionKey.value) {
+      secureSettingWrites.push(
+        prisma.appSetting.upsert({
+          where: { key: setting.key },
+          update: { value: encryptValueWithKey(currentValue, environmentValue) },
+          create: { key: setting.key, value: encryptValueWithKey(currentValue, environmentValue) },
+        }),
+      );
       continue;
     }
 
     try {
-      decryptedValues.set(setting.key, decryptSettingValueWithKey(currentValue, currentTokenEncryptionKey.value));
+      decryptValueWithKey(currentValue, environmentValue);
+      continue;
     } catch {
-      continue;
+      try {
+        const decryptedValue = decryptValueWithKey(currentValue, storedLegacyValue);
+        secureSettingWrites.push(
+          prisma.appSetting.upsert({
+            where: { key: setting.key },
+            update: { value: encryptValueWithKey(decryptedValue, environmentValue) },
+            create: { key: setting.key, value: encryptValueWithKey(decryptedValue, environmentValue) },
+          }),
+        );
+      } catch {
+        unresolvedValueCount += 1;
+      }
     }
   }
 
-  await saveTokenEncryptionKeySetting(trimmedNextTokenEncryptionKey);
-
-  for (const setting of existingSecureSettings) {
-    const value = decryptedValues.get(setting.key);
-    if (!value?.trim()) {
-      await prisma.appSetting.upsert({
-        where: { key: setting.key },
-        update: { value: "" },
-        create: { key: setting.key, value: "" },
-      });
+  for (const adminUser of adminUsersWithMfa) {
+    const currentValue = adminUser.mfaSecretEncrypted?.trim() || "";
+    if (!currentValue) {
       continue;
     }
 
-    await prisma.appSetting.upsert({
-      where: { key: setting.key },
-      update: { value: encryptSettingValueWithKey(value, trimmedNextTokenEncryptionKey) },
-      create: { key: setting.key, value: encryptSettingValueWithKey(value, trimmedNextTokenEncryptionKey) },
-    });
+    if (!currentValue.startsWith("enc:")) {
+      mfaWrites.push(
+        prisma.adminUser.update({
+          where: { id: adminUser.id },
+          data: {
+            mfaSecretEncrypted: encryptValueWithKey(currentValue, environmentValue),
+          },
+        }),
+      );
+      continue;
+    }
+
+    try {
+      decryptValueWithKey(currentValue, environmentValue);
+      continue;
+    } catch {
+      try {
+        const decryptedValue = decryptValueWithKey(currentValue, storedLegacyValue);
+        mfaWrites.push(
+          prisma.adminUser.update({
+            where: { id: adminUser.id },
+            data: {
+              mfaSecretEncrypted: encryptValueWithKey(decryptedValue, environmentValue),
+            },
+          }),
+        );
+      } catch {
+        unresolvedValueCount += 1;
+      }
+    }
   }
+
+  await prisma.$transaction([
+    ...secureSettingWrites,
+    ...mfaWrites,
+    ...(unresolvedValueCount === 0
+      ? [
+          prisma.appSetting.deleteMany({
+            where: {
+              key: APP_SETTING_KEYS.TOKEN_ENCRYPTION_KEY,
+            },
+          }),
+        ]
+      : []),
+  ]);
+
+  return {
+    migrated: true,
+    clearedLegacyKey: unresolvedValueCount === 0,
+    migratedSecureSettings: secureSettingWrites.length,
+    migratedMfaSecrets: mfaWrites.length,
+    reason: unresolvedValueCount === 0 ? "legacy_key_migrated" : "legacy_key_still_required",
+  };
 }
 
 export async function getFacebookAppSecretSetting() {

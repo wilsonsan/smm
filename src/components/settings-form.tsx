@@ -22,20 +22,18 @@ export function SettingsForm({ initialValues }: SettingsFormProps) {
     <form action={formAction} className="panel settings-section-card">
       <div className="settings-section-head">
         <div>
-          <span className="settings-eyebrow">System Settings</span>
+          <span className="settings-eyebrow">General</span>
           <h3>Site Settings</h3>
-          <p>Update the visible app brand, favicon, public URL, storage path, and the timezone used across the app.</p>
+          <p>These are the core values the app uses everywhere.</p>
         </div>
-        <span className="settings-count">Editable</span>
       </div>
 
       <section className="settings-subcard">
         <div className="settings-subcard-head">
           <div>
-            <strong>Brand & Hosting</strong>
-            <p>These values control how the app presents itself and how core self-hosted paths are resolved.</p>
+            <strong>Brand And Paths</strong>
+            <p>Only the fields you typically change once in a while.</p>
           </div>
-          <span className="settings-chip">Live config</span>
         </div>
 
         <div className="form-grid">
@@ -74,7 +72,7 @@ export function SettingsForm({ initialValues }: SettingsFormProps) {
             <div className="field">
               <label htmlFor="uploadDirectory">Upload directory</label>
               <input id="uploadDirectory" name="uploadDirectory" defaultValue={initialValues.uploadDirectory} required />
-              <span className="hint">Relative paths resolve from the app workspace. Absolute paths are also supported.</span>
+              <span className="hint">Relative paths resolve from the app workspace. Absolute paths also work.</span>
               {state.fieldErrors?.uploadDirectory?.map((error) => (
                 <span key={error} className="error-text">
                   {error}

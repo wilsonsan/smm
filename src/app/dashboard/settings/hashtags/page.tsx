@@ -10,7 +10,7 @@ export default async function HashtagSettingsPage() {
       <header className="page-header">
         <div>
           <h2>Hashtags</h2>
-          <p>Manage reusable hashtag groups and platform defaults without mixing them into your template variable editor.</p>
+          <p>Save reusable hashtag groups for faster post building.</p>
         </div>
         <Link href="/dashboard/settings" className="secondary-button">
           Back To Settings

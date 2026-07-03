@@ -3,18 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { requireAdminUser } from "@/lib/auth/session";
 import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
+import { isProduction } from "@/lib/env";
 import { getRequestMetadata } from "@/lib/http";
 import { RATE_LIMITS } from "@/lib/rate-limit/config";
 import { enforceRateLimit, isRateLimitExceededError } from "@/lib/rate-limit";
 import {
   getHashtagSettings,
   getInsertContentTemplateSettings,
-  getTemplateVariableSettings,
   saveAppSettings,
   saveDeveloperSettings,
   saveHashtagSettings,
   saveInsertContentTemplateSettings,
-  saveTemplateVariableSettings,
 } from "@/lib/settings";
 import { clearStoredGalleryLibrary } from "@/lib/uploads";
 import {
@@ -25,8 +24,6 @@ import {
   insertContentTemplatesSchema,
   initialFormState,
   settingsSchema,
-  templateVariableEditorSchema,
-  templateVariableSettingsSchema,
   type FormState,
 } from "@/lib/validation";
 
@@ -91,82 +88,10 @@ export async function saveSettingsAction(_: FormState, formData: FormData): Prom
   };
 }
 
-export async function saveTemplateVariablesAction(_: FormState, formData: FormData): Promise<FormState> {
-  const adminUser = await requireAdminUser({
-    redirectTo: "/dashboard",
-    targetType: "TemplateSettingsPage",
-  });
-  try {
-    await enforceSettingsRateLimit(adminUser.id, "save_template_variables");
-  } catch (error) {
-    if (isRateLimitExceededError(error)) {
-      return {
-        ...initialFormState,
-        message: error.message,
-      };
-    }
-
-    throw error;
-  }
-  const previousVariables = await getTemplateVariableSettings();
-  const parsed = templateVariableSettingsSchema.safeParse({
-    templateVariablesJson: formData.get("templateVariablesJson"),
-  });
-
-  if (!parsed.success) {
-    return {
-      ...initialFormState,
-      message: "Fix the template variables and try again.",
-      fieldErrors: parsed.error.flatten().fieldErrors,
-    };
-  }
-
-  let nextVariables;
-  try {
-    nextVariables = templateVariableEditorSchema.parse(JSON.parse(parsed.data.templateVariablesJson));
-  } catch {
-    return {
-      ...initialFormState,
-      message: "Fix the template variables and try again.",
-      fieldErrors: {
-        templateVariablesJson: ["Template variables could not be parsed."],
-      },
-    };
-  }
-
-  await saveTemplateVariableSettings({
-    templateVariables: nextVariables,
-  });
-
-  const { ipAddress, userAgent } = await getRequestMetadata();
-  await createAuditLog({
-    actorAdminUserId: adminUser.id,
-    action: AUDIT_ACTIONS.BUSINESS_VARIABLE_SETTINGS_CHANGED,
-    targetType: "AppSetting",
-    ipAddress,
-    userAgent,
-    metadata: {
-      previousVariables,
-      nextVariables,
-    },
-  });
-
-  revalidatePath("/dashboard/settings");
-  revalidatePath("/dashboard/settings/templates");
-  revalidatePath("/dashboard/settings/site");
-  revalidatePath("/dashboard/posts/new");
-  revalidatePath("/dashboard/posts");
-
-  return {
-    success: true,
-    message: "Template variables saved.",
-  };
-}
-
 export async function saveInsertContentTemplatesAction(_: FormState, formData: FormData): Promise<FormState> {
   const adminUser = await requireAdminUser({
     redirectTo: "/dashboard",
-    targetType: "TemplateSettingsPage",
+    targetType: "InsertContentSettingsPage",
   });
   try {
     await enforceSettingsRateLimit(adminUser.id, "save_insert_content_templates");
@@ -212,7 +137,7 @@ export async function saveInsertContentTemplatesAction(_: FormState, formData: F
   });
 
   revalidatePath("/dashboard/settings");
-  revalidatePath("/dashboard/settings/templates");
+  revalidatePath("/dashboard/settings/insert-content");
   revalidatePath("/dashboard/posts/new");
   revalidatePath("/dashboard/posts");
 
@@ -278,6 +203,13 @@ export async function clearGalleryLibraryAction(_: FormState, formData: FormData
 }
 
 export async function saveDeveloperSettingsAction(_: FormState, formData: FormData): Promise<FormState> {
+  if (isProduction) {
+    return {
+      ...initialFormState,
+      message: "Developer overrides are unavailable in production.",
+    };
+  }
+
   const adminUser = await requireAdminUser({
     redirectTo: "/dashboard",
     targetType: "DeveloperSettingsPage",
@@ -441,7 +373,7 @@ export async function saveHashtagSettingsAction(_: FormState, formData: FormData
   }
 
   revalidatePath("/dashboard/settings");
-  revalidatePath("/dashboard/settings/templates");
+  revalidatePath("/dashboard/settings/hashtags");
   revalidatePath("/dashboard/posts/new");
 
   return {

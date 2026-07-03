@@ -123,7 +123,7 @@ export type GoogleConfiguration = {
   clientSecretConfigured: boolean;
   clientSecretSource: "settings" | "environment" | "missing";
   tokenEncryptionKeyConfigured: boolean;
-  tokenEncryptionKeySource: "settings" | "environment" | "missing";
+  tokenEncryptionKeySource: "legacy_settings" | "environment" | "missing";
   redirectUri: string;
   requiredScopes: string[];
   missingConfig: string[];

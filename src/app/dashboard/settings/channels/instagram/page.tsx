@@ -34,14 +34,12 @@ export default async function InstagramChannelSettingsPage({ searchParams }: Ins
   const instagramFoundation = diagnostics.foundation;
   const isReady = instagramFoundation.status === "READY";
   const hasBlockingSetupIssue = config.missingConfig.length > 0;
-  const connectHref = "/api/facebook/connect?mode=reconnect";
-
   return (
     <section className="section-stack">
       <header className="page-header">
         <div>
           <h2>Instagram</h2>
-          <p>Keep Instagram setup simple here, and use the advanced page only when you need deeper Meta diagnostics.</p>
+          <p>Check Instagram readiness and reconnect Meta when needed.</p>
         </div>
         <div className="button-row">
           <Link href="/dashboard/settings/channels/instagram/advanced" className="secondary-button">
@@ -68,7 +66,7 @@ export default async function InstagramChannelSettingsPage({ searchParams }: Ins
           <div>
             <span className="settings-eyebrow">Channel Settings</span>
             <h3>Instagram Connection</h3>
-            <p>Instagram uses the same Meta app and callback as Facebook. Keep only the shared credentials here, and move deeper diagnostics into Advanced.</p>
+            <p>Instagram shares the same Meta app as Facebook.</p>
           </div>
           <span className={`badge is-${getStatusTone(instagramFoundation.status)}`.trim()}>
             {instagramFoundation.status}
@@ -79,7 +77,7 @@ export default async function InstagramChannelSettingsPage({ searchParams }: Ins
           <div className="settings-subcard-head">
             <div>
               <strong>Basic Setup</strong>
-              <p>These shared Meta credentials power both Facebook and Instagram connection flows. Save them here first before connecting.</p>
+              <p>Save the shared Meta app details here before connecting.</p>
             </div>
             <span className="settings-chip">Required</span>
           </div>
@@ -118,34 +116,9 @@ export default async function InstagramChannelSettingsPage({ searchParams }: Ins
                 </div>
 
                 <div className="field">
-                  <label htmlFor="instagramTokenEncryptionKey">Token Encryption Key</label>
-                  <input
-                    id="instagramTokenEncryptionKey"
-                    name="tokenEncryptionKey"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder={
-                      config.tokenEncryptionKeyConfigured
-                        ? "Saved for app use. Enter only to replace it."
-                        : "Enter token encryption key"
-                    }
-                  />
-                  <span className="hint">
-                    {config.tokenEncryptionKeyConfigured
-                      ? `A key is already available from ${config.tokenEncryptionKeySource === "settings" ? "Settings" : "the environment"}. Leave this blank to keep it.`
-                      : "This shared key encrypts saved Meta tokens at rest."}
-                  </span>
-                </div>
-
-                <div className="field">
                   <label>Callback URL</label>
                   <input value={config.redirectUri} readOnly />
                   <span className="hint">Use this same callback URL in the Meta app for the shared OAuth flow.</span>
-                </div>
-
-                <div className="field">
-                  <label>Public app URL</label>
-                  <input value={config.publicAppUrl} readOnly />
                 </div>
               </div>
 
@@ -161,6 +134,13 @@ export default async function InstagramChannelSettingsPage({ searchParams }: Ins
                 Meta setup is incomplete: {config.missingConfig.join(", ")}. Save the missing values before connecting Instagram.
               </p>
             ) : null}
+            <p className={config.tokenEncryptionKeyConfigured ? "hint" : "warning-text"}>
+              {config.tokenEncryptionKeyConfigured
+                ? config.tokenEncryptionKeySource === "legacy_settings"
+                  ? "Encrypted token storage works, but the legacy key should still be moved into the environment."
+                  : "Encrypted token storage is ready."
+                : "Set TOKEN_ENCRYPTION_KEY in the environment before storing connected-account secrets."}
+            </p>
             <p className="hint">Connect Meta uses the currently saved App ID and App Secret. If you just changed either field, click Save first.</p>
           </div>
         </section>
@@ -169,7 +149,7 @@ export default async function InstagramChannelSettingsPage({ searchParams }: Ins
           <div className="settings-subcard-head">
             <div>
               <strong>Connection Summary</strong>
-              <p>Basic readiness for Instagram posting.</p>
+              <p>The current Instagram publishing readiness.</p>
             </div>
             <span className="settings-chip">Status</span>
           </div>
@@ -226,14 +206,13 @@ export default async function InstagramChannelSettingsPage({ searchParams }: Ins
             ) : null}
 
             <div className="button-row">
-              <a
-                href={hasBlockingSetupIssue ? undefined : connectHref}
-                className="primary-button"
-                aria-disabled={hasBlockingSetupIssue}
-                style={hasBlockingSetupIssue ? { pointerEvents: "none", opacity: 0.6 } : undefined}
-              >
-                {isReady ? "Reconnect Meta" : "Connect Meta"}
-              </a>
+              <form action="/api/facebook/connect" method="post">
+                <input type="hidden" name="mode" value="reconnect" />
+                <input type="hidden" name="returnTo" value="/dashboard/settings/channels/instagram" />
+                <button type="submit" className="primary-button" disabled={hasBlockingSetupIssue}>
+                  {isReady ? "Reconnect Meta" : "Connect Meta"}
+                </button>
+              </form>
               <form action={testInstagramConnectionAction}>
                 <button type="submit" className="secondary-button" disabled={hasBlockingSetupIssue}>
                   Test Connection

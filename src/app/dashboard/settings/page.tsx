@@ -1,76 +1,86 @@
 import Link from "next/link";
+import { isProduction } from "@/lib/env";
 
 const SETTINGS_SECTIONS = [
   {
-    eyebrow: "System Settings",
-    title: "Brand, Hosting & Storage",
-    description: "Core site identity, public URL, favicon, uploads directory, and timezone behavior.",
+    eyebrow: "General",
+    title: "App Basics",
+    description: "The core settings this install uses every day.",
     items: [
       {
         href: "/dashboard/settings/site",
         title: "Site Settings",
-        description: "Site name, favicon, public URL, upload directory, and app timezone.",
+        description: "Name, favicon, public app URL, upload folder, and timezone.",
       },
       {
         href: "/dashboard/settings/operations",
         title: "System Status",
-        description: "Worker health, publish activity, connected Facebook Page, and operational checks.",
+        description: "Worker health, publish activity, and connection checks.",
       },
-      {
-        href: "/dashboard/settings/developer",
-        title: "Developer",
-        description: "Toggle dev-only platform overrides so the New Post composer can be tested without live channel logins.",
-      },
+      ...(isProduction
+        ? []
+        : [
+            {
+              href: "/dashboard/settings/developer",
+              title: "Developer",
+              description: "Temporary composer overrides for local testing.",
+            },
+          ]),
     ],
   },
   {
     eyebrow: "Posts",
-    title: "Templates & Composer Helpers",
-    description: "Manage reusable caption tools, variable outcomes, and hashtag groups used while writing posts.",
+    title: "Composer Defaults",
+    description: "The post-writing shortcuts your team actually uses.",
     items: [
       {
-        href: "/dashboard/settings/templates",
-        title: "Templates",
-        description: "View, add, remove, and edit post template variables with a cleaner variable library and editor.",
+        href: "/dashboard/settings/insert-content",
+        title: "Insert Content",
+        description: "Signature, phone, email, and website buttons for the caption editor.",
       },
       {
         href: "/dashboard/settings/hashtags",
         title: "Hashtags",
-        description: "Manage hashtag groups and Facebook hashtag defaults on a dedicated page.",
+        description: "Reusable hashtag groups for quick adding in the composer.",
       },
     ],
   },
   {
-    eyebrow: "Channel Settings",
-    title: "Social Connections & Publishing",
-    description: "Manage the live Facebook, Instagram, and Google Business Profile publishing connections.",
+    eyebrow: "Channels",
+    title: "Social Connections",
+    description: "Connect the platforms the app publishes to.",
     items: [
       {
         href: "/dashboard/settings/channels/facebook",
         title: "Facebook",
-        description: "Basic Meta credentials, connect/reconnect, and quick Facebook connection checks.",
+        description: "Meta app setup, page connection, and quick health checks.",
       },
       {
         href: "/dashboard/settings/channels/instagram",
         title: "Instagram",
-        description: "Simple Instagram readiness view with Meta connect/test actions and an advanced diagnostics page.",
+        description: "Instagram readiness, reconnect, and quick testing.",
       },
       {
         href: "/dashboard/settings/channels/google",
         title: "Google",
-        description: "Google OAuth credentials, Business Profile connection controls, and quick location health checks.",
+        description: "Google OAuth, Business Profile connection, and preview identity.",
       },
     ],
   },
   {
-    eyebrow: "Deletion & Recovery",
-    title: "Danger Zone",
-    description: "Use this area for intentional cleanup when saved media records no longer match what is on disk.",
+    eyebrow: "Access & Recovery",
+    title: "Users And Cleanup",
+    description: "Manage who can sign in and handle intentional cleanup.",
     items: [
+      {
+        href: "/dashboard/settings/users",
+        title: "Users",
+        description: "Create, edit, and remove team accounts.",
+      },
       {
         href: "/dashboard/settings/deletion",
         title: "Deletion",
-        description: "Clear the gallery library and remove broken or missing media records after rebuilds or storage resets.",
+        description: "Clear the gallery library after storage resets or broken rebuilds.",
       },
     ],
   },
@@ -82,11 +92,8 @@ export default function SettingsPage() {
       <header className="page-header">
         <div>
           <h2>Settings</h2>
-          <p>Open a settings area below to manage system basics or future publishing channel configuration.</p>
+          <p>Pick the area you want to update.</p>
         </div>
-        <Link href="/dashboard/settings/users" className="secondary-button">
-          Users
-        </Link>
       </header>
 
       <div className="settings-layout-grid">
@@ -98,7 +105,6 @@ export default function SettingsPage() {
                 <h3>{section.title}</h3>
                 <p>{section.description}</p>
               </div>
-              <span className="settings-count">{section.items.length} items</span>
             </div>
 
             <div className="settings-subcard-list">
@@ -106,7 +112,6 @@ export default function SettingsPage() {
                 <Link key={item.href} href={item.href} className="settings-nav-card">
                   <div className="settings-nav-card-head">
                     <strong>{item.title}</strong>
-                    <span className="settings-nav-open">Open</span>
                   </div>
                   <p>{item.description}</p>
                 </Link>

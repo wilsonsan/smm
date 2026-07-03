@@ -215,6 +215,7 @@ export default async function FacebookAdvancedChannelSettingsPage({
           <div className="form-grid">
             <form action={saveFacebookSettingsAction} className="form-grid">
               <input type="hidden" name="returnTo" value="/dashboard/settings/channels/facebook/advanced" />
+              <input type="hidden" name="mode" value={connection?.pageId ? "reconnect" : "connect"} />
               <div className="grid-2">
                 <div className="field">
                   <label htmlFor="facebookAppId">Facebook App ID</label>
@@ -244,22 +245,23 @@ export default async function FacebookAdvancedChannelSettingsPage({
                 </div>
 
                 <div className="field">
-                  <label htmlFor="facebookTokenEncryptionKey">Token Encryption Key</label>
+                  <label>Token Encryption Key</label>
                   <input
-                    id="facebookTokenEncryptionKey"
-                    name="tokenEncryptionKey"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder={
+                    value={
                       config.tokenEncryptionKeyConfigured
-                        ? "Saved for app use. Enter only to replace it."
-                        : "Enter token encryption key"
+                        ? config.tokenEncryptionKeySource === "legacy_settings"
+                          ? "Legacy key still stored in Settings"
+                          : "Configured through the environment"
+                        : "Missing"
                     }
+                    readOnly
                   />
                   <span className="hint">
                     {config.tokenEncryptionKeyConfigured
-                      ? `A key is already available from ${config.tokenEncryptionKeySource === "settings" ? "Settings" : "the environment"}. Leave this blank to keep it.`
-                      : "This key encrypts saved Facebook and Google tokens before they are stored."}
+                      ? config.tokenEncryptionKeySource === "legacy_settings"
+                        ? "Move TOKEN_ENCRYPTION_KEY into the environment, then save these channel settings once to migrate off the legacy stored key."
+                        : "The root encryption key is now environment-managed and is not saved through Settings."
+                      : "Set TOKEN_ENCRYPTION_KEY in the environment before storing connected-account secrets."}
                   </span>
                 </div>
 
@@ -307,20 +309,15 @@ export default async function FacebookAdvancedChannelSettingsPage({
                 <button type="submit" className="primary-button">
                   Save Facebook Settings
                 </button>
-                <a
-                  href={
-                    hasBlockingSetupIssue
-                      ? undefined
-                      : connection?.pageId
-                        ? "/api/facebook/connect?mode=reconnect"
-                        : "/api/facebook/connect"
-                  }
+                <button
+                  type="submit"
+                  formAction="/api/facebook/connect"
+                  formMethod="post"
                   className="secondary-button"
-                  aria-disabled={hasBlockingSetupIssue}
-                  style={hasBlockingSetupIssue ? { pointerEvents: "none", opacity: 0.6 } : undefined}
+                  disabled={hasBlockingSetupIssue}
                 >
                   {connection?.pageId ? "Reconnect Facebook" : "Connect Facebook"}
-                </a>
+                </button>
                 <a
                   href={hasBlockingSetupIssue ? undefined : "/api/facebook/debug"}
                   className="secondary-button"
@@ -536,20 +533,13 @@ export default async function FacebookAdvancedChannelSettingsPage({
                 </button>
               </form>
 
-              <a
-                href={
-                  hasBlockingSetupIssue
-                    ? undefined
-                    : hasConnectedPage
-                      ? "/api/facebook/connect?mode=reconnect"
-                      : "/api/facebook/connect"
-                }
-                className="primary-button"
-                aria-disabled={hasBlockingSetupIssue}
-                style={hasBlockingSetupIssue ? { pointerEvents: "none", opacity: 0.6 } : undefined}
-              >
-                {needsReconnect ? "Reconnect Facebook" : "Reconnect"}
-              </a>
+              <form action="/api/facebook/connect" method="post">
+                <input type="hidden" name="mode" value={hasConnectedPage ? "reconnect" : "connect"} />
+                <input type="hidden" name="returnTo" value="/dashboard/settings/channels/facebook/advanced" />
+                <button type="submit" className="primary-button" disabled={hasBlockingSetupIssue}>
+                  {needsReconnect ? "Reconnect Facebook" : "Reconnect"}
+                </button>
+              </form>
 
               <form action={disconnectFacebookAction}>
                 <button type="submit" className="danger-button" disabled={!connection}>

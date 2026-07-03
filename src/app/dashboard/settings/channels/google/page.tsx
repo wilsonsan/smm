@@ -90,19 +90,12 @@ export default async function GoogleChannelSettingsPage({ searchParams }: Google
     connection?.status === ConnectedAccountStatus.INVALID ||
     connection?.status === ConnectedAccountStatus.MISSING_SCOPES ||
     connection?.status === ConnectedAccountStatus.ERROR;
-  const connectHref =
-    hasBlockingSetupIssue
-      ? undefined
-      : connection?.locationId
-        ? "/api/google/connect?mode=reconnect"
-        : "/api/google/connect";
-
   return (
     <section className="section-stack">
       <header className="page-header">
         <div>
           <h2>Google</h2>
-          <p>Keep the main Google Business Profile settings simple here, and use the advanced page for deeper diagnostics and publishing detail.</p>
+          <p>Save your Google app details, connect the location, and set the preview identity here.</p>
         </div>
         <div className="button-row">
           <Link href="/dashboard/settings/channels/google/advanced" className="secondary-button">
@@ -129,7 +122,7 @@ export default async function GoogleChannelSettingsPage({ searchParams }: Google
           <div>
             <span className="settings-eyebrow">Channel Settings</span>
             <h3>Google Business Connection</h3>
-            <p>Only the essentials live here: Google OAuth app credentials, the callback URL, and the core connection controls.</p>
+            <p>Only the essentials are shown here.</p>
           </div>
           <span className={`badge is-${getStatusTone(connection?.status ?? null)}`.trim()}>
             {getStatusLabel(connection?.status ?? null)}
@@ -140,7 +133,7 @@ export default async function GoogleChannelSettingsPage({ searchParams }: Google
           <div className="settings-subcard-head">
             <div>
               <strong>Basic Setup</strong>
-              <p>Save the Google OAuth credentials here first, then use Connect and Test Connection for the live Business Profile link.</p>
+              <p>Save the Google OAuth app details first, then connect the Business Profile.</p>
             </div>
             <span className="settings-chip">Required</span>
           </div>
@@ -177,34 +170,9 @@ export default async function GoogleChannelSettingsPage({ searchParams }: Google
                 </div>
 
                 <div className="field">
-                  <label htmlFor="googleTokenEncryptionKey">Token Encryption Key</label>
-                  <input
-                    id="googleTokenEncryptionKey"
-                    name="tokenEncryptionKey"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder={
-                      config.tokenEncryptionKeyConfigured
-                        ? "Saved for app use. Enter only to replace it."
-                        : "Enter token encryption key"
-                    }
-                  />
-                  <span className="hint">
-                    {config.tokenEncryptionKeyConfigured
-                      ? `A key is already available from ${config.tokenEncryptionKeySource === "settings" ? "Settings" : "the environment"}. Leave this blank to keep it.`
-                      : "This key encrypts saved Google and Meta tokens at rest."}
-                  </span>
-                </div>
-
-                <div className="field">
                   <label>Callback URL</label>
                   <input value={config.redirectUri} readOnly />
                   <span className="hint">Use this exact callback URL in the Google OAuth client.</span>
-                </div>
-
-                <div className="field">
-                  <label>Public app URL</label>
-                  <input value={config.publicAppUrl} readOnly />
                 </div>
               </div>
 
@@ -216,14 +184,13 @@ export default async function GoogleChannelSettingsPage({ searchParams }: Google
             </form>
 
             <div className="button-row">
-              <a
-                href={connectHref}
-                className="secondary-button"
-                aria-disabled={hasBlockingSetupIssue}
-                style={hasBlockingSetupIssue ? { pointerEvents: "none", opacity: 0.6 } : undefined}
-              >
-                {needsReconnect ? "Reconnect Google" : hasConnectedLocation ? "Reconnect" : "Connect"}
-              </a>
+              <form action="/api/google/connect" method="post">
+                <input type="hidden" name="mode" value={connection?.locationId ? "reconnect" : "connect"} />
+                <input type="hidden" name="returnTo" value="/dashboard/settings/channels/google" />
+                <button type="submit" className="secondary-button" disabled={hasBlockingSetupIssue}>
+                  {needsReconnect ? "Reconnect Google" : hasConnectedLocation ? "Reconnect" : "Connect"}
+                </button>
+              </form>
               <form action={testGoogleConnectionAction}>
                 <button type="submit" className="secondary-button" disabled={!hasConnectedLocation || hasBlockingSetupIssue}>
                   Test Connection
@@ -244,6 +211,13 @@ export default async function GoogleChannelSettingsPage({ searchParams }: Google
                 Google setup is incomplete: {config.missingConfig.join(", ")}. Save the missing values here before starting OAuth.
               </p>
             ) : null}
+            <p className={config.tokenEncryptionKeyConfigured ? "hint" : "warning-text"}>
+              {config.tokenEncryptionKeyConfigured
+                ? config.tokenEncryptionKeySource === "legacy_settings"
+                  ? "Encrypted token storage works, but the legacy key should still be moved into the environment."
+                  : "Encrypted token storage is ready."
+                : "Set TOKEN_ENCRYPTION_KEY in the environment before storing connected-account secrets."}
+            </p>
             <p className="hint">Connect uses the currently saved Client ID and Client Secret. If you changed either field, click Save before connecting.</p>
           </div>
         </section>
@@ -252,7 +226,7 @@ export default async function GoogleChannelSettingsPage({ searchParams }: Google
           <div className="settings-subcard-head">
             <div>
               <strong>Connection Summary</strong>
-              <p>Quick status for the active Google account and Business Profile location.</p>
+              <p>The current Google account and Business Profile link.</p>
             </div>
             <span className="settings-chip">Overview</span>
           </div>
@@ -266,14 +240,12 @@ export default async function GoogleChannelSettingsPage({ searchParams }: Google
 
               <div className="field">
                 <label>Connected Business Profile location</label>
-                <input
-                  value={
-                    connection?.locationName
-                      ? `${connection.locationName}${connection.locationId ? ` (${connection.locationId})` : ""}`
-                      : "No Google Business Profile location selected"
-                  }
-                  readOnly
-                />
+                <input value={connection?.locationName || "No Google Business Profile location selected"} readOnly />
+              </div>
+
+              <div className="field">
+                <label>Location ID</label>
+                <input value={connection?.locationId || "Not connected"} readOnly />
               </div>
 
               <div className="field">
@@ -287,14 +259,10 @@ export default async function GoogleChannelSettingsPage({ searchParams }: Google
                   readOnly
                 />
               </div>
-
-              <div className="field">
-                <label>Last tested result</label>
-                <input value={diagnostics.lastTest.message} readOnly />
-              </div>
             </div>
 
             {connection?.lastError ? <p className="error-text">{connection.lastError}</p> : null}
+            <p className="hint">{diagnostics.lastTest.message}</p>
           </div>
         </section>
 
@@ -302,7 +270,7 @@ export default async function GoogleChannelSettingsPage({ searchParams }: Google
           <div className="settings-subcard-head">
             <div>
               <strong>Preview Identity</strong>
-              <p>Set the Google live preview name and avatar manually instead of pulling them from the connected Google account.</p>
+              <p>Choose the name and image shown in the Google live preview.</p>
             </div>
             <span className="settings-chip">Composer</span>
           </div>

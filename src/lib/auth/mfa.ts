@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 import bcrypt from "bcryptjs";
 import QRCode from "qrcode";
 import { generateSecret as generateOtpSecret, generateURI, verify } from "otplib";
-import { getTokenEncryptionKeyState } from "@/lib/secure-settings";
+import { getTokenEncryptionKeyCandidates, getTokenEncryptionKeyState } from "@/lib/secure-settings";
 import { prisma } from "@/lib/prisma";
 
 const MFA_STEP_SECONDS = 30;
@@ -72,8 +72,8 @@ export async function encryptMfaSecret(secret: string) {
 }
 
 export async function decryptMfaSecret(secretEncrypted: string) {
-  const tokenEncryptionKey = await getTokenEncryptionKeyState();
-  if (!tokenEncryptionKey.configured || !tokenEncryptionKey.value) {
+  const tokenEncryptionKeys = await getTokenEncryptionKeyCandidates();
+  if (tokenEncryptionKeys.length === 0) {
     throw new Error("A token encryption key is required before MFA can be used.");
   }
 
@@ -88,13 +88,26 @@ export async function decryptMfaSecret(secretEncrypted: string) {
   }
 
   const [ivPart, tagPart, encryptedPart] = parts;
-  const decipher = createDecipheriv("aes-256-gcm", buildEncryptionKey(tokenEncryptionKey.value), Buffer.from(ivPart, "base64url"));
-  decipher.setAuthTag(Buffer.from(tagPart, "base64url"));
 
-  return Buffer.concat([
-    decipher.update(Buffer.from(encryptedPart, "base64url")),
-    decipher.final(),
-  ]).toString("utf8");
+  for (const tokenEncryptionKey of tokenEncryptionKeys) {
+    try {
+      const decipher = createDecipheriv(
+        "aes-256-gcm",
+        buildEncryptionKey(tokenEncryptionKey.value),
+        Buffer.from(ivPart, "base64url"),
+      );
+      decipher.setAuthTag(Buffer.from(tagPart, "base64url"));
+
+      return Buffer.concat([
+        decipher.update(Buffer.from(encryptedPart, "base64url")),
+        decipher.final(),
+      ]).toString("utf8");
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error("Stored MFA secret could not be decrypted with the available token encryption keys.");
 }
 
 export function verifyTotpCode(input: {

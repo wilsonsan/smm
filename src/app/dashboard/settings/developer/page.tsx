@@ -1,8 +1,14 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { DeveloperSettingsPanel } from "@/components/developer-settings-panel";
+import { isProduction } from "@/lib/env";
 import { getDeveloperSettings } from "@/lib/settings";
 
 export default async function DeveloperSettingsPage() {
+  if (isProduction) {
+    notFound();
+  }
+
   const settings = await getDeveloperSettings();
 
   return (

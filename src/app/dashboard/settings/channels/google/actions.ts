@@ -14,7 +14,7 @@ import {
 import { getRequestMetadata } from "@/lib/http";
 import { RATE_LIMITS } from "@/lib/rate-limit/config";
 import { enforceRateLimit, isRateLimitExceededError } from "@/lib/rate-limit";
-import { rotateTokenEncryptionKeySetting, saveGoogleClientSecretSetting } from "@/lib/secure-settings";
+import { migrateStoredTokenEncryptionKeyToEnvironment, saveGoogleClientSecretSetting } from "@/lib/secure-settings";
 import {
   APP_SETTING_KEYS,
   getAppSettingValue,
@@ -107,14 +107,22 @@ export async function saveGoogleSettingsAction(formData: FormData) {
   const nextClientSecret = parsed.data.googleClientSecret.trim();
   const nextTokenEncryptionKey = parsed.data.tokenEncryptionKey.trim();
 
-  try {
-    if (nextTokenEncryptionKey) {
-      await rotateTokenEncryptionKeySetting(nextTokenEncryptionKey);
-    }
+  if (nextTokenEncryptionKey) {
+    redirect(
+      buildGoogleSettingsHref({
+        returnTo: parsed.data.returnTo || "/dashboard/settings/channels/google",
+        status: "error",
+        message: "Set TOKEN_ENCRYPTION_KEY in the environment. The root encryption key is no longer saved through Settings.",
+      }),
+    );
+  }
 
+  try {
     if (nextClientSecret) {
       await saveGoogleClientSecretSetting(nextClientSecret);
     }
+
+    await migrateStoredTokenEncryptionKeyToEnvironment();
   } catch (error) {
     redirect(
       buildGoogleSettingsHref({
@@ -129,12 +137,12 @@ export async function saveGoogleSettingsAction(formData: FormData) {
   await writeGoogleAuditLog({
     actorAdminUserId: adminUser.id,
     action: AUDIT_ACTIONS.GOOGLE_SETTINGS_UPDATED,
-    metadata: {
-      hasGoogleClientId: Boolean(parsed.data.googleClientId),
-      hasGoogleClientSecret: Boolean(nextClientSecret),
-      hasTokenEncryptionKey: Boolean(nextTokenEncryptionKey),
-      returnTo: parsed.data.returnTo || "/dashboard/settings/channels/google",
-    },
+      metadata: {
+        hasGoogleClientId: Boolean(parsed.data.googleClientId),
+        hasGoogleClientSecret: Boolean(nextClientSecret),
+        hasTokenEncryptionKey: false,
+        returnTo: parsed.data.returnTo || "/dashboard/settings/channels/google",
+      },
   });
 
   redirect(

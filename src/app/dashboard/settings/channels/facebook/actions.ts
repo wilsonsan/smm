@@ -17,7 +17,7 @@ import {
 import { getRequestMetadata } from "@/lib/http";
 import { RATE_LIMITS } from "@/lib/rate-limit/config";
 import { enforceRateLimit, isRateLimitExceededError } from "@/lib/rate-limit";
-import { rotateTokenEncryptionKeySetting, saveFacebookAppSecretSetting } from "@/lib/secure-settings";
+import { migrateStoredTokenEncryptionKeyToEnvironment, saveFacebookAppSecretSetting } from "@/lib/secure-settings";
 import {
   saveFacebookAppIdSetting,
   saveFacebookPageLookupSetting,
@@ -108,14 +108,22 @@ export async function saveFacebookSettingsAction(formData: FormData) {
   const nextAppSecret = parsed.data.facebookAppSecret.trim();
   const nextTokenEncryptionKey = parsed.data.tokenEncryptionKey.trim();
 
-  try {
-    if (nextTokenEncryptionKey) {
-      await rotateTokenEncryptionKeySetting(nextTokenEncryptionKey);
-    }
+  if (nextTokenEncryptionKey) {
+    redirect(
+      buildFacebookSettingsHref({
+        returnTo: parsed.data.returnTo || "/dashboard/settings/channels/facebook",
+        status: "error",
+        message: "Set TOKEN_ENCRYPTION_KEY in the environment. The root encryption key is no longer saved through Settings.",
+      }),
+    );
+  }
 
+  try {
     if (nextAppSecret) {
       await saveFacebookAppSecretSetting(nextAppSecret);
     }
+
+    await migrateStoredTokenEncryptionKeyToEnvironment();
   } catch (error) {
     redirect(
       buildFacebookSettingsHref({
@@ -131,13 +139,13 @@ export async function saveFacebookSettingsAction(formData: FormData) {
   await writeFacebookAuditLog({
     actorAdminUserId: adminUser.id,
     action: AUDIT_ACTIONS.FACEBOOK_SETTINGS_UPDATED,
-    metadata: {
-      hasFacebookAppId: Boolean(parsed.data.facebookAppId),
-      hasFacebookAppSecret: Boolean(nextAppSecret),
-      hasTokenEncryptionKey: Boolean(nextTokenEncryptionKey),
-      facebookPageLookupValue: parsed.data.facebookPageLookupValue,
-      returnTo: parsed.data.returnTo || "/dashboard/settings/channels/facebook",
-    },
+      metadata: {
+        hasFacebookAppId: Boolean(parsed.data.facebookAppId),
+        hasFacebookAppSecret: Boolean(nextAppSecret),
+        hasTokenEncryptionKey: false,
+        facebookPageLookupValue: parsed.data.facebookPageLookupValue,
+        returnTo: parsed.data.returnTo || "/dashboard/settings/channels/facebook",
+      },
   });
 
   redirect(

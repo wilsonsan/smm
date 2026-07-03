@@ -10,7 +10,7 @@ export default async function DeletionSettingsPage() {
       <header className="page-header">
         <div>
           <h2>Deletion</h2>
-          <p>Recovery tools for clearing broken gallery data after rebuilds, storage resets, or missing upload files.</p>
+          <p>Use this only when you intentionally need to clear broken gallery data.</p>
         </div>
         <Link href="/dashboard/settings" className="secondary-button">
           Back To Settings

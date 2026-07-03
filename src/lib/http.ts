@@ -92,13 +92,21 @@ export async function assertSameOrigin(request: Request) {
   if (!origin && referer && !normalizeOrigin(referer).startsWith(expectedOrigin)) {
     throw new Response("Invalid referer.", { status: 403 });
   }
+
+  if (!origin && !referer) {
+    throw new Response("Missing origin metadata.", { status: 403 });
+  }
 }
 
 export async function resolvePublicRequestOrigin(request: Request) {
   const settings = await getAppSettings();
   const requestUrl = new URL(request.url);
-  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() || "";
-  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || "";
+  const forwardedHost = env.TRUST_PROXY_HEADERS
+    ? request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() || ""
+    : "";
+  const forwardedProto = env.TRUST_PROXY_HEADERS
+    ? request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || ""
+    : "";
 
   if (forwardedHost) {
     const protocol =
