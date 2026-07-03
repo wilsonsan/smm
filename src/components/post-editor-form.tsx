@@ -16,12 +16,14 @@ import {
 } from "react";
 import { savePostAction } from "@/app/dashboard/posts/actions";
 import {
+  ArrowRightIcon,
   CalendarIcon,
-  ChevronDownIcon,
   ClockIcon,
   ComposeIcon,
   FacebookIcon,
   GalleryIcon,
+  InfoIcon,
+  MailIcon,
   SuccessIcon,
 } from "@/components/dashboard-icons";
 import { MediaUploadField } from "@/components/media-upload-field";
@@ -45,6 +47,7 @@ import {
   renderTemplateVariables,
   type TemplateVariableDefinition,
 } from "@/lib/template-variables";
+import type { InsertContentTemplates } from "@/lib/settings";
 import { DEFAULT_APP_TIMEZONE, getSchedulerTimezoneLabel, SCHEDULER_MINUTE_OPTIONS } from "@/lib/time";
 import { initialFormState } from "@/lib/validation";
 import type { GoogleFoundationState } from "@/lib/google";
@@ -125,6 +128,7 @@ type PostEditorFormProps = {
   timezone: string;
   scheduledPlatformMarkers?: ScheduledPlatformMarker[];
   templateVariables?: TemplateVariableDefinition[];
+  insertContentTemplates: InsertContentTemplates;
   hashtagSettings?: HashtagSettings;
   instagramFoundation?: InstagramFoundationState;
   googleFoundation?: GoogleFoundationState;
@@ -150,6 +154,8 @@ type PostEditorFormProps = {
 };
 
 type PreviewPlatform = "FACEBOOK" | "INSTAGRAM" | "GOOGLE";
+type CaptionTarget = "main" | "facebook" | "instagram" | "google";
+type OverridePlatformTab = "FACEBOOK" | "INSTAGRAM" | "GOOGLE_BUSINESS";
 
 function SparkleIcon(props: SVGProps<SVGSVGElement>) {
   return (
@@ -194,6 +200,49 @@ function PaperPlaneIcon(props: SVGProps<SVGSVGElement>) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
       <path d="M21 3 10 14" />
       <path d="m21 3-7 18-4-7-7-4 18-7Z" />
+    </svg>
+  );
+}
+
+function SlidersIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M4 6h10" />
+      <path d="M18 6h2" />
+      <path d="M10 12h10" />
+      <path d="M4 12h2" />
+      <path d="M4 18h12" />
+      <path d="M20 18h0" />
+      <circle cx="16" cy="6" r="2" />
+      <circle cx="8" cy="12" r="2" />
+      <circle cx="18" cy="18" r="2" />
+    </svg>
+  );
+}
+
+function PhoneIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M6.9 4.8h2.5l1.3 3.8-1.9 1.5a13.5 13.5 0 0 0 5.1 5.1l1.5-1.9 3.8 1.3v2.5a1.8 1.8 0 0 1-1.9 1.8A14.5 14.5 0 0 1 5.1 6.7a1.8 1.8 0 0 1 1.8-1.9Z" />
+    </svg>
+  );
+}
+
+function GlobeIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M3.8 12h16.4" />
+      <path d="M12 3.5c2.4 2.2 3.8 5.3 3.8 8.5S14.4 18.3 12 20.5c-2.4-2.2-3.8-5.3-3.8-8.5S9.6 5.7 12 3.5Z" />
+    </svg>
+  );
+}
+
+function ResetIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3" />
+      <path d="M4.5 5.5v4h4" />
     </svg>
   );
 }
@@ -391,6 +440,7 @@ export function PostEditorForm({
   timezone,
   scheduledPlatformMarkers,
   templateVariables = [],
+  insertContentTemplates,
   hashtagSettings,
   instagramFoundation,
   googleFoundation,
@@ -400,14 +450,14 @@ export function PostEditorForm({
 }: PostEditorFormProps) {
   const [state, formAction] = useActionState(savePostAction, initialFormState);
   const formRef = useRef<HTMLFormElement | null>(null);
+  const mainCaptionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const facebookOverrideTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const instagramOverrideTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const googleOverrideTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const instagramFirstCommentTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const hashtagInputRef = useRef<HTMLInputElement | null>(null);
   const [previewPlatform, setPreviewPlatform] = useState<PreviewPlatform>("FACEBOOK");
   const timezoneLabel = getSchedulerTimezoneLabel(timezone);
-  const templateVariableOptions = useMemo(
-    () => templateVariables.filter((variable) => variable.format.trim()),
-    [templateVariables],
-  );
   const templateVariableValueMap = useMemo(
     () => buildTemplateVariableValueMap(templateVariables),
     [templateVariables],
@@ -464,9 +514,8 @@ export function PostEditorForm({
   const [showInstagramFirstComment, setShowInstagramFirstComment] = useState(
     Boolean(formValues.instagramFirstComment),
   );
-  const [selectedVariableToken, setSelectedVariableToken] = useState(
-    templateVariableOptions[0]?.format ?? "",
-  );
+  const [activeCaptionTarget, setActiveCaptionTarget] = useState<CaptionTarget>("main");
+  const [activeOverridePlatform, setActiveOverridePlatform] = useState<OverridePlatformTab>("FACEBOOK");
   const [visibleScheduleMonth, setVisibleScheduleMonth] = useState(() => {
     const initialDate = DateTime.fromFormat(formValues.scheduledDate, "yyyy-MM-dd", {
       zone: timezone || DEFAULT_APP_TIMEZONE,
@@ -506,6 +555,7 @@ export function PostEditorForm({
       ),
     );
     setShowInstagramFirstComment(Boolean(formValues.instagramFirstComment));
+    setActiveCaptionTarget("main");
   }, [
     formValues.descriptionMain,
     formValues.descriptionFacebook,
@@ -538,19 +588,6 @@ export function PostEditorForm({
       block: "start",
     });
   }, [state.fieldErrors, state.message, state.success]);
-
-  useEffect(() => {
-    if (!templateVariableOptions.length) {
-      setSelectedVariableToken("");
-      return;
-    }
-
-    setSelectedVariableToken((current) =>
-      current && templateVariableOptions.some((variable) => variable.format === current)
-        ? current
-        : templateVariableOptions[0]?.format ?? "",
-    );
-  }, [templateVariableOptions]);
 
   const resolvedSelectedMediaAssets = useMemo(
     () =>
@@ -649,7 +686,16 @@ export function PostEditorForm({
   const googlePreviewName = previewProfiles?.google?.name || "NC Tile Pros";
   const googlePreviewSubtitle = previewProfiles?.google?.subtitle || googlePreviewDateLabel;
   const hashtagGroups = hashtagSettings?.groups ?? [];
-  const selectedHashtagGroup = hashtagGroups.find((group) => group.id === selectedHashtagGroupId) ?? null;
+  const selectedOverridePlatforms = useMemo(
+    () =>
+      [FACEBOOK_PLATFORM, INSTAGRAM_PLATFORM, GOOGLE_PLATFORM].filter((platform) =>
+        selectedPlatforms.includes(platform),
+      ) as OverridePlatformTab[],
+    [selectedPlatforms],
+  );
+  const activeOverridePlatformValue = selectedOverridePlatforms.includes(activeOverridePlatform)
+    ? activeOverridePlatform
+    : selectedOverridePlatforms[0] ?? FACEBOOK_PLATFORM;
   const previewDescriptionValues = {
     descriptionMain: caption,
     descriptionFacebook,
@@ -686,6 +732,75 @@ export function PostEditorForm({
   const googleCaptionPreview =
     googlePreviewContent.descriptionText.trim() || "Fresh tile install with clean lines and warm tones...";
   const instagramFirstCommentPreview = instagramPreviewContent.firstCommentText.trim();
+  const insertContentButtons = [
+    { key: "signature", label: "Signature", value: insertContentTemplates.signature, icon: <ComposeIcon /> },
+    { key: "phoneNumber", label: "Phone Number", value: insertContentTemplates.phoneNumber, icon: <PhoneIcon /> },
+    { key: "email", label: "Email", value: insertContentTemplates.email, icon: <MailIcon /> },
+    { key: "website", label: "Website", value: insertContentTemplates.website, icon: <GlobeIcon /> },
+  ] as const;
+  const activeOverrideConfig = (() => {
+    switch (activeOverridePlatformValue) {
+      case INSTAGRAM_PLATFORM:
+        return {
+          platform: INSTAGRAM_PLATFORM,
+          title: "Instagram Override",
+          helper: "Leave blank to use main caption.",
+          placeholder: "Optional Instagram-specific caption...",
+          value: descriptionInstagram,
+          setValue: setDescriptionInstagram,
+          textareaRef: instagramOverrideTextareaRef,
+          maxLength: 2200,
+          icon: <InstagramIcon />,
+          toneClass: "is-instagram" as const,
+          fieldErrors: state.fieldErrors?.descriptionInstagram ?? [],
+        };
+      case GOOGLE_PLATFORM:
+        return {
+          platform: GOOGLE_PLATFORM,
+          title: "Google Override",
+          helper: "Leave blank to use main caption.",
+          placeholder: "Optional Google-specific caption...",
+          value: descriptionGoogleBusiness,
+          setValue: setDescriptionGoogleBusiness,
+          textareaRef: googleOverrideTextareaRef,
+          maxLength: 1500,
+          icon: <GoogleIcon />,
+          toneClass: "is-google" as const,
+          fieldErrors: state.fieldErrors?.descriptionGoogleBusiness ?? [],
+        };
+      case FACEBOOK_PLATFORM:
+      default:
+        return {
+          platform: FACEBOOK_PLATFORM,
+          title: "Facebook Override",
+          helper: "Leave blank to use main caption.",
+          placeholder: "Optional Facebook-specific caption...",
+          value: descriptionFacebook,
+          setValue: setDescriptionFacebook,
+          textareaRef: facebookOverrideTextareaRef,
+          maxLength: 63206,
+          icon: <FacebookIcon />,
+          toneClass: "is-facebook" as const,
+          fieldErrors: state.fieldErrors?.descriptionFacebook ?? [],
+        };
+    }
+  })();
+  const activeOverrideCountState =
+    activeOverrideConfig.value.length > activeOverrideConfig.maxLength ? "over" : "short";
+  const activeOverrideProgressPercent = Math.max(
+    0,
+    Math.min(100, Math.round((activeOverrideConfig.value.length / Math.max(activeOverrideConfig.maxLength, 1)) * 100)),
+  );
+
+  useEffect(() => {
+    if (!selectedOverridePlatforms.length) {
+      return;
+    }
+
+    if (!selectedOverridePlatforms.includes(activeOverridePlatform)) {
+      setActiveOverridePlatform(selectedOverridePlatforms[0]);
+    }
+  }, [activeOverridePlatform, selectedOverridePlatforms]);
 
   function setScheduleTime(hour: string, minute: string, meridiem: (typeof MERIDIEM_OPTIONS)[number]) {
     setScheduledHour(hour);
@@ -738,28 +853,70 @@ export function PostEditorForm({
     setAppliedHashtagGroups((current) => [...new Set([...current, selectedGroup.name])]);
   }
 
-  function insertVariableToken(
-    textarea: HTMLTextAreaElement | null,
-    value: string,
-    setValue: Dispatch<SetStateAction<string>>,
-  ) {
-    if (!selectedVariableToken) {
+  function getCaptionTargetBinding(target: CaptionTarget) {
+    switch (target) {
+      case "facebook":
+        return {
+          textarea: facebookOverrideTextareaRef.current,
+          value: descriptionFacebook,
+          setValue: setDescriptionFacebook,
+        };
+      case "instagram":
+        return {
+          textarea: instagramOverrideTextareaRef.current,
+          value: descriptionInstagram,
+          setValue: setDescriptionInstagram,
+        };
+      case "google":
+        return {
+          textarea: googleOverrideTextareaRef.current,
+          value: descriptionGoogleBusiness,
+          setValue: setDescriptionGoogleBusiness,
+        };
+      case "main":
+      default:
+        return {
+          textarea: mainCaptionTextareaRef.current,
+          value: caption,
+          setValue: setCaption,
+        };
+    }
+  }
+
+  function insertContentIntoFocusedCaption(insertValue: string) {
+    if (!insertValue.trim()) {
       return;
     }
 
+    const fallbackTarget: CaptionTarget = "main";
+    const target = getCaptionTargetBinding(activeCaptionTarget || fallbackTarget);
+    const resolvedTarget =
+      target.textarea || activeCaptionTarget === fallbackTarget
+        ? target
+        : getCaptionTargetBinding(fallbackTarget);
+
+    insertTextAtCursor(resolvedTarget.textarea, resolvedTarget.value, resolvedTarget.setValue, insertValue);
+  }
+
+  function insertTextAtCursor(
+    textarea: HTMLTextAreaElement | null,
+    value: string,
+    setValue: Dispatch<SetStateAction<string>>,
+    insertValue: string,
+  ) {
     if (!textarea) {
-      setValue((current) => `${current}${current ? " " : ""}${selectedVariableToken}`);
+      setValue((current) => `${current}${current ? "\n" : ""}${insertValue}`);
       return;
     }
 
     const start = textarea.selectionStart ?? textarea.value.length;
     const end = textarea.selectionEnd ?? textarea.value.length;
-    const nextValue = `${value.slice(0, start)}${selectedVariableToken}${value.slice(end)}`;
+    const nextValue = `${value.slice(0, start)}${insertValue}${value.slice(end)}`;
     setValue(nextValue);
 
     requestAnimationFrame(() => {
       textarea.focus();
-      const nextCaret = start + selectedVariableToken.length;
+      const nextCaret = start + insertValue.length;
       textarea.setSelectionRange(nextCaret, nextCaret);
     });
   }
@@ -829,7 +986,65 @@ export function PostEditorForm({
 
           <section className="composer-section-card">
             <div className="composer-section-heading">
-              <span className="composer-step-badge is-violet">1</span>
+              <span className="composer-step-badge is-blue">1</span>
+              <div>
+                <h2>Choose Platforms</h2>
+              </div>
+            </div>
+
+            <div className="composer-platform-grid">
+              <PlatformCard
+                icon={<FacebookIcon />}
+                label="Facebook"
+                tone="facebook"
+                selected={selectedPlatforms.includes(FACEBOOK_PLATFORM)}
+                onClick={() =>
+                  setSelectedPlatforms((current) =>
+                    current.includes(FACEBOOK_PLATFORM)
+                      ? current.filter((platform) => platform !== FACEBOOK_PLATFORM)
+                      : [...current, FACEBOOK_PLATFORM],
+                  )
+                }
+              />
+              <PlatformCard
+                icon={<InstagramIcon />}
+                label="Instagram"
+                tone="instagram"
+                selected={selectedPlatforms.includes(INSTAGRAM_PLATFORM)}
+                disabled={instagramFoundation?.status !== "READY"}
+                onClick={() =>
+                  setSelectedPlatforms((current) =>
+                    current.includes(INSTAGRAM_PLATFORM)
+                      ? current.filter((platform) => platform !== INSTAGRAM_PLATFORM)
+                      : [...current, INSTAGRAM_PLATFORM],
+                  )
+                }
+              />
+              <PlatformCard
+                icon={<GoogleIcon />}
+                label="Google"
+                tone="google"
+                selected={selectedPlatforms.includes(GOOGLE_PLATFORM)}
+                disabled={googleFoundation?.status !== "READY"}
+                onClick={() =>
+                  setSelectedPlatforms((current) =>
+                    current.includes(GOOGLE_PLATFORM)
+                      ? current.filter((platform) => platform !== GOOGLE_PLATFORM)
+                      : [...current, GOOGLE_PLATFORM],
+                  )
+                }
+              />
+            </div>
+            {state.fieldErrors?.platforms?.map((error) => (
+              <span key={error} className="error-text">
+                {error}
+              </span>
+            ))}
+          </section>
+
+          <section className="composer-section-card">
+            <div className="composer-section-heading">
+              <span className="composer-step-badge is-violet">2</span>
               <div>
                 <h2>Media</h2>
               </div>
@@ -853,64 +1068,6 @@ export function PostEditorForm({
 
           <section className="composer-section-card">
             <div className="composer-section-heading">
-              <span className="composer-step-badge is-blue">2</span>
-              <div>
-                <h2>Choose Platforms</h2>
-              </div>
-            </div>
-
-            <div className="composer-platform-grid">
-              <PlatformCard
-                icon={<FacebookIcon />}
-                label="Facebook"
-                tone="facebook"
-                selected={selectedPlatforms.includes(FACEBOOK_PLATFORM)}
-                onClick={() =>
-                  setSelectedPlatforms((current) =>
-                    current.includes(FACEBOOK_PLATFORM)
-                      ? current.filter((platform) => platform !== FACEBOOK_PLATFORM)
-                      : [...current, FACEBOOK_PLATFORM],
-                  )
-                }
-              />
-              <PlatformCard
-                icon={<GoogleIcon />}
-                label="Google"
-                tone="google"
-                selected={selectedPlatforms.includes(GOOGLE_PLATFORM)}
-                disabled={googleFoundation?.status !== "READY"}
-                onClick={() =>
-                  setSelectedPlatforms((current) =>
-                    current.includes(GOOGLE_PLATFORM)
-                      ? current.filter((platform) => platform !== GOOGLE_PLATFORM)
-                      : [...current, GOOGLE_PLATFORM],
-                  )
-                }
-              />
-              <PlatformCard
-                icon={<InstagramIcon />}
-                label="Instagram"
-                tone="instagram"
-                selected={selectedPlatforms.includes(INSTAGRAM_PLATFORM)}
-                disabled={instagramFoundation?.status !== "READY"}
-                onClick={() =>
-                  setSelectedPlatforms((current) =>
-                    current.includes(INSTAGRAM_PLATFORM)
-                      ? current.filter((platform) => platform !== INSTAGRAM_PLATFORM)
-                      : [...current, INSTAGRAM_PLATFORM],
-                  )
-                }
-              />
-            </div>
-            {state.fieldErrors?.platforms?.map((error) => (
-              <span key={error} className="error-text">
-                {error}
-              </span>
-            ))}
-          </section>
-
-          <section className="composer-section-card">
-            <div className="composer-section-heading">
               <span className="composer-step-badge">3</span>
               <div>
                 <h2>Caption</h2>
@@ -918,15 +1075,22 @@ export function PostEditorForm({
             </div>
 
             <div className="composer-caption-panel">
-              <label htmlFor="descriptionMain" className="composer-caption-label">
-                Caption
-              </label>
+              <div className="composer-caption-header">
+                <label htmlFor="descriptionMain" className="composer-caption-label">
+                  Main Caption
+                </label>
+                <p className="composer-caption-help">
+                  This is the default copy used unless a platform override replaces it.
+                </p>
+              </div>
               <div className="composer-caption-shell">
                 <textarea
                   id="descriptionMain"
                   name="descriptionMain"
+                  ref={mainCaptionTextareaRef}
                   value={caption}
                   onChange={(event) => setCaption(event.target.value)}
+                  onFocus={() => setActiveCaptionTarget("main")}
                   placeholder="Fresh tile install with clean lines and warm tones..."
                   disabled={isReadOnly}
                   maxLength={captionMax}
@@ -948,129 +1112,136 @@ export function PostEditorForm({
                   <span style={{ width: `${captionProgressPercent}%` }} />
                 </div>
               </div>
-            </div>
 
-            <div className="composer-description-block">
-              <div className="composer-description-header">
-                <div>
-                  <strong>Main Description</strong>
-                  <p>This is the default copy used unless a platform override replaces it.</p>
-                </div>
+              <div className="composer-caption-tools">
                 <button
                   type="button"
                   className={`composer-override-toggle${showPlatformOverrides ? " is-active" : ""}`.trim()}
                   onClick={() => setShowPlatformOverrides((current) => !current)}
+                  disabled={isReadOnly || selectedOverridePlatforms.length === 0}
                 >
-                  Customize per platform
+                  <SlidersIcon />
+                  <span>Customize per platform</span>
                 </button>
+
+                <div className="composer-insert-content-block">
+                  <div className="composer-insert-content-head">
+                    <strong>Insert content</strong>
+                    <span className="composer-insert-content-info">
+                      <InfoIcon />
+                      <span>Click to add to your caption.</span>
+                    </span>
+                  </div>
+
+                  <div className="composer-insert-content-grid">
+                    {insertContentButtons.map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        className="composer-insert-content-button"
+                        onClick={() => insertContentIntoFocusedCaption(item.value)}
+                        disabled={isReadOnly || !item.value}
+                      >
+                        <span className="composer-insert-content-button-icon">{item.icon}</span>
+                        <span>{item.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
-              {showPlatformOverrides ? (
-                <div className="composer-override-grid">
-                  {selectedPlatforms.includes(FACEBOOK_PLATFORM) ? (
-                    <div className="composer-override-card">
-                      <div className="composer-override-card-head">
-                        <div className="composer-override-card-title">
-                          <span className="composer-override-card-icon is-facebook">
-                            <FacebookIcon />
-                          </span>
-                          <div>
-                            <strong>Facebook Override</strong>
-                            <p>Leave blank to use Main Description.</p>
-                          </div>
-                        </div>
-                        <span className="composer-override-pill is-facebook">Facebook</span>
-                      </div>
-                      <textarea
-                        className="composer-override-textarea"
-                        value={descriptionFacebook}
-                        onChange={(event) => setDescriptionFacebook(event.target.value)}
-                        placeholder="Optional Facebook-specific copy..."
-                        disabled={isReadOnly}
-                        maxLength={63206}
-                      />
-                      <div className="composer-override-footer">
-                        <span className="composer-character-count">
-                          {formatCharacterCount(descriptionFacebook.length)} / 63,206
-                        </span>
-                      </div>
-                      {state.fieldErrors?.descriptionFacebook?.map((error) => (
-                        <span key={error} className="error-text">
-                          {error}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
+              {showPlatformOverrides && selectedOverridePlatforms.length > 0 ? (
+                <div className="composer-description-block">
+                  <div className="composer-override-tab-row">
+                    {selectedOverridePlatforms.map((platform) => {
+                      const isActive = activeOverridePlatformValue === platform;
+                      const label =
+                        platform === FACEBOOK_PLATFORM
+                          ? "Facebook"
+                          : platform === INSTAGRAM_PLATFORM
+                            ? "Instagram"
+                            : "Google";
+                      const icon =
+                        platform === FACEBOOK_PLATFORM ? <FacebookIcon /> : platform === INSTAGRAM_PLATFORM ? <InstagramIcon /> : <GoogleIcon />;
 
-                  {selectedPlatforms.includes(INSTAGRAM_PLATFORM) ? (
-                    <div className="composer-override-card">
-                      <div className="composer-override-card-head">
-                        <div className="composer-override-card-title">
-                          <span className="composer-override-card-icon is-instagram">
-                            <InstagramIcon />
-                          </span>
-                          <div>
-                            <strong>Instagram Override</strong>
-                            <p>Leave blank to use Main Description.</p>
-                          </div>
-                        </div>
-                        <span className="composer-override-pill is-platform">Instagram</span>
-                      </div>
-                      <textarea
-                        className="composer-override-textarea"
-                        value={descriptionInstagram}
-                        onChange={(event) => setDescriptionInstagram(event.target.value)}
-                        placeholder="Optional Instagram-specific caption..."
-                        disabled={isReadOnly}
-                        maxLength={2200}
-                      />
-                      <div className="composer-override-footer">
-                        <span className="composer-character-count">
-                          {formatCharacterCount(descriptionInstagram.length)} / 2,200
-                        </span>
-                      </div>
-                      {state.fieldErrors?.descriptionInstagram?.map((error) => (
-                        <span key={error} className="error-text">
-                          {error}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
+                      return (
+                        <button
+                          key={platform}
+                          type="button"
+                          className={`composer-override-tab${isActive ? " is-active" : ""}`.trim()}
+                          onClick={() => setActiveOverridePlatform(platform)}
+                        >
+                          <span className="composer-override-tab-icon">{icon}</span>
+                          <span>{label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
 
-                  {selectedPlatforms.includes(GOOGLE_PLATFORM) ? (
-                    <div className="composer-override-card">
-                      <div className="composer-override-card-head">
-                        <div className="composer-override-card-title">
-                          <span className="composer-override-card-icon is-google">
-                            <GoogleIcon />
-                          </span>
-                          <div>
-                            <strong>Google Business Override</strong>
-                            <p>Leave blank to use Main Description.</p>
-                          </div>
+                  <div className="composer-override-card">
+                    <div className="composer-override-card-head">
+                      <div className="composer-override-card-title">
+                        <span className={`composer-override-card-icon ${activeOverrideConfig.toneClass}`.trim()}>
+                          {activeOverrideConfig.icon}
+                        </span>
+                        <div>
+                          <strong>{activeOverrideConfig.title}</strong>
+                          <p>{activeOverrideConfig.helper}</p>
                         </div>
-                        <span className="composer-override-pill is-platform">Google</span>
                       </div>
-                      <textarea
-                        className="composer-override-textarea"
-                        value={descriptionGoogleBusiness}
-                        onChange={(event) => setDescriptionGoogleBusiness(event.target.value)}
-                        placeholder="Optional Google-specific update..."
-                        disabled={isReadOnly}
-                        maxLength={1500}
-                      />
-                      <div className="composer-override-footer">
-                        <span className="composer-character-count">
-                          {formatCharacterCount(descriptionGoogleBusiness.length)} / 1,500
-                        </span>
-                      </div>
-                      {state.fieldErrors?.descriptionGoogleBusiness?.map((error) => (
-                        <span key={error} className="error-text">
-                          {error}
-                        </span>
-                      ))}
+
+                      <button
+                        type="button"
+                        className="ghost-link-button composer-override-reset"
+                        onClick={() => activeOverrideConfig.setValue("")}
+                        disabled={isReadOnly || !activeOverrideConfig.value}
+                      >
+                        <ResetIcon />
+                        <span>Reset</span>
+                      </button>
                     </div>
-                  ) : null}
+
+                    <textarea
+                      ref={activeOverrideConfig.textareaRef}
+                      className="composer-override-textarea"
+                      value={activeOverrideConfig.value}
+                      onChange={(event) => activeOverrideConfig.setValue(event.target.value)}
+                      onFocus={() =>
+                        setActiveCaptionTarget(
+                          activeOverrideConfig.platform === FACEBOOK_PLATFORM
+                            ? "facebook"
+                            : activeOverrideConfig.platform === INSTAGRAM_PLATFORM
+                              ? "instagram"
+                              : "google",
+                        )
+                      }
+                      placeholder={activeOverrideConfig.placeholder}
+                      disabled={isReadOnly}
+                      maxLength={activeOverrideConfig.maxLength}
+                    />
+
+                    <div className="composer-caption-meta">
+                      <span className={`composer-character-count is-${activeOverrideCountState}`.trim()}>
+                        {formatCharacterCount(activeOverrideConfig.value.length)} / {formatCharacterCount(activeOverrideConfig.maxLength)}
+                      </span>
+                      <div
+                        className="composer-caption-progress"
+                        role="progressbar"
+                        aria-label={`${activeOverrideConfig.title} length ${activeOverrideConfig.value.length} of ${activeOverrideConfig.maxLength}`}
+                        aria-valuemin={0}
+                        aria-valuemax={activeOverrideConfig.maxLength}
+                        aria-valuenow={Math.min(activeOverrideConfig.value.length, activeOverrideConfig.maxLength)}
+                      >
+                        <span style={{ width: `${activeOverrideProgressPercent}%` }} />
+                      </div>
+                    </div>
+
+                    {activeOverrideConfig.fieldErrors.map((error) => (
+                      <span key={error} className="error-text">
+                        {error}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -1206,24 +1377,6 @@ export function PostEditorForm({
                     <span className="composer-character-count">
                       {formatCharacterCount(instagramFirstComment.length)} / 2,200
                     </span>
-                    {templateVariableOptions.length > 0 ? (
-                      <div className="composer-card-actions">
-                        <button
-                          type="button"
-                          className="ghost-link-button"
-                          onClick={() =>
-                            insertVariableToken(
-                              instagramFirstCommentTextareaRef.current,
-                              instagramFirstComment,
-                              setInstagramFirstComment,
-                            )
-                          }
-                          disabled={isReadOnly || !selectedVariableToken}
-                        >
-                          Insert {selectedVariableToken || "variable"}
-                        </button>
-                      </div>
-                    ) : null}
                   </div>
                   {state.fieldErrors?.instagramFirstComment?.map((error) => (
                     <span key={error} className="error-text">
@@ -1251,11 +1404,11 @@ export function PostEditorForm({
                 <div className="composer-calendar-header">
                   <button
                     type="button"
-                    className="composer-calendar-nav"
+                    className="composer-calendar-nav is-prev"
                     onClick={() => setVisibleScheduleMonth((current) => current.minus({ months: 1 }))}
                     aria-label="View previous month"
                   >
-                    <ChevronDownIcon />
+                    <ArrowRightIcon />
                   </button>
                   <strong>{scheduleMonthLabel}</strong>
                   <button
@@ -1264,7 +1417,7 @@ export function PostEditorForm({
                     onClick={() => setVisibleScheduleMonth((current) => current.plus({ months: 1 }))}
                     aria-label="View next month"
                   >
-                    <ChevronDownIcon />
+                    <ArrowRightIcon />
                   </button>
                   <button
                     type="button"

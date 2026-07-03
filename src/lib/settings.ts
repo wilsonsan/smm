@@ -22,6 +22,7 @@ export const APP_SETTING_KEYS = {
   UPLOAD_DIRECTORY: "UPLOAD_DIRECTORY",
   APP_TIMEZONE: "APP_TIMEZONE",
   TEMPLATE_VARIABLES: "TEMPLATE_VARIABLES",
+  INSERT_CONTENT_TEMPLATES: "INSERT_CONTENT_TEMPLATES",
   HASHTAG_GROUPS: "HASHTAG_GROUPS",
   FACEBOOK_DEFAULT_HASHTAG_LIMIT: "FACEBOOK_DEFAULT_HASHTAG_LIMIT",
   FACEBOOK_APP_ID: "FACEBOOK_APP_ID",
@@ -44,6 +45,20 @@ export const APP_SETTING_KEYS = {
 
 export const DEFAULT_SITE_NAME = "Social Media Manager";
 export const DEFAULT_SITE_FAVICON_URL = "/social-media-favicon.svg";
+
+export type InsertContentTemplates = {
+  signature: string;
+  phoneNumber: string;
+  email: string;
+  website: string;
+};
+
+export const DEFAULT_INSERT_CONTENT_TEMPLATES: InsertContentTemplates = {
+  signature: "",
+  phoneNumber: "",
+  email: "",
+  website: "",
+};
 
 function normalizeUploadDirectoryForCurrentHost(configuredPath: string | undefined | null) {
   const trimmedPath = configuredPath?.trim() || "";
@@ -71,6 +86,37 @@ function parseBooleanAppSetting(value: string | undefined | null) {
   return value === "true";
 }
 
+function normalizeInsertContentValue(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function parseStoredInsertContentTemplates(value: string | undefined | null): InsertContentTemplates {
+  if (!value?.trim()) {
+    return { ...DEFAULT_INSERT_CONTENT_TEMPLATES };
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return {
+      signature: normalizeInsertContentValue(parsed?.signature),
+      phoneNumber: normalizeInsertContentValue(parsed?.phoneNumber),
+      email: normalizeInsertContentValue(parsed?.email),
+      website: normalizeInsertContentValue(parsed?.website),
+    };
+  } catch {
+    return { ...DEFAULT_INSERT_CONTENT_TEMPLATES };
+  }
+}
+
+function serializeInsertContentTemplates(value: InsertContentTemplates) {
+  return JSON.stringify({
+    signature: value.signature.trim(),
+    phoneNumber: value.phoneNumber.trim(),
+    email: value.email.trim(),
+    website: value.website.trim(),
+  });
+}
+
 export async function getAppSettings() {
   const settings = await prisma.appSetting.findMany({
     where: {
@@ -89,6 +135,7 @@ export async function getAppSettings() {
     uploadDirectory: normalizeUploadDirectoryForCurrentHost(byKey.get(APP_SETTING_KEYS.UPLOAD_DIRECTORY)),
     appTimezone: byKey.get(APP_SETTING_KEYS.APP_TIMEZONE) || "America/New_York",
     templateVariables: parseStoredTemplateVariables(byKey.get(APP_SETTING_KEYS.TEMPLATE_VARIABLES)),
+    insertContentTemplates: parseStoredInsertContentTemplates(byKey.get(APP_SETTING_KEYS.INSERT_CONTENT_TEMPLATES)),
     hashtagSettings: {
       facebookDefaultLimit: parseStoredFacebookHashtagLimit(byKey.get(APP_SETTING_KEYS.FACEBOOK_DEFAULT_HASHTAG_LIMIT)),
       groups: parseStoredHashtagGroups(byKey.get(APP_SETTING_KEYS.HASHTAG_GROUPS)),
@@ -157,6 +204,19 @@ export async function saveTemplateVariableSettings(input: {
     where: { key: APP_SETTING_KEYS.TEMPLATE_VARIABLES },
     update: { value: serializeTemplateVariables(input.templateVariables) },
     create: { key: APP_SETTING_KEYS.TEMPLATE_VARIABLES, value: serializeTemplateVariables(input.templateVariables) },
+  });
+}
+
+export async function getInsertContentTemplateSettings() {
+  const settings = await getAppSettings();
+  return settings.insertContentTemplates;
+}
+
+export async function saveInsertContentTemplateSettings(input: InsertContentTemplates) {
+  await prisma.appSetting.upsert({
+    where: { key: APP_SETTING_KEYS.INSERT_CONTENT_TEMPLATES },
+    update: { value: serializeInsertContentTemplates(input) },
+    create: { key: APP_SETTING_KEYS.INSERT_CONTENT_TEMPLATES, value: serializeInsertContentTemplates(input) },
   });
 }
 

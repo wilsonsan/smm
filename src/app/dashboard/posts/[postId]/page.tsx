@@ -18,7 +18,7 @@ import {
   getResolvedAppTimezone,
   toDateTimeLocalFields,
 } from "@/lib/time";
-import { getHashtagSettings, getTemplateVariableSettings } from "@/lib/settings";
+import { getHashtagSettings, getInsertContentTemplateSettings, getTemplateVariableSettings } from "@/lib/settings";
 import {
   cancelScheduledPostAction,
   deleteDraftPostAction,
@@ -39,7 +39,7 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
   const adminUser = await requireAuthenticatedUser();
   const { postId } = await params;
   const resolvedSearchParams = await searchParams;
-  const [post, recentMediaAssets, timezone, templateVariables, hashtagSettings, instagramFoundation, googleFoundation] = await Promise.all([
+  const [post, recentMediaAssets, timezone, templateVariables, insertContentTemplates, hashtagSettings, instagramFoundation, googleFoundation] = await Promise.all([
     prisma.socialPost.findUnique({
       where: { id: postId },
       include: {
@@ -155,6 +155,7 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
     }),
     getResolvedAppTimezone(),
     getTemplateVariableSettings(),
+    getInsertContentTemplateSettings(),
     getHashtagSettings(),
     getInstagramFoundationState({ refreshHealth: true }),
     getGoogleFoundationState({ refreshHealth: true }),
@@ -230,6 +231,7 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
         recentMediaAssets={recentMediaAssets.map((asset) => toMediaAssetGallerySummary(asset))}
         timezone={timezone}
         templateVariables={templateVariables}
+        insertContentTemplates={insertContentTemplates}
         hashtagSettings={hashtagSettings}
         instagramFoundation={instagramFoundation}
         googleFoundation={googleFoundation}

@@ -211,6 +211,13 @@ export const templateVariableSettingsSchema = z.object({
   templateVariablesJson: z.string().trim().min(2, "Template variables payload is required."),
 });
 
+export const insertContentTemplatesSchema = z.object({
+  signature: z.string().trim().max(500, "Signature must be 500 characters or less."),
+  phoneNumber: z.string().trim().max(120, "Phone Number must be 120 characters or less."),
+  email: z.string().trim().max(160, "Email must be 160 characters or less."),
+  website: z.string().trim().max(240, "Website must be 240 characters or less."),
+});
+
 export const developerSettingsSchema = z.object({
   facebook: z.string().optional().transform((value) => value === "on"),
   instagram: z.string().optional().transform((value) => value === "on"),

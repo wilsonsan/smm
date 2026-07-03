@@ -1467,6 +1467,11 @@ th {
   line-height: 1.55;
 }
 
+.insert-content-settings-stack {
+  display: grid;
+  gap: 16px;
+}
+
 .settings-code-block {
   margin: 12px 0 0;
   padding: 14px 16px;
@@ -3303,6 +3308,11 @@ th {
   gap: 18px;
 }
 
+.composer-caption-header {
+  display: grid;
+  gap: 8px;
+}
+
 .composer-caption-label {
   display: inline-flex;
   align-items: center;
@@ -3339,6 +3349,11 @@ th {
   gap: 12px;
 }
 
+.composer-caption-tools {
+  display: grid;
+  gap: 18px;
+}
+
 .composer-caption-progress {
   position: relative;
   width: min(100%, 180px);
@@ -3360,6 +3375,87 @@ th {
   gap: 18px;
   padding-top: 22px;
   border-top: 1px solid rgba(122, 143, 196, 0.14);
+}
+
+.composer-insert-content-block {
+  display: grid;
+  gap: 14px;
+  padding-top: 4px;
+}
+
+.composer-insert-content-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.composer-insert-content-head strong {
+  color: #f4f7ff;
+  font-size: 0.98rem;
+  font-weight: 700;
+}
+
+.composer-insert-content-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #9ab0d1;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.composer-insert-content-info svg {
+  width: 16px;
+  height: 16px;
+  color: #5fa0ff;
+  flex-shrink: 0;
+}
+
+.composer-insert-content-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.composer-insert-content-button {
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(105, 125, 181, 0.16);
+  background: rgba(14, 23, 39, 0.74);
+  color: #eef4ff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-weight: 700;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.composer-insert-content-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(121, 142, 206, 0.28);
+  background: rgba(18, 30, 50, 0.82);
+}
+
+.composer-insert-content-button:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
+.composer-insert-content-button-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  color: #c9daf8;
+  flex-shrink: 0;
+}
+
+.composer-insert-content-button-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .composer-section-card--compact {
@@ -3393,6 +3489,10 @@ th {
 }
 
 .composer-override-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   border: 1px solid rgba(123, 105, 255, 0.32);
   background: rgba(22, 19, 48, 0.74);
   color: #e0dbff;
@@ -3403,6 +3503,11 @@ th {
   font-weight: 700;
   cursor: pointer;
   transition: border-color 160ms ease, background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.composer-override-toggle svg {
+  width: 18px;
+  height: 18px;
 }
 
 .composer-override-toggle:hover:not(:disabled),
@@ -3470,14 +3575,59 @@ th {
   gap: 14px;
 }
 
+.composer-override-tab-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.composer-override-tab {
+  min-height: 50px;
+  padding: 0 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(109, 128, 186, 0.14);
+  background: rgba(14, 23, 39, 0.72);
+  color: #d8e4fb;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-weight: 700;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.composer-override-tab:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(120, 144, 220, 0.24);
+}
+
+.composer-override-tab.is-active {
+  border-color: rgba(88, 134, 255, 0.34);
+  background: linear-gradient(135deg, rgba(40, 79, 166, 0.88), rgba(43, 107, 255, 0.76));
+  color: #ffffff;
+  box-shadow: 0 18px 34px rgba(30, 84, 198, 0.22);
+}
+
+.composer-override-tab-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.composer-override-tab-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
 .composer-override-card {
   display: grid;
   gap: 14px;
-  padding: 14px 0 0;
-  border-radius: 0;
-  border: 0;
-  border-top: 1px solid rgba(116, 136, 197, 0.12);
-  background: transparent;
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(116, 136, 197, 0.12);
+  background: rgba(10, 18, 31, 0.4);
 }
 
 .composer-instagram-comment-card {
@@ -3588,6 +3738,17 @@ th {
   display: flex;
   align-items: center;
   justify-content: flex-start;
+}
+
+.composer-override-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-override-reset svg {
+  width: 16px;
+  height: 16px;
 }
 
 .composer-caption-tip-card {
@@ -3949,12 +4110,8 @@ th {
   transform: translateY(-1px);
 }
 
-.composer-calendar-nav svg {
+.composer-calendar-nav.is-prev svg {
   transform: rotate(180deg);
-}
-
-.composer-calendar-nav.is-next svg {
-  transform: none;
 }
 
 .composer-calendar-today-button {
@@ -5855,6 +6012,11 @@ th {
     padding: 16px;
   }
 
+  .composer-insert-content-grid,
+  .composer-override-tab-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .composer-hero-actions,
   .composer-bottom-actions {
     width: 100%;
@@ -5882,6 +6044,10 @@ th {
     padding-inline: 0;
   }
 
+  .composer-override-card {
+    padding: 16px;
+  }
+
   .composer-caption-textarea {
     min-height: 180px;
     padding: 16px;
@@ -5899,6 +6065,15 @@ th {
   }
 
   .composer-caption-tip-card {
+    grid-template-columns: 1fr;
+  }
+
+  .composer-insert-content-head {
+    align-items: flex-start;
+  }
+
+  .composer-insert-content-grid,
+  .composer-override-tab-row {
     grid-template-columns: 1fr;
   }
 
@@ -5952,9 +6127,26 @@ th {
     order: -1;
   }
 
-  .composer-calendar-nav,
+  .composer-calendar-header {
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+  }
+
+  .composer-calendar-header strong {
+    grid-column: 1 / -1;
+    text-align: center;
+  }
+
+  .composer-calendar-nav {
+    width: 42px;
+    height: 42px;
+  }
+
   .composer-calendar-today-button {
-    width: 100%;
+    width: auto;
+    min-height: 42px;
+    padding: 0 14px;
+    justify-self: end;
   }
 
   .composer-calendar-day {

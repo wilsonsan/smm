@@ -6,10 +6,12 @@ import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
 import { getRequestMetadata } from "@/lib/http";
 import {
   getHashtagSettings,
+  getInsertContentTemplateSettings,
   getTemplateVariableSettings,
   saveAppSettings,
   saveDeveloperSettings,
   saveHashtagSettings,
+  saveInsertContentTemplateSettings,
   saveTemplateVariableSettings,
 } from "@/lib/settings";
 import { clearStoredGalleryLibrary } from "@/lib/uploads";
@@ -18,6 +20,7 @@ import {
   galleryDeletionSchema,
   hashtagGroupEditorSchema,
   hashtagSettingsSchema,
+  insertContentTemplatesSchema,
   initialFormState,
   settingsSchema,
   templateVariableEditorSchema,
@@ -118,6 +121,53 @@ export async function saveTemplateVariablesAction(_: FormState, formData: FormDa
   return {
     success: true,
     message: "Template variables saved.",
+  };
+}
+
+export async function saveInsertContentTemplatesAction(_: FormState, formData: FormData): Promise<FormState> {
+  const adminUser = await requireAdminUser({
+    redirectTo: "/dashboard",
+    targetType: "TemplateSettingsPage",
+  });
+  const previousTemplates = await getInsertContentTemplateSettings();
+  const parsed = insertContentTemplatesSchema.safeParse({
+    signature: formData.get("signature"),
+    phoneNumber: formData.get("phoneNumber"),
+    email: formData.get("email"),
+    website: formData.get("website"),
+  });
+
+  if (!parsed.success) {
+    return {
+      ...initialFormState,
+      message: "Fix the Insert Content fields and try again.",
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  await saveInsertContentTemplateSettings(parsed.data);
+
+  const { ipAddress, userAgent } = await getRequestMetadata();
+  await createAuditLog({
+    actorAdminUserId: adminUser.id,
+    action: AUDIT_ACTIONS.INSERT_CONTENT_TEMPLATES_UPDATED,
+    targetType: "AppSetting",
+    ipAddress,
+    userAgent,
+    metadata: {
+      previousTemplates,
+      nextTemplates: parsed.data,
+    },
+  });
+
+  revalidatePath("/dashboard/settings");
+  revalidatePath("/dashboard/settings/templates");
+  revalidatePath("/dashboard/posts/new");
+  revalidatePath("/dashboard/posts");
+
+  return {
+    success: true,
+    message: "Insert Content saved.",
   };
 }
 

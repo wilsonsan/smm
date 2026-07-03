@@ -8,7 +8,7 @@ import { getGoogleFoundationState } from "@/lib/google";
 import { getInstagramFoundationState } from "@/lib/instagram";
 import { toMediaAssetGallerySummary, toMediaAssetSummary } from "@/lib/media-presentation";
 import { prisma } from "@/lib/prisma";
-import { getHashtagSettings, getTemplateVariableSettings } from "@/lib/settings";
+import { getHashtagSettings, getInsertContentTemplateSettings, getTemplateVariableSettings } from "@/lib/settings";
 import { getDateKeyForTimezone, getDefaultScheduleFields, getResolvedAppTimezone } from "@/lib/time";
 
 type NewPostPageProps = {
@@ -26,7 +26,7 @@ type NewPostPageProps = {
 export default async function NewPostPage({ searchParams }: NewPostPageProps) {
   const adminUser = await requireAuthenticatedUser();
   const resolvedSearchParams = await searchParams;
-  const [recentMediaAssets, timezone, templateVariables, hashtagSettings, instagramFoundation, googleFoundation] = await Promise.all([
+  const [recentMediaAssets, timezone, templateVariables, insertContentTemplates, hashtagSettings, instagramFoundation, googleFoundation] = await Promise.all([
     prisma.mediaAsset.findMany({
       orderBy: {
         createdAt: "desc",
@@ -93,6 +93,7 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
     }),
     getResolvedAppTimezone(),
     getTemplateVariableSettings(),
+    getInsertContentTemplateSettings(),
     getHashtagSettings(),
     getInstagramFoundationState({ refreshHealth: true }),
     getGoogleFoundationState({ refreshHealth: true }),
@@ -202,6 +203,7 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
         timezone={timezone}
         scheduledPlatformMarkers={scheduledPlatformMarkers}
         templateVariables={templateVariables}
+        insertContentTemplates={insertContentTemplates}
         hashtagSettings={hashtagSettings}
         instagramFoundation={instagramFoundation}
         googleFoundation={googleFoundation}
