@@ -3301,14 +3301,6 @@ th {
 .composer-caption-tip-card {
   display: grid;
   gap: 18px;
-  padding: 24px;
-  border-radius: 24px;
-  border: 1px solid rgba(138, 158, 221, 0.12);
-  background:
-    linear-gradient(180deg, rgba(8, 15, 28, 0.96), rgba(10, 18, 31, 0.94));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.03),
-    0 20px 40px rgba(3, 8, 18, 0.24);
 }
 
 .composer-caption-label {
@@ -3322,12 +3314,6 @@ th {
 .composer-caption-shell {
   display: grid;
   gap: 14px;
-  padding: 18px;
-  border-radius: 20px;
-  border: 1px solid rgba(138, 158, 221, 0.12);
-  background:
-    linear-gradient(180deg, rgba(5, 12, 24, 0.98), rgba(8, 16, 30, 0.94));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
 }
 
 .composer-caption-textarea {
@@ -3372,6 +3358,8 @@ th {
 
 .composer-description-block {
   gap: 18px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(122, 143, 196, 0.14);
 }
 
 .composer-section-card--compact {
@@ -3479,23 +3467,23 @@ th {
 
 .composer-override-grid {
   display: grid;
-  gap: 16px;
+  gap: 14px;
 }
 
 .composer-override-card {
   display: grid;
   gap: 14px;
-  padding: 18px;
-  border-radius: 20px;
-  border: 1px solid rgba(116, 136, 197, 0.16);
-  background: linear-gradient(180deg, rgba(8, 15, 29, 0.78), rgba(8, 15, 29, 0.64));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  padding: 14px 0 0;
+  border-radius: 0;
+  border: 0;
+  border-top: 1px solid rgba(116, 136, 197, 0.12);
+  background: transparent;
 }
 
 .composer-instagram-comment-card {
   background:
-    radial-gradient(circle at top left, rgba(211, 72, 141, 0.12), transparent 42%),
-    rgba(8, 15, 29, 0.74);
+    radial-gradient(circle at top left, rgba(211, 72, 141, 0.06), transparent 38%),
+    rgba(8, 15, 29, 0.18);
 }
 
 .composer-override-card.is-muted {
@@ -3848,15 +3836,7 @@ th {
 .composer-schedule-card-shell {
   display: grid;
   gap: 24px;
-  padding: 24px;
-  border-radius: 28px;
-  border: 1px solid rgba(126, 147, 205, 0.12);
-  background:
-    radial-gradient(circle at top left, rgba(88, 96, 255, 0.11), transparent 26%),
-    linear-gradient(180deg, rgba(8, 15, 28, 0.98), rgba(10, 18, 31, 0.96));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.03),
-    0 24px 54px rgba(2, 8, 22, 0.22);
+  padding-top: 6px;
 }
 
 .composer-schedule-topbar {
@@ -3926,16 +3906,15 @@ th {
 .composer-calendar-card,
 .composer-best-time-card,
 .composer-scheduled-summary-card {
-  padding: 22px 24px;
-  border-radius: 24px;
-  border: 1px solid rgba(128, 149, 206, 0.14);
-  background: rgba(9, 17, 30, 0.82);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .composer-calendar-card {
   gap: 20px;
-  padding-bottom: 22px;
+  padding-bottom: 6px;
 }
 
 .composer-calendar-card--full {
@@ -4019,7 +3998,7 @@ th {
 
 .composer-calendar-grid-shell {
   overflow: hidden;
-  border-radius: 22px;
+  border-radius: 20px;
   border: 1px solid rgba(126, 148, 205, 0.12);
   background: rgba(8, 14, 26, 0.6);
 }
@@ -4253,6 +4232,11 @@ th {
 
 .composer-timezone-note--schedule {
   grid-template-columns: auto 1fr;
+  padding: 14px 0 0;
+  border-radius: 0;
+  border: 0;
+  border-top: 1px solid rgba(128, 149, 206, 0.1);
+  background: transparent;
 }
 
 .composer-timezone-note--full {
@@ -5893,12 +5877,12 @@ th {
   .composer-caption-panel,
   .composer-description-block,
   .composer-caption-tip-card {
-    padding: 18px;
+    padding: 0;
   }
 
   .composer-caption-shell,
   .composer-override-card {
-    padding: 14px;
+    padding-inline: 0;
   }
 
   .composer-caption-textarea {
@@ -5954,7 +5938,10 @@ th {
     align-items: stretch;
   }
 
-  .composer-schedule-card-shell,
+  .composer-schedule-card-shell {
+    padding: 0;
+  }
+
   .composer-best-time-modal {
     padding: 22px;
   }
