@@ -1101,16 +1101,6 @@ export function PostEditorForm({
               </div>
 
               <div className="composer-caption-tools">
-                <button
-                  type="button"
-                  className={`composer-override-toggle${showPlatformOverrides ? " is-active" : ""}`.trim()}
-                  onClick={() => setShowPlatformOverrides((current) => !current)}
-                  disabled={isReadOnly || selectedOverridePlatforms.length === 0}
-                >
-                  <SlidersIcon />
-                  <span>Customize per platform</span>
-                </button>
-
                 <div className="composer-insert-content-block">
                   <div className="composer-insert-content-grid">
                     {insertContentButtons.map((item) => (
@@ -1127,6 +1117,16 @@ export function PostEditorForm({
                     ))}
                   </div>
                 </div>
+
+                <button
+                  type="button"
+                  className={`composer-override-toggle${showPlatformOverrides ? " is-active" : ""}`.trim()}
+                  onClick={() => setShowPlatformOverrides((current) => !current)}
+                  disabled={isReadOnly || selectedOverridePlatforms.length === 0}
+                >
+                  <SlidersIcon />
+                  <span>Customize per platform</span>
+                </button>
               </div>
 
               {showPlatformOverrides && selectedOverridePlatforms.length > 0 ? (
