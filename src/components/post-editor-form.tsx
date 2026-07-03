@@ -22,7 +22,6 @@ import {
   ComposeIcon,
   FacebookIcon,
   GalleryIcon,
-  InfoIcon,
   MailIcon,
   SuccessIcon,
 } from "@/components/dashboard-icons";
@@ -234,15 +233,6 @@ function GlobeIcon(props: SVGProps<SVGSVGElement>) {
       <circle cx="12" cy="12" r="8.5" />
       <path d="M3.8 12h16.4" />
       <path d="M12 3.5c2.4 2.2 3.8 5.3 3.8 8.5S14.4 18.3 12 20.5c-2.4-2.2-3.8-5.3-3.8-8.5S9.6 5.7 12 3.5Z" />
-    </svg>
-  );
-}
-
-function ResetIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3" />
-      <path d="M4.5 5.5v4h4" />
     </svg>
   );
 }
@@ -1079,9 +1069,6 @@ export function PostEditorForm({
                 <label htmlFor="descriptionMain" className="composer-caption-label">
                   Main Caption
                 </label>
-                <p className="composer-caption-help">
-                  This is the default copy used unless a platform override replaces it.
-                </p>
               </div>
               <div className="composer-caption-shell">
                 <textarea
@@ -1125,14 +1112,6 @@ export function PostEditorForm({
                 </button>
 
                 <div className="composer-insert-content-block">
-                  <div className="composer-insert-content-head">
-                    <strong>Insert content</strong>
-                    <span className="composer-insert-content-info">
-                      <InfoIcon />
-                      <span>Click to add to your caption.</span>
-                    </span>
-                  </div>
-
                   <div className="composer-insert-content-grid">
                     {insertContentButtons.map((item) => (
                       <button
@@ -1189,16 +1168,6 @@ export function PostEditorForm({
                           <p>{activeOverrideConfig.helper}</p>
                         </div>
                       </div>
-
-                      <button
-                        type="button"
-                        className="ghost-link-button composer-override-reset"
-                        onClick={() => activeOverrideConfig.setValue("")}
-                        disabled={isReadOnly || !activeOverrideConfig.value}
-                      >
-                        <ResetIcon />
-                        <span>Reset</span>
-                      </button>
                     </div>
 
                     <textarea
@@ -1257,7 +1226,7 @@ export function PostEditorForm({
             <div className="composer-section-heading">
               <span className="composer-step-badge is-blue">4</span>
               <div>
-                <h2>Hashtags</h2>
+                <h2>Hashtags ({normalizedHashtags.length})</h2>
               </div>
             </div>
 
@@ -1313,11 +1282,6 @@ export function PostEditorForm({
                   </button>
                 </div>
               </div>
-
-              <div className="composer-hashtag-meta">
-                <span>{normalizedHashtags.length} hashtag{normalizedHashtags.length === 1 ? "" : "s"} added</span>
-              </div>
-
               {normalizedHashtags.length > 0 ? (
                 <div className="composer-hashtag-chip-list">
                   {normalizedHashtags.map((tag) => (
@@ -1351,7 +1315,6 @@ export function PostEditorForm({
               <div className="composer-description-header">
                 <div>
                   <strong>Instagram First Comment</strong>
-                  <p>Optional. Useful for hashtags or extra notes posted as the first comment.</p>
                 </div>
                 <button
                   type="button"
@@ -1393,7 +1356,6 @@ export function PostEditorForm({
               <span className="composer-step-badge is-cyan">5</span>
               <div>
                 <h2>Schedule Post</h2>
-                <p>Choose when you&apos;d like your post to be published.</p>
               </div>
             </div>
 
@@ -1603,13 +1565,6 @@ export function PostEditorForm({
                 </div>
               </div>
 
-              <div className="composer-timezone-note composer-timezone-note--schedule composer-timezone-note--full">
-                <ClockIcon />
-                <div>
-                  <span>All times are in</span>
-                  <strong>{timezoneLabel === "Eastern Time" ? "Eastern Time (EST)" : timezoneLabel}</strong>
-                </div>
-              </div>
             </div>
           </section>
 

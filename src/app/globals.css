@@ -3383,35 +3383,6 @@ th {
   padding-top: 4px;
 }
 
-.composer-insert-content-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-
-.composer-insert-content-head strong {
-  color: #f4f7ff;
-  font-size: 0.98rem;
-  font-weight: 700;
-}
-
-.composer-insert-content-info {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: #9ab0d1;
-  font-size: 0.92rem;
-  line-height: 1.5;
-}
-
-.composer-insert-content-info svg {
-  width: 16px;
-  height: 16px;
-  color: #5fa0ff;
-  flex-shrink: 0;
-}
-
 .composer-insert-content-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3740,16 +3711,6 @@ th {
   justify-content: flex-start;
 }
 
-.composer-override-reset {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.composer-override-reset svg {
-  width: 16px;
-  height: 16px;
-}
 
 .composer-caption-tip-card {
   grid-template-columns: auto minmax(0, 1fr);
@@ -6066,10 +6027,6 @@ th {
 
   .composer-caption-tip-card {
     grid-template-columns: 1fr;
-  }
-
-  .composer-insert-content-head {
-    align-items: flex-start;
   }
 
   .composer-insert-content-grid,
