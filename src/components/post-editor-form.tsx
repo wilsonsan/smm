@@ -350,7 +350,6 @@ function PlatformCard({
   disabled?: boolean;
   onClick?: () => void;
 }) {
-  const statusLabel = selected ? "Selected" : disabled ? "Locked" : "Available";
   return (
     <button
       type="button"
@@ -364,8 +363,11 @@ function PlatformCard({
       <span className="composer-platform-copy">
         <strong>{label}</strong>
       </span>
-      <span className={`composer-platform-indicator${selected ? " is-selected" : disabled ? " is-locked" : " is-available"}`.trim()}>
-        {statusLabel}
+      <span
+        className={`composer-platform-checkbox${selected ? " is-selected" : ""}${disabled ? " is-disabled" : ""}`.trim()}
+        aria-hidden="true"
+      >
+        {selected ? <SuccessIcon /> : null}
       </span>
     </button>
   );
