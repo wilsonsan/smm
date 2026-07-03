@@ -1,5 +1,6 @@
 import { env } from "../src/lib/env";
 import { publishScheduledPosts } from "../src/lib/worker/publishScheduledPosts";
+import { recordWorkerHeartbeat } from "../src/lib/worker-status";
 
 const MINIMUM_POLL_INTERVAL_MS = 5_000;
 const pollIntervalMs = Math.max(env.WORKER_POLL_INTERVAL_MS, MINIMUM_POLL_INTERVAL_MS);
@@ -26,9 +27,16 @@ process.on("SIGTERM", () => requestStop("SIGTERM"));
 
 async function main() {
   console.log(`[publish worker] Starting background loop with a ${pollIntervalMs}ms interval.`);
+  await recordWorkerHeartbeat({
+    state: "starting",
+  }).catch(() => undefined);
 
   while (!shouldStop) {
     const cycleStartedAt = new Date();
+    await recordWorkerHeartbeat({
+      at: cycleStartedAt,
+      state: "claiming",
+    }).catch(() => undefined);
 
     try {
       const result = await publishScheduledPosts();
@@ -54,7 +62,14 @@ async function main() {
           ),
         );
       }
+
+      await recordWorkerHeartbeat({
+        state: "idle",
+      }).catch(() => undefined);
     } catch (error) {
+      await recordWorkerHeartbeat({
+        state: "error",
+      }).catch(() => undefined);
       console.error("[publish worker] Background cycle failed.", error);
     }
 
@@ -65,6 +80,9 @@ async function main() {
     await wait(pollIntervalMs);
   }
 
+  await recordWorkerHeartbeat({
+    state: "stopping",
+  }).catch(() => undefined);
   console.log("[publish worker] Background loop stopped.");
 }
 

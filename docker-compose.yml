@@ -26,11 +26,18 @@ services:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   app:
     build: .
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     env_file:
       - .env
     environment: *app-environment
@@ -39,11 +46,18 @@ services:
     volumes:
       - ./uploads:/app/uploads
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "--import", "tsx", "scripts/check-app-health.ts"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 45s
 
   worker:
     build: .
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     env_file:
       - .env
     environment: *app-environment
@@ -51,6 +65,12 @@ services:
     volumes:
       - ./uploads:/app/uploads
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "--import", "tsx", "scripts/check-worker-health.ts"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 75s
 
 volumes:
   mysql-data:

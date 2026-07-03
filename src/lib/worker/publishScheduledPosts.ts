@@ -6,7 +6,7 @@ import { claimInstagramPostForPublishing, executeInstagramPublish } from "@/lib/
 import { createOrUpdateWorkerErrorNotification, dismissWorkerErrorNotifications } from "@/lib/notifications";
 import { syncSocialPostAggregateState } from "@/lib/publish-state";
 import { prisma } from "@/lib/prisma";
-import { recordWorkerRunStatus, WORKER_PUBLISH_TIMEOUT_MINUTES } from "@/lib/worker-status";
+import { recordWorkerHeartbeat, recordWorkerRunStatus, WORKER_PUBLISH_TIMEOUT_MINUTES } from "@/lib/worker-status";
 
 type PublishWorkerResult = {
   claimedCount: number;
@@ -156,6 +156,10 @@ async function recoverStuckPublishingPosts(now: Date) {
 
 export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
   const now = new Date();
+  await recordWorkerHeartbeat({
+    at: now,
+    state: "claiming",
+  }).catch(() => undefined);
   let publishedCount = 0;
   let failedCount = 0;
   let skippedCount = 0;
@@ -187,6 +191,9 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
     });
 
     for (const platform of duePlatforms) {
+      await recordWorkerHeartbeat({
+        state: "claiming",
+      }).catch(() => undefined);
       const claim =
         platform.platform === SocialPlatform.GOOGLE_BUSINESS
           ? await claimGooglePostForPublishing({
@@ -232,6 +239,10 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
           platform: true,
         },
       });
+
+      await recordWorkerHeartbeat({
+        state: "publishing",
+      }).catch(() => undefined);
 
       await createAuditLog({
         action: AUDIT_ACTIONS.POST_PUBLISH_STARTED,
@@ -385,6 +396,10 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
       await dismissWorkerErrorNotifications();
     }
 
+    await recordWorkerHeartbeat({
+      state: "idle",
+    }).catch(() => undefined);
+
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Worker run failed.";
@@ -413,6 +428,9 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
       result,
       errorMessage: message,
     });
+    await recordWorkerHeartbeat({
+      state: "error",
+    }).catch(() => undefined);
     await createOrUpdateWorkerErrorNotification({
       message,
     });

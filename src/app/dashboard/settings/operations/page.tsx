@@ -8,6 +8,7 @@ import {
   SnapshotIcon,
   SuccessIcon,
 } from "@/components/dashboard-icons";
+import { probeDatabaseHealth } from "@/lib/health";
 import { getPostCaptionPreview } from "@/lib/posts";
 import { prisma } from "@/lib/prisma";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
@@ -25,7 +26,7 @@ function getSnapshotTitle(value: string | null | undefined) {
 
 export default async function OperationsPage() {
   const timezone = await getResolvedAppTimezone();
-  const [workerStatus, nextScheduledPost] = await Promise.all([
+  const [workerStatus, nextScheduledPost, databaseHealth] = await Promise.all([
     getWorkerStatusOverview(),
     prisma.socialPost.findFirst({
       where: {
@@ -38,7 +39,42 @@ export default async function OperationsPage() {
         platforms: true,
       },
     }),
+    probeDatabaseHealth(),
   ]);
+
+  const serviceHealthCards = [
+    {
+      label: "App",
+      value: "Healthy",
+      supporting: "The app server is responding and this status page rendered successfully.",
+      accentClass: "is-green",
+      Icon: SnapshotIcon,
+    },
+    {
+      label: "Database",
+      value: databaseHealth.status === "healthy" ? "Healthy" : "Needs Review",
+      supporting: databaseHealth.message,
+      accentClass: databaseHealth.status === "healthy" ? "is-blue" : "is-red",
+      Icon: QueueIcon,
+    },
+    {
+      label: "Worker Health",
+      value:
+        workerStatus.workerHealthStatus === "critical"
+          ? "Critical"
+          : workerStatus.workerHealthStatus === "warning"
+            ? "Warning"
+            : "Healthy",
+      supporting: workerStatus.workerHealthMessage,
+      accentClass:
+        workerStatus.workerHealthStatus === "critical"
+          ? "is-red"
+          : workerStatus.workerHealthStatus === "warning"
+            ? "is-orange"
+            : "is-green",
+      Icon: ClockIcon,
+    },
+  ] as const;
 
   const workerDetailCards = [
     {
@@ -119,7 +155,7 @@ export default async function OperationsPage() {
                   ) : (
                     <>
                       <strong>Nothing queued</strong>
-                      <p>No Facebook posts are currently scheduled.</p>
+                      <p>No platform posts are currently scheduled.</p>
                     </>
                   )}
                 </div>
@@ -144,7 +180,7 @@ export default async function OperationsPage() {
                   ) : (
                     <>
                       <strong>None yet</strong>
-                      <p>No successful Facebook publishes have been recorded.</p>
+                      <p>No successful platform publishes have been recorded.</p>
                     </>
                   )}
                 </div>
@@ -169,7 +205,7 @@ export default async function OperationsPage() {
                   ) : (
                     <>
                       <strong>None</strong>
-                      <p>No failed Facebook publishes to show.</p>
+                      <p>No failed platform publishes to show.</p>
                     </>
                   )}
                 </div>
@@ -179,6 +215,43 @@ export default async function OperationsPage() {
                   </Link>
                 ) : null}
               </article>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel dashboard-module-card">
+          <div className="panel-body">
+            <div className="dashboard-module-heading">
+              <div className="dashboard-module-title">
+                <span className="dashboard-module-icon is-red">
+                  <QueueIcon />
+                </span>
+                <div>
+                  <h3>Service Health</h3>
+                  <p>Live health signals for the app, database, and scheduled publishing worker.</p>
+                </div>
+              </div>
+            </div>
+
+            {workerStatus.workerHealthStatus !== "healthy" ? (
+              <p className={workerStatus.workerHealthStatus === "critical" ? "error-text" : "warning-text"}>
+                {workerStatus.workerHealthMessage}
+              </p>
+            ) : null}
+
+            <div className="dashboard-status-grid">
+              {serviceHealthCards.map(({ label, value, supporting, accentClass, Icon }) => (
+                <article key={label} className={`dashboard-status-card ${accentClass}`.trim()}>
+                  <span className="dashboard-status-icon">
+                    <Icon />
+                  </span>
+                  <div className="dashboard-status-copy">
+                    <span>{label}</span>
+                    <strong>{value}</strong>
+                    <p>{supporting}</p>
+                  </div>
+                </article>
+              ))}
             </div>
           </div>
         </section>
@@ -223,9 +296,29 @@ export default async function OperationsPage() {
                 </p>
               </div>
               <div>
+                <span className="dashboard-worker-footer-label">Last Heartbeat</span>
+                <strong>
+                  {workerStatus.lastHeartbeatAt ? formatDateTimeForTimezone(workerStatus.lastHeartbeatAt, timezone) : "Never"}
+                </strong>
+                <p>
+                  {workerStatus.lastHeartbeatState
+                    ? `Worker reported ${workerStatus.lastHeartbeatState}.`
+                    : "No worker heartbeat has been recorded yet."}
+                </p>
+              </div>
+              <div>
                 <span className="dashboard-worker-footer-label">Last Worker Error</span>
                 <strong>{workerStatus.lastWorkerError ? "Needs review" : "Clear"}</strong>
                 <p>{workerStatus.lastWorkerError || "The latest worker run completed without a stored error."}</p>
+              </div>
+              <div>
+                <span className="dashboard-worker-footer-label">Backlog</span>
+                <strong>{workerStatus.dueScheduledPostsCount}</strong>
+                <p>
+                  {workerStatus.oldestDuePlatform?.scheduledAt
+                    ? `Oldest due platform post: ${formatDateTimeForTimezone(workerStatus.oldestDuePlatform.scheduledAt, timezone)}`
+                    : "No due platform posts are waiting for the worker."}
+                </p>
               </div>
             </div>
           </div>
