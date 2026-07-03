@@ -1,30 +1,5 @@
-import { prisma } from "@/lib/prisma";
-
-function createWindowStart(windowMinutes: number) {
-  return new Date(Date.now() - windowMinutes * 60 * 1000);
-}
-
-export async function countFailedAuthAttemptsByIp(input: {
-  actions: string[];
-  ipAddress: string | null;
-  windowMinutes: number;
-}) {
-  if (!input.ipAddress) {
-    return 0;
-  }
-
-  return prisma.auditLog.count({
-    where: {
-      action: {
-        in: input.actions,
-      },
-      ipAddress: input.ipAddress,
-      createdAt: {
-        gte: createWindowStart(input.windowMinutes),
-      },
-    },
-  });
-}
+import { RATE_LIMITS } from "@/lib/rate-limit/config";
+import { clearRateLimit, enforceRateLimit, isRateLimitExceededError, type RateLimitContext } from "@/lib/rate-limit";
 
 export async function isFailedAuthRateLimitedByIp(input: {
   actions: string[];
@@ -32,6 +7,26 @@ export async function isFailedAuthRateLimitedByIp(input: {
   windowMinutes: number;
   maxAttempts: number;
 }) {
-  const attemptCount = await countFailedAuthAttemptsByIp(input);
-  return attemptCount >= input.maxAttempts;
+  const context: RateLimitContext = {
+    endpoint: "login",
+    attemptedAction: input.actions.join(","),
+    ipAddress: input.ipAddress,
+  };
+
+  try {
+    await enforceRateLimit(RATE_LIMITS.authentication.loginFailed, context);
+    return false;
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return true;
+    }
+
+    throw error;
+  }
+}
+
+export async function clearFailedAuthRateLimitByIp(ipAddress: string | null) {
+  await clearRateLimit(RATE_LIMITS.authentication.loginFailed, {
+    ipAddress,
+  });
 }

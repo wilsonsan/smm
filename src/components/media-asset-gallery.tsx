@@ -97,7 +97,6 @@ export function MediaAssetGallery({
             <div className="preview-header">
               <div>
                 <strong>{mediaAsset.originalFilename}</strong>
-                <p className="muted">Original image details.</p>
               </div>
               <button type="button" className="ghost-link-button" onClick={() => setIsOpen(false)}>
                 Close
@@ -121,18 +120,6 @@ export function MediaAssetGallery({
                 <div className="media-variant-info-card">
                   <strong>Filename</strong>
                   <p>{mediaAsset.originalFilename}</p>
-                </div>
-                <div className="media-variant-info-card">
-                  <strong>Dimensions</strong>
-                  <p>{formatDimensions(mediaAsset.width, mediaAsset.height)}</p>
-                </div>
-                <div className="media-variant-info-card">
-                  <strong>File size</strong>
-                  <p>{formatBytes(mediaAsset.sizeBytes)}</p>
-                </div>
-                <div className="media-variant-info-card">
-                  <strong>MIME type</strong>
-                  <p>{mediaAsset.mimeType}</p>
                 </div>
                 {originalVariant ? (
                   <div className="media-variant-info-card">

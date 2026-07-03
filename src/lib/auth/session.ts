@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { AdminUser, AdminUserRole, Prisma } from "@prisma/client";
 import { env, isSecureAppUrl } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
-import { getRequestMetadata } from "@/lib/http";
+import { getRequestMetadata, getRequestMetadataFromRequest } from "@/lib/http";
 import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
 import { isDeletedArchiveUser } from "@/lib/managed-users";
 
@@ -250,12 +250,13 @@ export async function requireAdminSessionFromRequest(
   }
 
   if (options?.requireAdmin && !isAdminUserRole(session.adminUser.role)) {
+    const requestMetadata = getRequestMetadataFromRequest(request);
     await createAuditLog({
       actorAdminUserId: session.adminUserId,
       action: AUDIT_ACTIONS.ADMIN_ACCESS_DENIED,
       targetType: "AdminOnlyRoute",
-      ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null,
-      userAgent: request.headers.get("user-agent"),
+      ipAddress: requestMetadata.ipAddress,
+      userAgent: requestMetadata.userAgent,
       metadata: {
         requiredRole: AdminUserRole.ADMIN,
         actualRole: session.adminUser.role,

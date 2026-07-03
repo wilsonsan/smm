@@ -956,7 +956,6 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
             <div className="preview-header">
               <div>
                 <strong>{openAsset.originalFilename}</strong>
-                <p className="muted">Original image details.</p>
               </div>
               <button
                 type="button"
@@ -1000,22 +999,6 @@ export function MediaLibraryBrowser({ assets, timezone }: MediaLibraryBrowserPro
                 <div className="media-variant-info-card">
                   <strong>Uploaded</strong>
                   <p>{formatUploadDate(openAsset.createdAt, timezone)}</p>
-                </div>
-                <div className="media-variant-info-card">
-                  <strong>Dimensions</strong>
-                  <p>{formatDimensions(openAsset.width, openAsset.height)}</p>
-                </div>
-                <div className="media-variant-info-card">
-                  <strong>File size</strong>
-                  <p>{formatBytes(openAsset.sizeBytes)}</p>
-                </div>
-                <div className="media-variant-info-card">
-                  <strong>MIME type</strong>
-                  <p>{openAsset.mimeType}</p>
-                </div>
-                <div className="media-variant-info-card">
-                  <strong>Times used</strong>
-                  <p>{openAsset.usage.totalUses}</p>
                 </div>
                 <div className="media-variant-info-card">
                   <strong>Usage breakdown</strong>

@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireAdminUser } from "@/lib/auth/session";
 import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
 import { getRequestMetadata } from "@/lib/http";
+import { RATE_LIMITS } from "@/lib/rate-limit/config";
+import { enforceRateLimit, isRateLimitExceededError } from "@/lib/rate-limit";
 import {
   getHashtagSettings,
   getInsertContentTemplateSettings,
@@ -28,8 +30,33 @@ import {
   type FormState,
 } from "@/lib/validation";
 
+async function enforceSettingsRateLimit(adminUserId: string, attemptedAction: string) {
+  const { ipAddress, userAgent } = await getRequestMetadata();
+  await enforceRateLimit(RATE_LIMITS.api.settings, {
+    actorAdminUserId: adminUserId,
+    userId: adminUserId,
+    ipAddress,
+    userAgent,
+    endpoint: "/dashboard/settings",
+    method: "SERVER_ACTION",
+    attemptedAction,
+  });
+}
+
 export async function saveSettingsAction(_: FormState, formData: FormData): Promise<FormState> {
   const adminUser = await requireAdminUser();
+  try {
+    await enforceSettingsRateLimit(adminUser.id, "save_site_settings");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
   const parsed = settingsSchema.safeParse({
     siteName: formData.get("siteName"),
     siteFaviconUrl: formData.get("siteFaviconUrl"),
@@ -69,6 +96,18 @@ export async function saveTemplateVariablesAction(_: FormState, formData: FormDa
     redirectTo: "/dashboard",
     targetType: "TemplateSettingsPage",
   });
+  try {
+    await enforceSettingsRateLimit(adminUser.id, "save_template_variables");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
   const previousVariables = await getTemplateVariableSettings();
   const parsed = templateVariableSettingsSchema.safeParse({
     templateVariablesJson: formData.get("templateVariablesJson"),
@@ -129,6 +168,18 @@ export async function saveInsertContentTemplatesAction(_: FormState, formData: F
     redirectTo: "/dashboard",
     targetType: "TemplateSettingsPage",
   });
+  try {
+    await enforceSettingsRateLimit(adminUser.id, "save_insert_content_templates");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
   const previousTemplates = await getInsertContentTemplateSettings();
   const parsed = insertContentTemplatesSchema.safeParse({
     signature: formData.get("signature"),
@@ -176,6 +227,18 @@ export async function clearGalleryLibraryAction(_: FormState, formData: FormData
     redirectTo: "/dashboard",
     targetType: "DeletionSettingsPage",
   });
+  try {
+    await enforceSettingsRateLimit(adminUser.id, "clear_gallery_library");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
   const parsed = galleryDeletionSchema.safeParse({
     confirmation: formData.get("confirmation"),
   });
@@ -219,6 +282,18 @@ export async function saveDeveloperSettingsAction(_: FormState, formData: FormDa
     redirectTo: "/dashboard",
     targetType: "DeveloperSettingsPage",
   });
+  try {
+    await enforceSettingsRateLimit(adminUser.id, "save_developer_settings");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
   const parsed = developerSettingsSchema.safeParse({
     facebook: formData.get("facebook"),
     instagram: formData.get("instagram"),
@@ -260,6 +335,18 @@ export async function saveHashtagSettingsAction(_: FormState, formData: FormData
     redirectTo: "/dashboard",
     targetType: "HashtagSettingsPage",
   });
+  try {
+    await enforceSettingsRateLimit(adminUser.id, "save_hashtag_settings");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
   const previousSettings = await getHashtagSettings();
   const parsed = hashtagSettingsSchema.safeParse({
     facebookDefaultLimit: formData.get("facebookDefaultLimit"),

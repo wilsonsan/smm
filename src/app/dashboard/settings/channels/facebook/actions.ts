@@ -15,6 +15,8 @@ import {
   testFacebookConnection,
 } from "@/lib/facebook";
 import { getRequestMetadata } from "@/lib/http";
+import { RATE_LIMITS } from "@/lib/rate-limit/config";
+import { enforceRateLimit, isRateLimitExceededError } from "@/lib/rate-limit";
 import { rotateTokenEncryptionKeySetting, saveFacebookAppSecretSetting } from "@/lib/secure-settings";
 import {
   saveFacebookAppIdSetting,
@@ -60,6 +62,19 @@ async function writeFacebookAuditLog(input: {
     ipAddress,
     userAgent,
     metadata: input.metadata,
+  });
+}
+
+async function enforceConnectedAccountRateLimit(adminUserId: string, attemptedAction: string) {
+  const { ipAddress, userAgent } = await getRequestMetadata();
+  await enforceRateLimit(RATE_LIMITS.connectedAccounts.actionsPerHour, {
+    actorAdminUserId: adminUserId,
+    userId: adminUserId,
+    ipAddress,
+    userAgent,
+    endpoint: "/dashboard/settings/channels/facebook",
+    method: "SERVER_ACTION",
+    attemptedAction,
   });
 }
 
@@ -268,6 +283,16 @@ export async function runFacebookPageIdDiagnosticsAction(formData: FormData) {
 
 export async function connectFacebookResolvedPageAction(formData: FormData) {
   const adminUser = await requireAdminUser();
+  try {
+    await enforceConnectedAccountRateLimit(adminUser.id, "facebook_connect");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      redirect(buildFacebookSettingsHref({ status: "error", message: error.message }));
+    }
+
+    throw error;
+  }
+
   const parsed = facebookPageIdTestSchema.safeParse({
     pageId: formData.get("pageId"),
   });
@@ -317,6 +342,16 @@ export async function connectFacebookResolvedPageAction(formData: FormData) {
 
 export async function disconnectFacebookAction() {
   const adminUser = await requireAdminUser();
+  try {
+    await enforceConnectedAccountRateLimit(adminUser.id, "facebook_disconnect");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      redirect(buildFacebookSettingsHref({ status: "error", message: error.message }));
+    }
+
+    throw error;
+  }
+
   const disconnectedAccount = await disconnectFacebookConnection();
   await clearPendingFacebookPageSelection();
 
@@ -338,6 +373,15 @@ export async function disconnectFacebookAction() {
 
 export async function testFacebookConnectionAction() {
   const adminUser = await requireAdminUser();
+  try {
+    await enforceConnectedAccountRateLimit(adminUser.id, "facebook_test_connection");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      redirect(buildFacebookSettingsHref({ status: "error", message: error.message }));
+    }
+
+    throw error;
+  }
 
   try {
     const result = await testFacebookConnection();

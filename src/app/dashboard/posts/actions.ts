@@ -55,6 +55,8 @@ import { createOrUpdatePlatformPublishFailedNotification } from "@/lib/notificat
 import { syncSocialPostAggregateState } from "@/lib/publish-state";
 import { prisma } from "@/lib/prisma";
 import { getRequestMetadata } from "@/lib/http";
+import { RATE_LIMITS, type RateLimitDefinition } from "@/lib/rate-limit/config";
+import { enforceRateLimit, isRateLimitExceededError } from "@/lib/rate-limit";
 import { initialFormState, postFormSchema, type FormState } from "@/lib/validation";
 import { formatTemplateVariableTokens, type TemplateVariableValueMap } from "@/lib/template-variables";
 import { getBusinessVariableSettings, getHashtagSettings } from "@/lib/settings";
@@ -74,6 +76,23 @@ async function createPostAuditLog(input: {
     ipAddress,
     userAgent,
     metadata: input.metadata,
+  });
+}
+
+async function enforcePostActionRateLimit(
+  definition: RateLimitDefinition,
+  adminUserId: string,
+  attemptedAction: string,
+) {
+  const { ipAddress, userAgent } = await getRequestMetadata();
+  await enforceRateLimit(definition, {
+    actorAdminUserId: adminUserId,
+    userId: adminUserId,
+    ipAddress,
+    userAgent,
+    endpoint: "/dashboard/posts",
+    method: "SERVER_ACTION",
+    attemptedAction,
   });
 }
 
@@ -840,6 +859,24 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
 
   try {
     const isImmediatePublish = parsed.data.intent === "publish";
+    if (parsed.data.intent === "schedule") {
+      await enforcePostActionRateLimit(RATE_LIMITS.scheduling.perUserDaily, adminUser.id, "schedule_post");
+    }
+
+    if (isImmediatePublish) {
+      const { ipAddress, userAgent } = await getRequestMetadata();
+      await enforcePostActionRateLimit(RATE_LIMITS.publishing.perUserHourly, adminUser.id, "publish_post");
+      await enforceRateLimit(RATE_LIMITS.publishing.perOrganizationDaily, {
+        actorAdminUserId: adminUser.id,
+        userId: adminUser.id,
+        ipAddress,
+        userAgent,
+        endpoint: "/dashboard/posts",
+        method: "SERVER_ACTION",
+        attemptedAction: "publish_post",
+      });
+    }
+
     const [businessVariables, hashtagSettings] = await Promise.all([
       getBusinessVariableSettings(),
       getHashtagSettings(),
@@ -1529,6 +1566,14 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
     );
   } catch (error) {
     unstable_rethrow(error);
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialFormState,
+        message: error.message,
+        submittedValues,
+      };
+    }
+
     const message = error instanceof Error ? error.message : "Could not save the post.";
     return {
       ...initialFormState,
@@ -1740,6 +1785,31 @@ export async function publishPostNowAction(formData: FormData) {
         message: "All selected platforms are already published. Duplicate the post if you need to post it again.",
       }),
     );
+  }
+
+  try {
+    const { ipAddress, userAgent } = await getRequestMetadata();
+    await enforcePostActionRateLimit(RATE_LIMITS.publishing.perUserHourly, adminUser.id, "publish_post");
+    await enforceRateLimit(RATE_LIMITS.publishing.perOrganizationDaily, {
+      actorAdminUserId: adminUser.id,
+      userId: adminUser.id,
+      ipAddress,
+      userAgent,
+      endpoint: `/dashboard/posts/${postId}`,
+      method: "SERVER_ACTION",
+      attemptedAction: "publish_post",
+    });
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      redirect(
+        buildPostDetailHref(postId, {
+          status: "error",
+          message: error.message,
+        }),
+      );
+    }
+
+    throw error;
   }
 
   const [businessVariables, hashtagSettings] = await Promise.all([

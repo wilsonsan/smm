@@ -16,6 +16,8 @@ import {
   isDeletedArchiveUser,
 } from "@/lib/managed-users";
 import { prisma } from "@/lib/prisma";
+import { RATE_LIMITS } from "@/lib/rate-limit/config";
+import { enforceRateLimit, isRateLimitExceededError } from "@/lib/rate-limit";
 import { createUserSchema, updateManagedUserSchema } from "@/lib/validation";
 
 async function getAdminCount() {
@@ -87,6 +89,19 @@ async function getOrCreateDeletedUserAccount(tx: Prisma.TransactionClient) {
   return createdDeletedUser;
 }
 
+async function enforceAdminRateLimit(adminUserId: string, attemptedAction: string) {
+  const { ipAddress, userAgent } = await getRequestMetadata();
+  await enforceRateLimit(RATE_LIMITS.admin.actionsPerHour, {
+    actorAdminUserId: adminUserId,
+    userId: adminUserId,
+    ipAddress,
+    userAgent,
+    endpoint: "/dashboard/settings/users",
+    method: "SERVER_ACTION",
+    attemptedAction,
+  });
+}
+
 export async function createUserAction(
   _: UserManagementFormState,
   formData: FormData,
@@ -95,6 +110,19 @@ export async function createUserAction(
     redirectTo: "/dashboard",
     targetType: "UsersPage",
   });
+  try {
+    await enforceAdminRateLimit(adminUser.id, "create_user");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialUserManagementFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
+
   const parsed = createUserSchema.safeParse({
     username: formData.get("username"),
     email: formData.get("email"),
@@ -184,6 +212,19 @@ export async function updateUserAction(
     redirectTo: "/dashboard",
     targetType: "UsersPage",
   });
+  try {
+    await enforceAdminRateLimit(adminUser.id, "update_user");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialUserManagementFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
+
   const parsed = updateManagedUserSchema.safeParse({
     userId: formData.get("userId"),
     username: formData.get("username"),
@@ -362,6 +403,19 @@ export async function deleteUserAction(
     redirectTo: "/dashboard",
     targetType: "UsersPage",
   });
+  try {
+    await enforceAdminRateLimit(adminUser.id, "delete_user");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialUserManagementFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
+
   const userId = String(formData.get("userId") || "").trim();
 
   if (!userId) {

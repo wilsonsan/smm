@@ -151,6 +151,14 @@ export type RecentActivityItem = {
   tone: "info" | "success" | "error";
 };
 
+export type RecentActivityFeed = {
+  items: RecentActivityItem[];
+  currentPage: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+};
+
 export type AnalyticsTrendDirection = "up" | "down" | "flat";
 
 export type AnalyticsDashboardMetricCard = {
@@ -1174,22 +1182,29 @@ function buildActivityMessage(action: string, actorName: string, metadata: Prism
   }
 }
 
-export async function getRecentActivityFeed() {
-  const rows = await prisma.auditLog.findMany({
-    where: {
-      action: {
-        in: [
-          AUDIT_ACTIONS.POST_PUBLISH_SUCCEEDED,
-          AUDIT_ACTIONS.POST_PUBLISH_FAILED,
-          AUDIT_ACTIONS.POST_SCHEDULED,
-          AUDIT_ACTIONS.DRAFT_SAVED,
-          AUDIT_ACTIONS.FACEBOOK_RECONNECT_SUCCEEDED,
-          AUDIT_ACTIONS.GOOGLE_CONNECTED,
-          AUDIT_ACTIONS.GOOGLE_RECONNECT_SUCCEEDED,
-          AUDIT_ACTIONS.USER_CREATED,
-        ],
-      },
+export async function getRecentActivityFeed(page = 1, pageSize = 8): Promise<RecentActivityFeed> {
+  const normalizedPageSize = Math.max(1, Math.min(20, Math.trunc(pageSize)));
+  const normalizedPage = Math.max(1, Math.trunc(page));
+  const where = {
+    action: {
+      in: [
+        AUDIT_ACTIONS.POST_PUBLISH_SUCCEEDED,
+        AUDIT_ACTIONS.POST_PUBLISH_FAILED,
+        AUDIT_ACTIONS.POST_SCHEDULED,
+        AUDIT_ACTIONS.DRAFT_SAVED,
+        AUDIT_ACTIONS.FACEBOOK_RECONNECT_SUCCEEDED,
+        AUDIT_ACTIONS.GOOGLE_CONNECTED,
+        AUDIT_ACTIONS.GOOGLE_RECONNECT_SUCCEEDED,
+        AUDIT_ACTIONS.USER_CREATED,
+      ],
     },
+  } satisfies Prisma.AuditLogWhereInput;
+
+  const totalCount = await prisma.auditLog.count({ where });
+  const totalPages = Math.max(1, Math.ceil(totalCount / normalizedPageSize));
+  const resolvedPage = Math.min(normalizedPage, totalPages);
+  const rows = await prisma.auditLog.findMany({
+    where,
     orderBy: {
       createdAt: "desc",
     },
@@ -1201,21 +1216,28 @@ export async function getRecentActivityFeed() {
         },
       },
     },
-    take: 12,
+    skip: (resolvedPage - 1) * normalizedPageSize,
+    take: normalizedPageSize,
   });
 
-  return rows.map((row) => {
-    const actorName = row.actorAdminUser ? getCreatorDisplayName(row.actorAdminUser) : "System";
-    const { message, tone } = buildActivityMessage(row.action, actorName, row.metadata);
+  return {
+    items: rows.map((row) => {
+      const actorName = row.actorAdminUser ? getCreatorDisplayName(row.actorAdminUser) : "System";
+      const { message, tone } = buildActivityMessage(row.action, actorName, row.metadata);
 
-    return {
-      id: row.id,
-      createdAt: row.createdAt,
-      actorName,
-      message,
-      tone,
-    } satisfies RecentActivityItem;
-  });
+      return {
+        id: row.id,
+        createdAt: row.createdAt,
+        actorName,
+        message,
+        tone,
+      } satisfies RecentActivityItem;
+    }),
+    currentPage: resolvedPage,
+    pageSize: normalizedPageSize,
+    totalCount,
+    totalPages,
+  };
 }
 
 async function getDistinctPublishedPostCountsByDay(input: {
@@ -1396,10 +1418,10 @@ async function getAnalyticsDashboardMetricCards(timezone: string): Promise<{
         key: "reach",
         label: "Total Reach",
         value: 0,
-        displayValue: "0",
+        displayValue: "--",
         trendPercent: null,
         trendDirection: "flat",
-        trendLabel: "Awaiting platform metrics",
+        trendLabel: "Not synced",
         iconTone: "purple",
         series: Array.from({ length: 30 }, () => 0),
       },
@@ -1407,10 +1429,10 @@ async function getAnalyticsDashboardMetricCards(timezone: string): Promise<{
         key: "engagement",
         label: "Engagements",
         value: 0,
-        displayValue: "0",
+        displayValue: "--",
         trendPercent: null,
         trendDirection: "flat",
-        trendLabel: "Awaiting platform metrics",
+        trendLabel: "Not synced",
         iconTone: "orange",
         series: Array.from({ length: 30 }, () => 0),
       },
@@ -1605,11 +1627,11 @@ async function getPlatformPerformanceRows(
         publishedTrendPercent: calculateTrendPercent(currentPublished, previousPublished),
         publishedTrendDirection: resolveTrendDirection(currentPublished, previousPublished),
         reachValue: 0,
-        reachDisplay: "0",
-        reachTrendLabel: "No API data yet",
+        reachDisplay: "--",
+        reachTrendLabel: "Not synced",
         engagementValue: 0,
-        engagementDisplay: "0",
-        engagementTrendLabel: "No API data yet",
+        engagementDisplay: "--",
+        engagementTrendLabel: "Not synced",
       } satisfies PlatformPerformanceRow;
     }),
   );
@@ -1690,7 +1712,14 @@ async function getSchedulingHealthSummary(timezone: string, scheduleHealth: Awai
   } satisfies SchedulingHealthSummary;
 }
 
-export async function getAnalyticsPageData(filters: AnalyticsFilters, timezone: string) {
+export async function getAnalyticsPageData(
+  filters: AnalyticsFilters,
+  timezone: string,
+  options?: {
+    recentActivityPage?: number;
+    recentActivityPageSize?: number;
+  },
+) {
   const [
     summary,
     platformBreakdown,
@@ -1711,7 +1740,7 @@ export async function getAnalyticsPageData(filters: AnalyticsFilters, timezone: 
     getFailureAnalytics(),
     getScheduleHealth(timezone),
     getQueueOverview(timezone),
-    getRecentActivityFeed(),
+    getRecentActivityFeed(options?.recentActivityPage, options?.recentActivityPageSize),
     getAnalyticsDashboardMetricCards(timezone),
     getPublishingOverviewData(),
     getPostsOverTimeData(timezone),

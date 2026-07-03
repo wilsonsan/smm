@@ -35,10 +35,16 @@ function formatComparisonLabel(percent: number | null) {
     return "No previous comparison";
   }
 
-  const directionGlyph = percent >= 0 ? "↑" : "↓";
+  const directionGlyph = percent >= 0 ? "\u2191" : "\u2193";
   const rounded =
     Math.abs(percent) >= 10 ? Math.round(Math.abs(percent)) : Number(Math.abs(percent).toFixed(1));
   return `${directionGlyph} ${rounded}%`;
+}
+
+function normalizePositiveInteger(input: string | string[] | undefined, fallback: number) {
+  const value = Array.isArray(input) ? input[0] : input;
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps) {
@@ -49,6 +55,7 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
   const resolvedSearchParams = (await searchParams) ?? {};
   const timezone = await getResolvedAppTimezone();
   const filters = parseAnalyticsFilters(resolvedSearchParams);
+  const recentActivityPage = normalizePositiveInteger(resolvedSearchParams.activityPage, 1);
 
   await recordAnalyticsAuditEvent({
     actorAdminUserId: adminUser.id,
@@ -59,7 +66,36 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
     },
   }).catch(() => undefined);
 
-  const analytics = await getAnalyticsPageData(filters, timezone);
+  const analytics = await getAnalyticsPageData(filters, timezone, {
+    recentActivityPage,
+  });
+
+  const buildActivityPageHref = (page: number) => {
+    const nextParams = new URLSearchParams();
+
+    for (const [key, value] of Object.entries(resolvedSearchParams)) {
+      if (key === "activityPage") {
+        continue;
+      }
+
+      if (Array.isArray(value)) {
+        for (const entry of value) {
+          if (entry) {
+            nextParams.append(key, entry);
+          }
+        }
+        continue;
+      }
+
+      if (value) {
+        nextParams.set(key, value);
+      }
+    }
+
+    nextParams.set("activityPage", String(page));
+    const query = nextParams.toString();
+    return query ? `/dashboard/analytics?${query}` : "/dashboard/analytics";
+  };
 
   return (
     <section className="section-stack analytics-page analytics-dashboard-page">
@@ -71,7 +107,6 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
             </span>
             <div>
               <h2>Analytics</h2>
-              <p>Track performance, scheduling health, and platform insights.</p>
             </div>
           </div>
 
@@ -116,16 +151,10 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
             <div className="analytics-dashboard-card-head">
               <div>
                 <h3>Publishing Overview</h3>
-                <p>Current post-state mix across published, scheduled, draft, and failed content.</p>
               </div>
             </div>
 
             <DonutSummaryChart overview={analytics.dashboard.publishingOverview} />
-
-            <div className="analytics-dashboard-success-banner">
-              <span className="analytics-dashboard-success-banner-icon">↗</span>
-              <span>Great job! Your publishing consistency is improving.</span>
-            </div>
           </div>
         </article>
 
@@ -134,7 +163,6 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
             <div className="analytics-dashboard-card-head">
               <div>
                 <h3>Posts Over Time</h3>
-                <p>Daily publishing, scheduling, and failure activity from your recent workflow.</p>
               </div>
               <button type="button" className="analytics-dashboard-chart-pill">
                 Daily
@@ -167,7 +195,6 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
             <div className="analytics-dashboard-card-head">
               <div>
                 <h3>Top Performing Platforms</h3>
-                <p>Publishing volume, reliability, and future-ready performance placeholders by platform.</p>
               </div>
             </div>
 
@@ -187,7 +214,6 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
             <div className="analytics-dashboard-card-head">
               <div>
                 <h3>Scheduling Health</h3>
-                <p>Coverage quality, content gaps, and the strongest publishing windows in your calendar.</p>
               </div>
             </div>
 
@@ -202,11 +228,14 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
             <div className="analytics-dashboard-card-head">
               <div>
                 <h3>Recent Activity</h3>
-                <p>Latest successful publishes, scheduling actions, and key operational events.</p>
               </div>
             </div>
 
-            <RecentActivityCard items={analytics.recentActivity} timezone={timezone} />
+            <RecentActivityCard
+              feed={analytics.recentActivity}
+              timezone={timezone}
+              buildPageHref={buildActivityPageHref}
+            />
           </div>
         </article>
 
@@ -215,7 +244,6 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
             <div className="analytics-dashboard-card-head">
               <div>
                 <h3>Recent Failures</h3>
-                <p>Review the most recent platform issues and jump straight into the affected post.</p>
               </div>
               <Link href="/dashboard/analytics/failures" className="secondary-button analytics-dashboard-small-action">
                 <FailureIcon />

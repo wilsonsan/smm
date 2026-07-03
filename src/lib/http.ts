@@ -26,16 +26,57 @@ function isLikelyInternalOrigin(value: string) {
   }
 }
 
-export async function getRequestMetadata() {
-  const requestHeaders = await headers();
-  const forwardedFor = requestHeaders.get("x-forwarded-for");
-  const ipAddress = forwardedFor?.split(",")[0]?.trim() || null;
-  const userAgent = requestHeaders.get("user-agent");
+type HeaderSource = Pick<Headers, "get">;
+
+function getTrustedForwardedIp(headerSource: HeaderSource) {
+  if (!env.TRUST_PROXY_HEADERS) {
+    return null;
+  }
+
+  const prioritizedHeaders = [
+    "cf-connecting-ip",
+    "true-client-ip",
+    "x-real-ip",
+    "x-forwarded-for",
+  ];
+
+  for (const headerName of prioritizedHeaders) {
+    const rawValue = headerSource.get(headerName);
+    if (!rawValue) {
+      continue;
+    }
+
+    const firstValue = rawValue.split(",")[0]?.trim();
+    if (firstValue) {
+      return firstValue;
+    }
+  }
+
+  return null;
+}
+
+function buildRequestMetadata(headerSource: HeaderSource, input?: { method?: string | null; endpoint?: string | null }) {
+  const ipAddress = getTrustedForwardedIp(headerSource);
+  const userAgent = headerSource.get("user-agent");
 
   return {
     ipAddress,
     userAgent,
+    method: input?.method ?? null,
+    endpoint: input?.endpoint ?? null,
   };
+}
+
+export async function getRequestMetadata() {
+  const requestHeaders = await headers();
+  return buildRequestMetadata(requestHeaders);
+}
+
+export function getRequestMetadataFromRequest(request: Request) {
+  return buildRequestMetadata(request.headers, {
+    method: request.method,
+    endpoint: new URL(request.url).pathname,
+  });
 }
 
 export async function assertSameOrigin(request: Request) {

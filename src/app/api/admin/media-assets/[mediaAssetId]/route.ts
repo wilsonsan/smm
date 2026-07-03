@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
 import { canAccessOwnedResource, requireAdminSessionFromRequest } from "@/lib/auth/session";
-import { assertSameOrigin } from "@/lib/http";
+import { assertSameOrigin, getRequestMetadataFromRequest } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { RATE_LIMITS } from "@/lib/rate-limit/config";
+import { buildRateLimitHeaders, enforceRateLimit, isRateLimitExceededError } from "@/lib/rate-limit";
 import { deleteStoredMediaAsset } from "@/lib/uploads";
 
 type RouteContext = {
@@ -18,6 +20,16 @@ export async function DELETE(request: Request, context: RouteContext) {
     await assertSameOrigin(request);
     const session = await requireAdminSessionFromRequest(request);
     actorAdminUserId = session.adminUserId;
+    const requestMetadata = getRequestMetadataFromRequest(request);
+    await enforceRateLimit(RATE_LIMITS.api.galleryBrowsing, {
+      actorAdminUserId: session.adminUserId,
+      userId: session.adminUserId,
+      ipAddress: requestMetadata.ipAddress,
+      userAgent: requestMetadata.userAgent,
+      endpoint: requestMetadata.endpoint || "/api/admin/media-assets",
+      method: requestMetadata.method,
+      attemptedAction: "gallery_media_delete",
+    });
     const { mediaAssetId } = await context.params;
     const mediaAsset = await prisma.mediaAsset.findUnique({
       where: { id: mediaAssetId },
@@ -45,8 +57,8 @@ export async function DELETE(request: Request, context: RouteContext) {
         metadata: {
           blockingPostIds: result.blockingPostIds,
         },
-        ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null,
-        userAgent: request.headers.get("user-agent"),
+        ipAddress: requestMetadata.ipAddress,
+        userAgent: requestMetadata.userAgent,
       });
 
       return NextResponse.json(
@@ -66,8 +78,8 @@ export async function DELETE(request: Request, context: RouteContext) {
         deletedFileCount: result.deletedFileCount,
         missingFileCount: result.missingFileCount,
       },
-      ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null,
-      userAgent: request.headers.get("user-agent"),
+      ipAddress: requestMetadata.ipAddress,
+      userAgent: requestMetadata.userAgent,
     });
 
     return NextResponse.json({
@@ -75,6 +87,18 @@ export async function DELETE(request: Request, context: RouteContext) {
       mediaAssetId: result.mediaAssetId,
     });
   } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return NextResponse.json(
+        {
+          error: error.message,
+        },
+        {
+          status: 429,
+          headers: buildRateLimitHeaders(error),
+        },
+      );
+    }
+
     if (error instanceof Response) {
       return NextResponse.json({ error: await error.text() }, { status: error.status });
     }

@@ -8,7 +8,7 @@ import {
   MFA_RULES,
   verifyTotpCode,
 } from "@/lib/auth/mfa";
-import { isFailedAuthRateLimitedByIp } from "@/lib/auth/rate-limit";
+import { clearFailedAuthRateLimitByIp, isFailedAuthRateLimitedByIp } from "@/lib/auth/rate-limit";
 import {
   authenticateAdmin,
   clearCurrentPendingMfaSession,
@@ -20,6 +20,8 @@ import {
 } from "@/lib/auth/session";
 import { getRequestMetadata } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { RATE_LIMITS } from "@/lib/rate-limit/config";
+import { clearRateLimit, enforceRateLimit, isRateLimitExceededError } from "@/lib/rate-limit";
 import {
   initialFormState,
   loginSchema,
@@ -97,6 +99,8 @@ export async function loginAction(_: FormState, formData: FormData): Promise<For
     };
   }
 
+  await clearFailedAuthRateLimitByIp(ipAddress).catch(() => undefined);
+
   if (adminUser.mfaEnabled) {
     await clearCurrentPendingMfaSession();
     await createPendingMfaSessionForAdminUser(adminUser.id, buildPendingMfaExpiry());
@@ -132,6 +136,28 @@ export async function verifyMfaLoginAction(
   }
 
   const { ipAddress, userAgent } = await getRequestMetadata();
+  try {
+    await enforceRateLimit(RATE_LIMITS.authentication.mfaVerification, {
+      actorAdminUserId: pendingSession.adminUserId,
+      userId: pendingSession.adminUserId,
+      ipAddress,
+      userAgent,
+      endpoint: "/login/mfa",
+      method: "POST",
+      attemptedAction: "verify_mfa_login",
+    });
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      await clearCurrentPendingMfaSession();
+      return {
+        ...initialLoginMfaFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
+
   if (pendingSession.attempts >= MFA_RULES.mfaRateLimitAttempts) {
     await clearCurrentPendingMfaSession();
     await createAuditLog({
@@ -226,6 +252,11 @@ export async function verifyMfaLoginAction(
     },
   });
   await loginAdminUser(adminUser);
+  await clearRateLimit(RATE_LIMITS.authentication.mfaVerification, {
+    actorAdminUserId: adminUser.id,
+    userId: adminUser.id,
+    ipAddress,
+  }).catch(() => undefined);
   await createAuditLog({
     actorAdminUserId: adminUser.id,
     action: AUDIT_ACTIONS.MFA_LOGIN_SUCCESS,

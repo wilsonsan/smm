@@ -901,13 +901,17 @@ export function PostEditorForm({
 
     const start = textarea.selectionStart ?? textarea.value.length;
     const end = textarea.selectionEnd ?? textarea.value.length;
+    const preservedScrollTop = textarea.scrollTop;
+    const preservedScrollLeft = textarea.scrollLeft;
     const nextValue = `${value.slice(0, start)}${insertValue}${value.slice(end)}`;
     setValue(nextValue);
 
     requestAnimationFrame(() => {
-      textarea.focus();
+      textarea.focus({ preventScroll: true });
       const nextCaret = start + insertValue.length;
       textarea.setSelectionRange(nextCaret, nextCaret);
+      textarea.scrollTop = preservedScrollTop;
+      textarea.scrollLeft = preservedScrollLeft;
     });
   }
 

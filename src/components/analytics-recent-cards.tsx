@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { PublishAttemptInsightRow, RecentActivityItem } from "@/lib/analytics";
+import type { PublishAttemptInsightRow, RecentActivityFeed } from "@/lib/analytics";
 import { formatDateTimeForTimezone } from "@/lib/time";
 import {
   ArrowRightIcon,
@@ -13,7 +13,7 @@ import {
 import { getSocialPlatformLabel } from "@/lib/analytics";
 import { SocialPlatform } from "@prisma/client";
 
-function ActivityIcon({ tone }: { tone: RecentActivityItem["tone"] }) {
+function ActivityIcon({ tone }: { tone: "info" | "success" | "error" }) {
   if (tone === "success") {
     return <SuccessIcon />;
   }
@@ -39,29 +39,64 @@ function FailurePlatformIcon({ platform }: { platform: SocialPlatform }) {
 }
 
 export function RecentActivityCard({
-  items,
+  feed,
   timezone,
+  buildPageHref,
 }: {
-  items: RecentActivityItem[];
+  feed: RecentActivityFeed;
   timezone: string;
+  buildPageHref: (page: number) => string;
 }) {
+  const hasPreviousPage = feed.currentPage > 1;
+  const hasNextPage = feed.currentPage < feed.totalPages;
+
   return (
-    <div className="analytics-recent-list">
-      {items.length === 0 ? <p className="muted">No recent activity yet.</p> : null}
-      {items.slice(0, 6).map((item) => (
-        <article key={item.id} className="analytics-recent-item">
-          <span className={`analytics-recent-item-icon is-${item.tone}`.trim()}>
-            <ActivityIcon tone={item.tone} />
+    <div className="analytics-recent-card-stack">
+      <div className="analytics-recent-list">
+        {feed.items.length === 0 ? <p className="muted">No recent activity yet.</p> : null}
+        {feed.items.map((item) => (
+          <article key={item.id} className="analytics-recent-item">
+            <span className={`analytics-recent-item-icon is-${item.tone}`.trim()}>
+              <ActivityIcon tone={item.tone} />
+            </span>
+            <div className="analytics-recent-item-copy">
+              <strong>{item.message}</strong>
+              <p>{formatDateTimeForTimezone(item.createdAt, timezone)}</p>
+            </div>
+            <span className="analytics-recent-item-arrow">
+              <ArrowRightIcon />
+            </span>
+          </article>
+        ))}
+      </div>
+
+      {feed.totalPages > 1 ? (
+        <div className="analytics-recent-pagination">
+          <span className="analytics-recent-pagination-summary">
+            Page {feed.currentPage} of {feed.totalPages}
           </span>
-          <div className="analytics-recent-item-copy">
-            <strong>{item.message}</strong>
-            <p>{formatDateTimeForTimezone(item.createdAt, timezone)}</p>
+          <div className="analytics-recent-pagination-actions">
+            <Link
+              href={hasPreviousPage ? buildPageHref(feed.currentPage - 1) : "#"}
+              aria-disabled={!hasPreviousPage}
+              className={`secondary-button analytics-recent-pagination-button${
+                hasPreviousPage ? "" : " is-disabled"
+              }`.trim()}
+            >
+              Previous
+            </Link>
+            <Link
+              href={hasNextPage ? buildPageHref(feed.currentPage + 1) : "#"}
+              aria-disabled={!hasNextPage}
+              className={`secondary-button analytics-recent-pagination-button${
+                hasNextPage ? "" : " is-disabled"
+              }`.trim()}
+            >
+              Next
+            </Link>
           </div>
-          <span className="analytics-recent-item-arrow">
-            <ArrowRightIcon />
-          </span>
-        </article>
-      ))}
+        </div>
+      ) : null}
     </div>
   );
 }

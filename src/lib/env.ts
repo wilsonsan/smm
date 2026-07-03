@@ -17,6 +17,9 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional().or(z.literal("")),
   GOOGLE_CLIENT_SECRET: z.string().optional().or(z.literal("")),
   TOKEN_ENCRYPTION_KEY: z.string().optional().or(z.literal("")),
+  REDIS_URL: z.string().url().optional().or(z.literal("")),
+  RATE_LIMIT_REDIS_PREFIX: z.string().optional().or(z.literal("")).default("smm:rate-limit"),
+  TRUST_PROXY_HEADERS: z.coerce.boolean().default(false),
 });
 
 const serverEnvInput = {
@@ -36,6 +39,9 @@ const serverEnvInput = {
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
   TOKEN_ENCRYPTION_KEY: process.env.TOKEN_ENCRYPTION_KEY,
+  REDIS_URL: process.env.REDIS_URL,
+  RATE_LIMIT_REDIS_PREFIX: process.env.RATE_LIMIT_REDIS_PREFIX,
+  TRUST_PROXY_HEADERS: process.env.TRUST_PROXY_HEADERS,
 };
 
 const clientEnvFallback = {
@@ -55,6 +61,9 @@ const clientEnvFallback = {
   GOOGLE_CLIENT_ID: "",
   GOOGLE_CLIENT_SECRET: "",
   TOKEN_ENCRYPTION_KEY: "",
+  REDIS_URL: "",
+  RATE_LIMIT_REDIS_PREFIX: "smm:rate-limit",
+  TRUST_PROXY_HEADERS: false,
 };
 
 export const env = envSchema.parse(typeof window === "undefined" ? serverEnvInput : clientEnvFallback);

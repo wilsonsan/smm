@@ -318,7 +318,7 @@ export function MediaUploadField({
     const normalizedIds = pendingGallerySelectionIds.filter((id, index, array) => array.indexOf(id) === index);
     if (updateSelection(normalizedIds, "gallery")) {
       setIsGalleryOpen(false);
-      setSuccessMessage(`${normalizedIds.length} image${normalizedIds.length === 1 ? "" : "s"} attached from the gallery.`);
+      setSuccessMessage(null);
     }
   }
 

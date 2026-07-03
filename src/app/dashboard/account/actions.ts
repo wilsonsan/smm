@@ -14,6 +14,8 @@ import {
 import { requireAuthenticatedUser, rotateCurrentAdminSession } from "@/lib/auth/session";
 import { getRequestMetadata } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { RATE_LIMITS } from "@/lib/rate-limit/config";
+import { enforceRateLimit, isRateLimitExceededError } from "@/lib/rate-limit";
 import {
   accountProfileSchema,
   disableMfaSchema,
@@ -33,6 +35,32 @@ export const initialAccountMfaFormState: AccountMfaFormState = {
   ...initialFormState,
   recoveryCodes: [],
 };
+
+async function enforceAccountSettingsRateLimit(adminUserId: string, attemptedAction: string) {
+  const { ipAddress, userAgent } = await getRequestMetadata();
+  await enforceRateLimit(RATE_LIMITS.api.settings, {
+    actorAdminUserId: adminUserId,
+    userId: adminUserId,
+    ipAddress,
+    userAgent,
+    endpoint: "/dashboard/account",
+    method: "SERVER_ACTION",
+    attemptedAction,
+  });
+}
+
+async function enforceAccountMfaRateLimit(adminUserId: string, attemptedAction: string) {
+  const { ipAddress, userAgent } = await getRequestMetadata();
+  await enforceRateLimit(RATE_LIMITS.authentication.mfaVerification, {
+    actorAdminUserId: adminUserId,
+    userId: adminUserId,
+    ipAddress,
+    userAgent,
+    endpoint: "/dashboard/account",
+    method: "SERVER_ACTION",
+    attemptedAction,
+  });
+}
 
 async function verifyCurrentPassword(input: {
   adminUserId: string;
@@ -114,6 +142,19 @@ export async function updateAccountProfileAction(
   formData: FormData,
 ): Promise<FormState> {
   const adminUser = await requireAuthenticatedUser();
+  try {
+    await enforceAccountSettingsRateLimit(adminUser.id, "update_account_profile");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
+
   const parsed = accountProfileSchema.safeParse({
     username: formData.get("username"),
   });
@@ -203,6 +244,19 @@ export async function changeAccountEmailAction(
   formData: FormData,
 ): Promise<FormState> {
   const adminUser = await requireAuthenticatedUser();
+  try {
+    await enforceAccountSettingsRateLimit(adminUser.id, "change_account_email");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
+
   const parsed = emailChangeSchema.safeParse({
     currentPassword: formData.get("currentPassword"),
     newEmail: formData.get("newEmail"),
@@ -297,6 +351,19 @@ export async function changeAccountEmailAction(
 
 export async function changePasswordAction(_: FormState, formData: FormData): Promise<FormState> {
   const adminUser = await requireAuthenticatedUser();
+  try {
+    await enforceAccountSettingsRateLimit(adminUser.id, "change_account_password");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
+
   const parsed = passwordChangeSchema.safeParse({
     currentPassword: formData.get("currentPassword"),
     newPassword: formData.get("newPassword"),
@@ -355,6 +422,19 @@ export async function changePasswordAction(_: FormState, formData: FormData): Pr
 
 export async function startMfaSetupAction(_: AccountMfaFormState, _formData: FormData): Promise<FormState> {
   const adminUser = await requireAuthenticatedUser();
+  try {
+    await enforceAccountSettingsRateLimit(adminUser.id, "start_mfa_setup");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialAccountMfaFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
+
   if (adminUser.mfaEnabled) {
     return {
       ...initialFormState,
@@ -412,6 +492,19 @@ export async function verifyMfaSetupAction(
   formData: FormData,
 ): Promise<AccountMfaFormState> {
   const adminUser = await requireAuthenticatedUser();
+  try {
+    await enforceAccountMfaRateLimit(adminUser.id, "verify_mfa_setup");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialAccountMfaFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
+
   const parsed = verifyMfaCodeSchema.safeParse({
     verificationCode: formData.get("verificationCode"),
   });
@@ -523,6 +616,19 @@ export async function regenerateMfaRecoveryCodesAction(
   formData: FormData,
 ): Promise<AccountMfaFormState> {
   const adminUser = await requireAuthenticatedUser();
+  try {
+    await enforceAccountMfaRateLimit(adminUser.id, "regenerate_mfa_recovery_codes");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialAccountMfaFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
+
   const parsed = regenerateMfaRecoveryCodesSchema.safeParse({
     currentPassword: formData.get("currentPassword"),
     verificationCode: formData.get("verificationCode"),
@@ -641,6 +747,19 @@ export async function disableMfaAction(
   formData: FormData,
 ): Promise<AccountMfaFormState> {
   const adminUser = await requireAuthenticatedUser();
+  try {
+    await enforceAccountMfaRateLimit(adminUser.id, "disable_mfa");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return {
+        ...initialAccountMfaFormState,
+        message: error.message,
+      };
+    }
+
+    throw error;
+  }
+
   const parsed = disableMfaSchema.safeParse({
     currentPassword: formData.get("currentPassword"),
     verificationCode: formData.get("verificationCode"),

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { SchedulingHealthSummary } from "@/lib/analytics";
 import {
-  ArrowRightIcon,
   CalendarIcon,
   ClockIcon,
   SuccessIcon,
@@ -27,13 +26,8 @@ export function SchedulingHealthCard({ summary }: { summary: SchedulingHealthSum
             <span>Healthy</span>
           </div>
         </div>
-        <p>{summary.summaryText}</p>
         <Link href="/dashboard/calendar" className="secondary-button analytics-health-calendar-button">
           View Calendar
-        </Link>
-        <Link href="/dashboard/calendar" className="analytics-health-link">
-          View full schedule health
-          <ArrowRightIcon />
         </Link>
       </div>
 

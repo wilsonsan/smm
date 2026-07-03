@@ -1,4 +1,11 @@
 import { NextResponse } from "next/server";
+import { RATE_LIMITS } from "@/lib/rate-limit/config";
+import {
+  acquireRateLimitLease,
+  buildRateLimitHeaders,
+  enforceRateLimit,
+  isRateLimitExceededError,
+} from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +50,7 @@ async function buildUploadedFileFromRequest(request: Request) {
 
 export async function POST(request: Request) {
   let actorAdminUserId: string | null = null;
+  let uploadLease: Awaited<ReturnType<typeof acquireRateLimitLease>> | null = null;
 
   try {
     const [
@@ -62,6 +70,27 @@ export async function POST(request: Request) {
     await assertSameOrigin(request);
     const session = await requireAdminSessionFromRequest(request);
     actorAdminUserId = session.adminUserId;
+    const requestMetadata = (await import("@/lib/http")).getRequestMetadataFromRequest(request);
+
+    await enforceRateLimit(RATE_LIMITS.uploads.imageUpload, {
+      actorAdminUserId: session.adminUserId,
+      userId: session.adminUserId,
+      ipAddress: requestMetadata.ipAddress,
+      userAgent: requestMetadata.userAgent,
+      endpoint: requestMetadata.endpoint || "/api/admin/uploads",
+      method: requestMetadata.method,
+      attemptedAction: "media_upload",
+    });
+
+    uploadLease = await acquireRateLimitLease(RATE_LIMITS.uploads.uploadConcurrency, {
+      actorAdminUserId: session.adminUserId,
+      userId: session.adminUserId,
+      ipAddress: requestMetadata.ipAddress,
+      userAgent: requestMetadata.userAgent,
+      endpoint: requestMetadata.endpoint || "/api/admin/uploads",
+      method: requestMetadata.method,
+      attemptedAction: "media_upload_concurrent",
+    });
 
     const file = await buildUploadedFileFromRequest(request);
 
@@ -129,6 +158,18 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("Media upload failed.", error);
 
+    if (isRateLimitExceededError(error)) {
+      return NextResponse.json(
+        {
+          error: error.message,
+        },
+        {
+          status: 429,
+          headers: buildRateLimitHeaders(error),
+        },
+      );
+    }
+
     if (actorAdminUserId) {
       const audit = await import("@/lib/audit").catch(() => null);
       if (audit) {
@@ -153,5 +194,7 @@ export async function POST(request: Request) {
 
     const message = error instanceof Error ? error.message : "Upload failed.";
     return NextResponse.json({ error: message }, { status: 500 });
+  } finally {
+    await uploadLease?.release().catch(() => undefined);
   }
 }

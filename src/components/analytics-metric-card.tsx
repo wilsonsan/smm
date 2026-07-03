@@ -77,7 +77,7 @@ function MiniSparkline({
 
 function formatTrend(metric: AnalyticsDashboardMetricCard) {
   if (metric.trendPercent === null) {
-    return "No live data yet";
+    return "--";
   }
 
   const directionGlyph =

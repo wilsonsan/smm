@@ -10454,6 +10454,11 @@ th {
   gap: 12px;
 }
 
+.analytics-recent-card-stack {
+  display: grid;
+  gap: 16px;
+}
+
 .analytics-recent-item,
 .analytics-recent-failure-item {
   display: flex;
@@ -10556,6 +10561,29 @@ th {
 .analytics-recent-failure-action {
   min-height: 40px;
   padding: 0 14px;
+}
+
+.analytics-recent-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.analytics-recent-pagination-summary {
+  color: #9cb1d0;
+  font-size: 0.92rem;
+}
+
+.analytics-recent-pagination-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.analytics-recent-pagination-button.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .analytics-dashboard-small-action {
@@ -10780,6 +10808,16 @@ th {
   .analytics-recent-failure-item {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .analytics-recent-pagination,
+  .analytics-recent-pagination-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .analytics-recent-pagination-button {
+    justify-content: center;
   }
 
   .analytics-recent-failure-action,

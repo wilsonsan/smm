@@ -12,6 +12,8 @@ import {
   testGoogleConnection,
 } from "@/lib/google";
 import { getRequestMetadata } from "@/lib/http";
+import { RATE_LIMITS } from "@/lib/rate-limit/config";
+import { enforceRateLimit, isRateLimitExceededError } from "@/lib/rate-limit";
 import { rotateTokenEncryptionKeySetting, saveGoogleClientSecretSetting } from "@/lib/secure-settings";
 import {
   APP_SETTING_KEYS,
@@ -62,6 +64,19 @@ async function writeGoogleAuditLog(input: {
     ipAddress,
     userAgent,
     metadata: input.metadata,
+  });
+}
+
+async function enforceConnectedAccountRateLimit(adminUserId: string, attemptedAction: string) {
+  const { ipAddress, userAgent } = await getRequestMetadata();
+  await enforceRateLimit(RATE_LIMITS.connectedAccounts.actionsPerHour, {
+    actorAdminUserId: adminUserId,
+    userId: adminUserId,
+    ipAddress,
+    userAgent,
+    endpoint: "/dashboard/settings/channels/google",
+    method: "SERVER_ACTION",
+    attemptedAction,
   });
 }
 
@@ -208,6 +223,16 @@ export async function saveGooglePreviewIdentityAction(formData: FormData) {
 
 export async function selectGoogleLocationAction(formData: FormData) {
   const adminUser = await requireAdminUser();
+  try {
+    await enforceConnectedAccountRateLimit(adminUser.id, "google_connect");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      redirect(buildGoogleSettingsHref({ status: "error", message: error.message }));
+    }
+
+    throw error;
+  }
+
   const parsed = googleLocationSelectionSchema.safeParse({
     locationName: formData.get("locationName"),
   });
@@ -267,6 +292,16 @@ export async function clearGooglePendingSelectionAction() {
 
 export async function disconnectGoogleAction() {
   const adminUser = await requireAdminUser();
+  try {
+    await enforceConnectedAccountRateLimit(adminUser.id, "google_disconnect");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      redirect(buildGoogleSettingsHref({ status: "error", message: error.message }));
+    }
+
+    throw error;
+  }
+
   const disconnected = await disconnectGoogleConnection();
 
   if (disconnected) {
@@ -287,6 +322,15 @@ export async function disconnectGoogleAction() {
 
 export async function testGoogleConnectionAction() {
   const adminUser = await requireAdminUser();
+  try {
+    await enforceConnectedAccountRateLimit(adminUser.id, "google_test_connection");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      redirect(buildGoogleSettingsHref({ status: "error", message: error.message }));
+    }
+
+    throw error;
+  }
 
   try {
     const result = await testGoogleConnection();
@@ -325,7 +369,22 @@ export async function testGoogleConnectionAction() {
 }
 
 export async function testGoogleConnectionAdvancedAction() {
-  await requireAdminUser();
+  const adminUser = await requireAdminUser();
+  try {
+    await enforceConnectedAccountRateLimit(adminUser.id, "google_test_connection_advanced");
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      redirect(
+        buildGoogleSettingsHref({
+          returnTo: "/dashboard/settings/channels/google/advanced",
+          status: "error",
+          message: error.message,
+        }),
+      );
+    }
+
+    throw error;
+  }
   const diagnostics = await getGoogleDiagnostics({ refreshHealth: true });
 
   redirect(

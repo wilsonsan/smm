@@ -8,6 +8,9 @@ import {
 } from "@/lib/analytics";
 import { AUDIT_ACTIONS } from "@/lib/audit";
 import { requireAdminSessionFromRequest } from "@/lib/auth/session";
+import { getRequestMetadataFromRequest } from "@/lib/http";
+import { RATE_LIMITS } from "@/lib/rate-limit/config";
+import { buildRateLimitHeaders, enforceRateLimit, isRateLimitExceededError } from "@/lib/rate-limit";
 import { getResolvedAppTimezone } from "@/lib/time";
 
 function escapeCsvValue(value: string | number | null | undefined) {
@@ -24,110 +27,134 @@ function buildCsv(rows: Array<Array<string | number | null | undefined>>) {
 }
 
 export async function GET(request: NextRequest) {
-  const session = await requireAdminSessionFromRequest(request, {
-    requireAdmin: true,
-  });
-  const kind = request.nextUrl.searchParams.get("kind") || "";
-  const timezone = await getResolvedAppTimezone();
-  const filters = parseAnalyticsFilters(request.nextUrl.searchParams);
-
-  if (kind === "history") {
-    const rows = await getPublishHistory(filters, timezone, 5000);
-    await recordAnalyticsAuditEvent({
-      actorAdminUserId: session.adminUserId,
-      action: AUDIT_ACTIONS.HISTORY_EXPORTED,
-      targetType: "PublishHistoryExport",
-      metadata: {
-        kind,
-        filters,
-      },
-    }).catch(() => undefined);
-
-    const csv = buildCsv([
-      ["Date", "Platforms", "Creator", "Status", "Description Preview", "Published Links"],
-      ...rows.map((row) => [
-        row.date?.toISOString() || "",
-        row.platforms.map((platform) => `${platform.platform}:${platform.status}`).join(" | "),
-        row.creatorName,
-        row.statusLabel,
-        row.descriptionPreview,
-        row.publishedLinks.map((link) => `${link.platform}:${link.url}`).join(" | "),
-      ]),
-    ]);
-
-    return new Response(csv, {
-      headers: {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": 'attachment; filename="publish-history.csv"',
-      },
+  try {
+    const session = await requireAdminSessionFromRequest(request, {
+      requireAdmin: true,
     });
-  }
-
-  if (kind === "users") {
-    const rows = await getUserAnalyticsRows();
-    await recordAnalyticsAuditEvent({
+    const requestMetadata = getRequestMetadataFromRequest(request);
+    await enforceRateLimit(RATE_LIMITS.api.exports, {
       actorAdminUserId: session.adminUserId,
-      action: AUDIT_ACTIONS.REPORT_GENERATED,
-      targetType: "UserAnalyticsExport",
-      metadata: {
-        kind,
-      },
-    }).catch(() => undefined);
-
-    const csv = buildCsv([
-      ["User", "Username", "Role", "Published Posts", "Scheduled Posts", "Failed Posts", "Drafts"],
-      ...rows.map((row) => [
-        row.displayName,
-        row.username,
-        row.role,
-        row.publishedPosts,
-        row.scheduledPosts,
-        row.failedPosts,
-        row.draftPosts,
-      ]),
-    ]);
-
-    return new Response(csv, {
-      headers: {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": 'attachment; filename="user-analytics.csv"',
-      },
+      userId: session.adminUserId,
+      ipAddress: requestMetadata.ipAddress,
+      userAgent: requestMetadata.userAgent,
+      endpoint: requestMetadata.endpoint || "/dashboard/analytics/export",
+      method: requestMetadata.method,
+      attemptedAction: "export_report",
     });
-  }
+    const kind = request.nextUrl.searchParams.get("kind") || "";
+    const timezone = await getResolvedAppTimezone();
+    const filters = parseAnalyticsFilters(request.nextUrl.searchParams);
 
-  if (kind === "failures") {
-    const failures = await getFailureAnalytics(250);
-    await recordAnalyticsAuditEvent({
-      actorAdminUserId: session.adminUserId,
-      action: AUDIT_ACTIONS.REPORT_GENERATED,
-      targetType: "FailureLogExport",
-      metadata: {
-        kind,
-      },
-    }).catch(() => undefined);
+    if (kind === "history") {
+      const rows = await getPublishHistory(filters, timezone, 5000);
+      await recordAnalyticsAuditEvent({
+        actorAdminUserId: session.adminUserId,
+        action: AUDIT_ACTIONS.HISTORY_EXPORTED,
+        targetType: "PublishHistoryExport",
+        metadata: {
+          kind,
+          filters,
+        },
+      }).catch(() => undefined);
 
-    const csv = buildCsv([
-      ["Attempted At", "Platform", "Creator", "Description Preview", "Error Summary", "Duration", "Retry Count"],
-      ...failures.recentFailures.map((row) => [
-        row.startedAt.toISOString(),
-        row.platform,
-        row.creatorName,
-        row.descriptionPreview,
-        row.errorSummary,
-        row.durationMs ?? "",
-        row.retryCount,
-      ]),
-    ]);
+      const csv = buildCsv([
+        ["Date", "Platforms", "Creator", "Status", "Description Preview", "Published Links"],
+        ...rows.map((row) => [
+          row.date?.toISOString() || "",
+          row.platforms.map((platform) => `${platform.platform}:${platform.status}`).join(" | "),
+          row.creatorName,
+          row.statusLabel,
+          row.descriptionPreview,
+          row.publishedLinks.map((link) => `${link.platform}:${link.url}`).join(" | "),
+        ]),
+      ]);
 
-    return new Response(csv, {
-      headers: {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": 'attachment; filename="failure-logs.csv"',
-      },
+      return new Response(csv, {
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": 'attachment; filename="publish-history.csv"',
+        },
+      });
+    }
+
+    if (kind === "users") {
+      const rows = await getUserAnalyticsRows();
+      await recordAnalyticsAuditEvent({
+        actorAdminUserId: session.adminUserId,
+        action: AUDIT_ACTIONS.REPORT_GENERATED,
+        targetType: "UserAnalyticsExport",
+        metadata: {
+          kind,
+        },
+      }).catch(() => undefined);
+
+      const csv = buildCsv([
+        ["User", "Username", "Role", "Published Posts", "Scheduled Posts", "Failed Posts", "Drafts"],
+        ...rows.map((row) => [
+          row.displayName,
+          row.username,
+          row.role,
+          row.publishedPosts,
+          row.scheduledPosts,
+          row.failedPosts,
+          row.draftPosts,
+        ]),
+      ]);
+
+      return new Response(csv, {
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": 'attachment; filename="user-analytics.csv"',
+        },
+      });
+    }
+
+    if (kind === "failures") {
+      const failures = await getFailureAnalytics(250);
+      await recordAnalyticsAuditEvent({
+        actorAdminUserId: session.adminUserId,
+        action: AUDIT_ACTIONS.REPORT_GENERATED,
+        targetType: "FailureLogExport",
+        metadata: {
+          kind,
+        },
+      }).catch(() => undefined);
+
+      const csv = buildCsv([
+        ["Attempted At", "Platform", "Creator", "Description Preview", "Error Summary", "Duration", "Retry Count"],
+        ...failures.recentFailures.map((row) => [
+          row.startedAt.toISOString(),
+          row.platform,
+          row.creatorName,
+          row.descriptionPreview,
+          row.errorSummary,
+          row.durationMs ?? "",
+          row.retryCount,
+        ]),
+      ]);
+
+      return new Response(csv, {
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": 'attachment; filename="failure-logs.csv"',
+        },
+      });
+    }
+
+    return new Response("Unknown export.", {
+      status: 400,
     });
-  }
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 429,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          ...buildRateLimitHeaders(error),
+        },
+      });
+    }
 
-  return new Response("Unknown export.", {
-    status: 400,
-  });
+    throw error;
+  }
 }

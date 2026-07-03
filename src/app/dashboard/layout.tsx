@@ -5,7 +5,6 @@ import { DashboardSidebarNav } from "@/components/dashboard-sidebar-nav";
 import { DashboardMobileNav } from "@/components/dashboard-mobile-nav";
 import { ArrowRightIcon, LogoSparkIcon, UserIcon } from "@/components/dashboard-icons";
 import { DashboardTopbar } from "@/components/dashboard-topbar";
-import { RoleBadge } from "@/components/role-badge";
 import { getBrandingSettings } from "@/lib/settings";
 import { getNotificationCenterSnapshot } from "@/lib/notifications";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
@@ -54,7 +53,6 @@ export default async function DashboardLayout({
                 <div className="sidebar-user-copy">
                   <span>@{adminUser.username}</span>
                 </div>
-                <RoleBadge role={adminUser.role} />
               </div>
               <span className="sidebar-account-link">
                 Account Settings
