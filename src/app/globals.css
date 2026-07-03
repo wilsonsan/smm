@@ -3893,8 +3893,8 @@ th {
 
 .composer-schedule-controls-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-  gap: 28px;
+  grid-template-columns: 1fr;
+  gap: 22px;
   align-items: start;
 }
 
@@ -4221,10 +4221,6 @@ th {
   gap: 12px;
 }
 
-.composer-quick-select-grid--wide {
-  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
-}
-
 .composer-quick-select-button {
   min-height: 54px;
   padding: 0 16px;
@@ -4239,14 +4235,8 @@ th {
   transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
 
-@media (max-width: 1180px) {
-  .composer-schedule-controls-row {
-    grid-template-columns: 1fr;
-  }
-
-  .composer-quick-select-grid--wide {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+.composer-quick-select-grid--wide {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .composer-quick-select-button:hover:not(:disabled) {
