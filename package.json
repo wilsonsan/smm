@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
-    "db:seed": "node --env-file=.env --import tsx prisma/seed.ts",
+    "db:seed": "node --env-file-if-exists=.env --env-file-if-exists=.env.production --import tsx prisma/seed.ts",
     "worker:publish": "tsx scripts/run-publish-worker.ts",
     "worker:loop": "tsx scripts/run-publish-worker-loop.ts",
     "media:cleanup-variants": "tsx scripts/media-cleanup-variants.ts",

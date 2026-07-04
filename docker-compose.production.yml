@@ -1,0 +1,83 @@
+x-app-environment: &app-environment
+  NODE_ENV: production
+  DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE}
+  APP_URL: ${APP_URL}
+  UPLOAD_DIR: /app/uploads
+  MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-26214400}
+  SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-72}
+  WORKER_MODE: service
+  WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-60000}
+  ADMIN_EMAIL: ${ADMIN_EMAIL}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+  FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+  FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+  FACEBOOK_PAGE_LOOKUP_VALUE: ${FACEBOOK_PAGE_LOOKUP_VALUE:-nctilepro}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
+  TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
+  REDIS_URL: ${REDIS_URL:-}
+  RATE_LIMIT_REDIS_PREFIX: ${RATE_LIMIT_REDIS_PREFIX:-smm:rate-limit}
+
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    command: ["mysqld", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    env_file:
+      - .env.production
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - ./storage/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  app:
+    build: .
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    environment: *app-environment
+    ports:
+      - "127.0.0.1:${APP_PORT:-3196}:3000"
+    volumes:
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "--import", "tsx", "scripts/check-app-health.ts"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 45s
+
+  worker:
+    build: .
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    environment: *app-environment
+    command: ["npm", "run", "worker:loop"]
+    volumes:
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    stop_grace_period: 90s
+    healthcheck:
+      test: ["CMD", "node", "--import", "tsx", "scripts/check-worker-health.ts"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 75s

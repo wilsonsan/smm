@@ -86,7 +86,7 @@ Post status enum:
 & 'C:\Program Files\nodejs\npm.cmd' run db:seed
 ```
 
-This command loads values from the local `.env` file, including `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
+This command loads values from `.env` and `.env.production` when present, including `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
 Those values are only used for the very first bootstrap when no users exist yet.
 After the first user is created, the database becomes the source of truth for email, password, and MFA settings.
 
@@ -126,6 +126,7 @@ Recommended production checklist:
 - use a long random `TOKEN_ENCRYPTION_KEY`
 - point `UPLOAD_DIR` to a persistent volume or mounted host path
 - set `APP_URL` to the real public origin that Meta will call back to
+- use [docker-compose.production.yml](/C:/Users/Corsair/Desktop/smm-dev/docker-compose.production.yml) and [PRODUCTION-DEPLOYMENT.md](/C:/Users/Corsair/Desktop/smm-dev/PRODUCTION-DEPLOYMENT.md) for the production server rollout
 
 ## Security Notes
 

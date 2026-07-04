@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+const isServerBuildPhase =
+  typeof window === "undefined" &&
+  (process.env.NEXT_PHASE === "phase-production-build" || process.env.npm_lifecycle_event === "build");
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required."),
@@ -24,7 +28,10 @@ const envSchema = z.object({
 
 const serverEnvInput = {
   NODE_ENV: process.env.NODE_ENV,
-  DATABASE_URL: process.env.DATABASE_URL,
+  // Next.js evaluates server modules during production build even though the real
+  // runtime container environment is not available yet. Use a harmless placeholder
+  // there so the build can finish without baking secrets into the image.
+  DATABASE_URL: process.env.DATABASE_URL ?? (isServerBuildPhase ? "build-time-placeholder" : undefined),
   APP_URL: process.env.APP_URL,
   UPLOAD_DIR: process.env.UPLOAD_DIR,
   MAX_UPLOAD_BYTES: process.env.MAX_UPLOAD_BYTES,

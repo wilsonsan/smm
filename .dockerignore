@@ -1,6 +1,8 @@
 node_modules
 .next
 .tmp
+.env
+.env.production
 uploads
 mysql-data
 npm-debug.log
