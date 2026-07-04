@@ -25,6 +25,7 @@ import {
   MailIcon,
   SuccessIcon,
 } from "@/components/dashboard-icons";
+import { CustomSelect, type CustomSelectOption } from "@/components/custom-select";
 import { MediaUploadField } from "@/components/media-upload-field";
 import { SubmitButton } from "@/components/submit-button";
 import { buildMonthGrid } from "@/lib/calendar";
@@ -733,7 +734,11 @@ export function PostEditorForm({
       : "Raleigh, North Carolina";
   const googlePreviewName = previewProfiles?.google?.name || "NC Tile Pros";
   const googlePreviewSubtitle = previewProfiles?.google?.subtitle || googlePreviewDateLabel;
-  const hashtagGroups = hashtagSettings?.groups ?? [];
+  const hashtagGroups = useMemo(() => hashtagSettings?.groups ?? [], [hashtagSettings?.groups]);
+  const hashtagGroupOptions = useMemo<CustomSelectOption[]>(
+    () => hashtagGroups.map((group) => ({ value: group.id, label: group.name })),
+    [hashtagGroups],
+  );
   const selectedOverridePlatforms = useMemo(
     () =>
       [FACEBOOK_PLATFORM, INSTAGRAM_PLATFORM, GOOGLE_PLATFORM].filter((platform) =>
@@ -1297,18 +1302,17 @@ export function PostEditorForm({
               <div className="composer-hashtag-toolbar">
                 {hashtagSettings?.groups.length ? (
                   <div className="composer-hashtag-group-controls">
-                    <select
+                    <CustomSelect
                       value={selectedHashtagGroupId}
-                      onChange={(event) => setSelectedHashtagGroupId(event.target.value)}
+                      options={hashtagGroupOptions}
+                      onChange={setSelectedHashtagGroupId}
+                      ariaLabel="Choose a hashtag group"
+                      placeholder="Apply Hashtag Group"
                       disabled={isReadOnly}
-                    >
-                      <option value="">Apply Hashtag Group</option>
-                      {hashtagSettings.groups.map((group) => (
-                        <option key={group.id} value={group.id}>
-                          {group.name}
-                        </option>
-                      ))}
-                    </select>
+                      className="composer-hashtag-group-select"
+                      triggerClassName="composer-hashtag-group-trigger"
+                      menuClassName="composer-hashtag-group-menu"
+                    />
                     <button
                       type="button"
                       className="ghost-link-button"

@@ -5,6 +5,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type SVGProps } from "react";
 import { createPortal } from "react-dom";
+import { CustomSelect, type CustomSelectOption } from "@/components/custom-select";
 import {
   ChevronDownIcon,
   GalleryIcon,
@@ -366,6 +367,38 @@ export function MediaLibraryBrowser({
   const categorySummaries = useMemo(
     () => buildGalleryCategorySummaries({ categories: localCategories, assets: localAssets }),
     [localAssets, localCategories],
+  );
+  const categoryFilterOptions = useMemo<CustomSelectOption[]>(
+    () => [
+      { value: "ALL", label: "All Categories" },
+      ...categorySummaries.map((category) => ({
+        value: category.slug,
+        label: category.name,
+        trailing: <span className="app-select-option-count">{category.assetCount}</span>,
+        icon: (
+          <span className="app-select-category-swatch" style={{ backgroundColor: category.color }}>
+            <MediaCategoryIcon icon={category.icon} className="app-select-category-icon" />
+          </span>
+        ),
+      })),
+    ],
+    [categorySummaries],
+  );
+  const statusFilterOptions = useMemo<CustomSelectOption[]>(
+    () => STATUS_FILTER_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+    [],
+  );
+  const typeFilterOptions = useMemo<CustomSelectOption[]>(
+    () => TYPE_FILTER_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+    [],
+  );
+  const sortOptions = useMemo<CustomSelectOption[]>(
+    () => SORT_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+    [],
+  );
+  const itemsPerPageOptions = useMemo<CustomSelectOption[]>(
+    () => ITEMS_PER_PAGE_OPTIONS.map((value) => ({ value: String(value), label: String(value) })),
+    [],
   );
 
   const filteredAssets = useMemo(() => {
@@ -929,38 +962,45 @@ export function MediaLibraryBrowser({
           <div className="gallery-v2-main">
             <section className="gallery-v2-toolbar panel">
               <div className="panel-body gallery-v2-toolbar-grid">
-                <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="gallery-filter-select">
-                  <option value="ALL">All Categories</option>
-                  {categorySummaries.map((category) => (
-                    <option key={category.id} value={category.slug}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
+                <CustomSelect
+                  value={categoryFilter}
+                  options={categoryFilterOptions}
+                  onChange={setCategoryFilter}
+                  ariaLabel="Filter gallery by category"
+                  className="gallery-filter-select-wrap"
+                  triggerClassName="gallery-filter-select-trigger"
+                  menuClassName="gallery-filter-select-menu"
+                />
 
-                <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilterValue)} className="gallery-filter-select">
-                  {STATUS_FILTER_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                <CustomSelect
+                  value={statusFilter}
+                  options={statusFilterOptions}
+                  onChange={(nextValue) => setStatusFilter(nextValue as StatusFilterValue)}
+                  ariaLabel="Filter gallery by usage status"
+                  className="gallery-filter-select-wrap"
+                  triggerClassName="gallery-filter-select-trigger"
+                  menuClassName="gallery-filter-select-menu"
+                />
 
-                <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as TypeFilterValue)} className="gallery-filter-select">
-                  {TYPE_FILTER_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                <CustomSelect
+                  value={typeFilter}
+                  options={typeFilterOptions}
+                  onChange={(nextValue) => setTypeFilter(nextValue as TypeFilterValue)}
+                  ariaLabel="Filter gallery by media type"
+                  className="gallery-filter-select-wrap"
+                  triggerClassName="gallery-filter-select-trigger"
+                  menuClassName="gallery-filter-select-menu"
+                />
 
-                <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as SortOrderValue)} className="gallery-filter-select">
-                  {SORT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                <CustomSelect
+                  value={sortOrder}
+                  options={sortOptions}
+                  onChange={(nextValue) => setSortOrder(nextValue as SortOrderValue)}
+                  ariaLabel="Sort gallery media"
+                  className="gallery-filter-select-wrap"
+                  triggerClassName="gallery-filter-select-trigger"
+                  menuClassName="gallery-filter-select-menu"
+                />
               </div>
             </section>
 
@@ -1109,11 +1149,15 @@ export function MediaLibraryBrowser({
 
                 <label className="gallery-items-per-page">
                   <span>Items per page</span>
-                  <select value={String(itemsPerPage)} onChange={(event) => setItemsPerPage(Number(event.target.value))}>
-                    {ITEMS_PER_PAGE_OPTIONS.map((value) => (
-                      <option key={value} value={value}>{value}</option>
-                    ))}
-                  </select>
+                  <CustomSelect
+                    value={String(itemsPerPage)}
+                    options={itemsPerPageOptions}
+                    onChange={(nextValue) => setItemsPerPage(Number(nextValue))}
+                    ariaLabel="Set gallery items per page"
+                    className="gallery-items-per-page-select"
+                    triggerClassName="gallery-items-per-page-trigger"
+                    menuClassName="gallery-items-per-page-menu"
+                  />
                 </label>
               </div>
             </section>

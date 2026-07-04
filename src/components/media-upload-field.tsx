@@ -2,6 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
+import { CustomSelect, type CustomSelectOption } from "@/components/custom-select";
 import { ChevronDownIcon, GalleryIcon } from "@/components/dashboard-icons";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type SVGProps } from "react";
 import { createPortal } from "react-dom";
@@ -187,6 +188,14 @@ export function MediaUploadField({
         .map((id) => mediaOptions.find((asset) => asset.id === id) ?? null)
         .filter((asset): asset is MediaAssetGallerySummary => asset !== null),
     [mediaOptions, selectedMediaAssetIds],
+  );
+  const attachedMediaOrderOptions = useMemo<CustomSelectOption[]>(
+    () =>
+      Array.from({ length: selectedMediaAssets.length }, (_, index) => ({
+        value: String(index),
+        label: `Photo ${index + 1}`,
+      })),
+    [selectedMediaAssets.length],
   );
 
   useEffect(() => {
@@ -508,14 +517,13 @@ export function MediaUploadField({
     );
   }
 
-  function moveMedia(mediaAssetId: string, direction: -1 | 1) {
+  function moveMediaToIndex(mediaAssetId: string, nextIndex: number) {
     const currentIndex = selectedMediaAssetIds.indexOf(mediaAssetId);
     if (currentIndex === -1) {
       return;
     }
 
-    const nextIndex = currentIndex + direction;
-    if (nextIndex < 0 || nextIndex >= selectedMediaAssetIds.length) {
+    if (nextIndex < 0 || nextIndex >= selectedMediaAssetIds.length || nextIndex === currentIndex) {
       return;
     }
 
@@ -721,23 +729,18 @@ export function MediaUploadField({
                     <span>
                       {formatDimensions(asset.width, asset.height)} - {formatBytes(asset.sizeBytes)}
                     </span>
-                    <div className="composer-attached-media-order-actions">
-                      <button
-                        type="button"
-                        className="composer-attached-media-order-button"
-                        onClick={() => moveMedia(asset.id, -1)}
-                        disabled={disabled || index === 0}
-                      >
-                        Earlier
-                      </button>
-                      <button
-                        type="button"
-                        className="composer-attached-media-order-button"
-                        onClick={() => moveMedia(asset.id, 1)}
-                        disabled={disabled || index === selectedMediaAssets.length - 1}
-                      >
-                        Later
-                      </button>
+                    <div className="composer-attached-media-order-row">
+                      <span className="composer-attached-media-order-label">Photo order</span>
+                      <CustomSelect
+                        value={String(index)}
+                        options={attachedMediaOrderOptions}
+                        onChange={(value) => moveMediaToIndex(asset.id, Number(value))}
+                        ariaLabel={`Choose the order for ${asset.originalFilename}`}
+                        disabled={disabled || selectedMediaAssets.length <= 1}
+                        className="composer-attached-media-order-select"
+                        triggerClassName="composer-attached-media-order-trigger"
+                        menuClassName="composer-attached-media-order-menu"
+                      />
                     </div>
                   </div>
                 </div>
