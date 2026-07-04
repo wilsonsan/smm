@@ -271,6 +271,10 @@ function normalizeLocalCategory(category: GalleryCategorySummary): GalleryCatego
   };
 }
 
+function isSyntheticFallbackCategory(category: Pick<GalleryCategorySummary, "id" | "slug">) {
+  return category.slug === FALLBACK_MEDIA_CATEGORY_SLUG && category.id === "fallback-other";
+}
+
 export function MediaLibraryBrowser({
   assets,
   categories,
@@ -641,6 +645,10 @@ export function MediaLibraryBrowser({
     nextOrder.splice(nextIndex, 0, moved);
     setLocalCategories(nextOrder.map((category, index) => ({ ...category, sortOrder: (index + 1) * 10 })));
 
+    const orderedCategoryIds = nextOrder
+      .filter((category) => !isSyntheticFallbackCategory(category))
+      .map((category) => category.id);
+
     try {
       const response = await fetch("/api/admin/media-categories/reorder", {
         method: "POST",
@@ -648,7 +656,7 @@ export function MediaLibraryBrowser({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          orderedCategoryIds: nextOrder.map((category) => category.id),
+          orderedCategoryIds,
         }),
       });
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
