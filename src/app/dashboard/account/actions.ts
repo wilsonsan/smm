@@ -2,6 +2,7 @@
 
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
+import { type AccountMfaFormState, initialAccountMfaFormState } from "@/app/dashboard/account/form-state";
 import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
 import {
   consumeRecoveryCodeForAdminUser,
@@ -26,15 +27,6 @@ import {
   verifyMfaCodeSchema,
   type FormState,
 } from "@/lib/validation";
-
-export type AccountMfaFormState = FormState & {
-  recoveryCodes?: string[];
-};
-
-export const initialAccountMfaFormState: AccountMfaFormState = {
-  ...initialFormState,
-  recoveryCodes: [],
-};
 
 async function enforceAccountSettingsRateLimit(adminUserId: string, attemptedAction: string) {
   const { ipAddress, userAgent } = await getRequestMetadata();

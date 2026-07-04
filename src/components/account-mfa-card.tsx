@@ -3,9 +3,9 @@
 import { useActionState, useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { initialAccountMfaFormState } from "@/app/dashboard/account/form-state";
 import {
   disableMfaAction,
-  initialAccountMfaFormState,
   regenerateMfaRecoveryCodesAction,
   startMfaSetupAction,
   verifyMfaSetupAction,
