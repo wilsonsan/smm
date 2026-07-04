@@ -328,6 +328,69 @@ const mediaEditCropSchema = z.object({
   height: z.coerce.number().positive("Crop height must be greater than 0."),
 });
 
+const mediaAnnotationPointSchema = z.object({
+  x: z.coerce.number().min(0).max(1),
+  y: z.coerce.number().min(0).max(1),
+});
+
+const mediaAnnotationBaseSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  color: z.string().trim().regex(/^#([a-fA-F0-9]{6})$/, "Choose a valid annotation color."),
+});
+
+const mediaTextAnnotationSchema = mediaAnnotationBaseSchema.extend({
+  kind: z.literal("text"),
+  x: z.coerce.number().min(0).max(1),
+  y: z.coerce.number().min(0).max(1),
+  text: z.string().trim().min(1).max(300),
+  textSizeRatio: z.coerce.number().min(0.005).max(0.25),
+});
+
+const mediaArrowAnnotationSchema = mediaAnnotationBaseSchema.extend({
+  kind: z.literal("arrow"),
+  x1: z.coerce.number().min(0).max(1),
+  y1: z.coerce.number().min(0).max(1),
+  x2: z.coerce.number().min(0).max(1),
+  y2: z.coerce.number().min(0).max(1),
+  strokeWidthRatio: z.coerce.number().min(0.001).max(0.1),
+});
+
+const mediaRectAnnotationSchema = mediaAnnotationBaseSchema.extend({
+  kind: z.literal("rect"),
+  x: z.coerce.number().min(0).max(1),
+  y: z.coerce.number().min(0).max(1),
+  width: z.coerce.number().min(0).max(1),
+  height: z.coerce.number().min(0).max(1),
+  strokeWidthRatio: z.coerce.number().min(0.001).max(0.1),
+});
+
+const mediaCircleAnnotationSchema = mediaAnnotationBaseSchema.extend({
+  kind: z.literal("circle"),
+  x: z.coerce.number().min(0).max(1),
+  y: z.coerce.number().min(0).max(1),
+  width: z.coerce.number().min(0).max(1),
+  height: z.coerce.number().min(0).max(1),
+  strokeWidthRatio: z.coerce.number().min(0.001).max(0.1),
+});
+
+const mediaDrawAnnotationSchema = mediaAnnotationBaseSchema.extend({
+  kind: z.literal("draw"),
+  points: z.array(mediaAnnotationPointSchema).min(2).max(1000),
+  strokeWidthRatio: z.coerce.number().min(0.001).max(0.1),
+});
+
+const mediaAnnotationsSchema = z.object({
+  items: z.array(
+    z.discriminatedUnion("kind", [
+      mediaTextAnnotationSchema,
+      mediaArrowAnnotationSchema,
+      mediaRectAnnotationSchema,
+      mediaCircleAnnotationSchema,
+      mediaDrawAnnotationSchema,
+    ]),
+  ).max(200),
+});
+
 export const mediaAssetEditSchema = z.discriminatedUnion("mode", [
   z.object({
     mode: z.literal("save"),
@@ -337,7 +400,7 @@ export const mediaAssetEditSchema = z.discriminatedUnion("mode", [
     flipHorizontal: z.boolean().optional().default(false),
     flipVertical: z.boolean().optional().default(false),
     aspectRatio: z.string().trim().max(40).optional().default("free"),
-    annotations: z.any().optional(),
+    annotations: mediaAnnotationsSchema.optional(),
   }),
   z.object({
     mode: z.literal("revert"),

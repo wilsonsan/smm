@@ -103,8 +103,58 @@ export type MediaAssetEditInput = {
   flipHorizontal: boolean;
   flipVertical: boolean;
   aspectRatio: string;
-  annotations?: unknown;
+  annotations?: MediaAnnotationPayload;
   uploadBasePath?: string;
+};
+
+export type MediaTextAnnotation = {
+  id: string;
+  kind: "text";
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+  textSizeRatio: number;
+};
+
+export type MediaArrowAnnotation = {
+  id: string;
+  kind: "arrow";
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  color: string;
+  strokeWidthRatio: number;
+};
+
+export type MediaRectAnnotation = {
+  id: string;
+  kind: "rect" | "circle";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+  strokeWidthRatio: number;
+};
+
+export type MediaDrawAnnotation = {
+  id: string;
+  kind: "draw";
+  points: Array<{ x: number; y: number }>;
+  color: string;
+  strokeWidthRatio: number;
+};
+
+export type MediaAnnotation =
+  | MediaTextAnnotation
+  | MediaArrowAnnotation
+  | MediaRectAnnotation
+  | MediaDrawAnnotation;
+
+export type MediaAnnotationPayload = {
+  items: MediaAnnotation[];
 };
 
 export function resolveUploadBasePath(configuredPath: string) {
@@ -1266,14 +1316,82 @@ function clampCropRegion(input: {
   };
 }
 
+function clampUnit(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.min(1, Math.max(0, value));
+}
+
+function escapeSvgText(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function buildAnnotationSvgOverlay(input: {
+  annotations: MediaAnnotationPayload;
+  width: number;
+  height: number;
+}) {
+  const baseSize = Math.max(1, Math.min(input.width, input.height));
+  const content = input.annotations.items
+    .map((annotation) => {
+      if (annotation.kind === "text") {
+        const x = clampUnit(annotation.x) * input.width;
+        const y = clampUnit(annotation.y) * input.height;
+        const fontSize = Math.max(12, annotation.textSizeRatio * baseSize);
+        const safeText = escapeSvgText(annotation.text);
+        return `<text x="${x}" y="${y}" fill="${annotation.color}" font-size="${fontSize}" font-family="Arial, Helvetica, sans-serif" font-weight="700" paint-order="stroke" stroke="rgba(5,10,22,0.35)" stroke-width="${Math.max(1, fontSize * 0.08)}">${safeText}</text>`;
+      }
+
+      if (annotation.kind === "arrow") {
+        const strokeWidth = Math.max(2, annotation.strokeWidthRatio * baseSize);
+        const markerId = `arrowhead-${annotation.id}`;
+        return [
+          `<defs><marker id="${markerId}" markerWidth="${strokeWidth * 2.6}" markerHeight="${strokeWidth * 2.6}" refX="${strokeWidth * 1.8}" refY="${strokeWidth}" orient="auto"><path d="M0,0 L0,${strokeWidth * 2} L${strokeWidth * 2},${strokeWidth} z" fill="${annotation.color}" /></marker></defs>`,
+          `<line x1="${clampUnit(annotation.x1) * input.width}" y1="${clampUnit(annotation.y1) * input.height}" x2="${clampUnit(annotation.x2) * input.width}" y2="${clampUnit(annotation.y2) * input.height}" stroke="${annotation.color}" stroke-width="${strokeWidth}" stroke-linecap="round" marker-end="url(#${markerId})" />`,
+        ].join("");
+      }
+
+      if (annotation.kind === "draw") {
+        const strokeWidth = Math.max(2, annotation.strokeWidthRatio * baseSize);
+        const points = annotation.points
+          .map((point) => `${clampUnit(point.x) * input.width},${clampUnit(point.y) * input.height}`)
+          .join(" ");
+        return `<polyline points="${points}" fill="none" stroke="${annotation.color}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" />`;
+      }
+
+      const strokeWidth = Math.max(2, annotation.strokeWidthRatio * baseSize);
+      const x = clampUnit(annotation.x) * input.width;
+      const y = clampUnit(annotation.y) * input.height;
+      const width = clampUnit(annotation.width) * input.width;
+      const height = clampUnit(annotation.height) * input.height;
+
+      if (annotation.kind === "circle") {
+        return `<ellipse cx="${x + width / 2}" cy="${y + height / 2}" rx="${Math.abs(width) / 2}" ry="${Math.abs(height) / 2}" fill="transparent" stroke="${annotation.color}" stroke-width="${strokeWidth}" />`;
+      }
+
+      return `<rect x="${x}" y="${y}" width="${Math.abs(width)}" height="${Math.abs(height)}" fill="transparent" stroke="${annotation.color}" stroke-width="${strokeWidth}" rx="${Math.min(14, Math.max(4, strokeWidth * 1.4))}" ry="${Math.min(14, Math.max(4, strokeWidth * 1.4))}" />`;
+    })
+    .join("");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${input.width}" height="${input.height}" viewBox="0 0 ${input.width} ${input.height}">${content}</svg>`;
+}
+
 async function buildEditedMediaBuffer(input: {
   sourceBuffer: Buffer;
   crop: MediaAssetEditInput["crop"];
   rotation: number;
   flipHorizontal: boolean;
   flipVertical: boolean;
+  annotations?: MediaAnnotationPayload;
 }) {
-  let transformedBuffer = await sharp(input.sourceBuffer, { failOn: "none" })
+  const transformedBuffer = await sharp(input.sourceBuffer, { failOn: "none" })
     .rotate(input.rotation, { background: LIGHT_BACKGROUND })
     .flop(input.flipHorizontal)
     .flip(input.flipVertical)
@@ -1287,9 +1405,36 @@ async function buildEditedMediaBuffer(input: {
     sourceHeight: transformedMetadata.height,
   });
 
-  return sharp(transformedBuffer, { failOn: "none" })
+  const croppedPipeline = sharp(transformedBuffer, { failOn: "none" })
     .extract(extractRegion)
     .flatten({ background: LIGHT_BACKGROUND })
+    .toColorspace("srgb");
+
+  if (input.annotations?.items?.length) {
+    const croppedPngBuffer = await croppedPipeline.png().toBuffer();
+    const overlaySvg = buildAnnotationSvgOverlay({
+      annotations: input.annotations,
+      width: extractRegion.width,
+      height: extractRegion.height,
+    });
+
+    return sharp(croppedPngBuffer, { failOn: "none" })
+      .composite([
+        {
+          input: Buffer.from(overlaySvg),
+          top: 0,
+          left: 0,
+        },
+      ])
+      .jpeg({
+        quality: 92,
+        progressive: false,
+        force: true,
+      })
+      .toBuffer();
+  }
+
+  return croppedPipeline
     .jpeg({
       quality: 92,
       progressive: false,
@@ -1339,7 +1484,7 @@ function buildMediaEditHistory(input: {
     flipHorizontal: input.flipHorizontal,
     flipVertical: input.flipVertical,
     aspectRatio: input.aspectRatio,
-    annotationsEnabled: Boolean(input.annotations),
+    annotations: input.annotations ?? { items: [] },
     savedAt: input.occurredAt.toISOString(),
   };
 
@@ -1392,6 +1537,7 @@ export async function saveEditedMediaAsset(input: MediaAssetEditInput) {
       rotation: input.rotation,
       flipHorizontal: input.flipHorizontal,
       flipVertical: input.flipVertical,
+      annotations: input.annotations,
     });
 
     const activeFile = await saveActiveEditedFile({
