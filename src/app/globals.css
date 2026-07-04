@@ -11110,7 +11110,8 @@ th {
   box-shadow: 0 0 0 1px rgba(111, 141, 255, 0.25);
 }
 
-.gallery-v2-card-menu-button {
+.gallery-v2-card-menu-button,
+.gallery-v2-card-info-button {
   position: absolute;
   top: 14px;
   right: 14px;
@@ -11125,7 +11126,15 @@ th {
   place-items: center;
 }
 
+.gallery-v2-card-info-button {
+  right: 56px;
+}
+
 .gallery-v2-card-menu-button:hover {
+  background: rgba(15, 24, 48, 0.96);
+}
+
+.gallery-v2-card-info-button:hover {
   background: rgba(15, 24, 48, 0.96);
 }
 

@@ -116,6 +116,15 @@ function MoreIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+function QuestionIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M9.2 9a2.8 2.8 0 1 1 5 1.8c-.8.6-1.4 1.1-1.7 1.5-.3.4-.5.8-.5 1.7" />
+      <circle cx="12" cy="17.2" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 function CloseIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
@@ -1002,6 +1011,18 @@ export function MediaLibraryBrowser({
 
                         <button
                           type="button"
+                          className="gallery-v2-card-info-button"
+                          onClick={() => {
+                            setOpenAssetId(asset.id);
+                            setActiveMenuAssetId(null);
+                          }}
+                          aria-label={`Open details for ${asset.originalFilename}`}
+                        >
+                          <QuestionIcon />
+                        </button>
+
+                        <button
+                          type="button"
                           className="gallery-v2-card-menu-button"
                           onClick={() => setActiveMenuAssetId((current) => (current === asset.id ? null : asset.id))}
                           aria-label={`Open media menu for ${asset.originalFilename}`}
@@ -1018,7 +1039,16 @@ export function MediaLibraryBrowser({
                           </div>
                         ) : null}
 
-                        <button type="button" className="gallery-v2-card-thumb-button" onClick={() => setOpenAssetId(asset.id)}>
+                        <button
+                          type="button"
+                          className="gallery-v2-card-thumb-button"
+                          onClick={() => {
+                            toggleSelectedAsset(asset.id);
+                            setActiveMenuAssetId(null);
+                          }}
+                          aria-pressed={isSelected}
+                          aria-label={`${isSelected ? "Deselect" : "Select"} ${asset.originalFilename}`}
+                        >
                           {previewVariant ? (
                             <img
                               src={getMediaVariantUrl(previewVariant.id)}
