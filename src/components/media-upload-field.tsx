@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type SVGProps
 import { createPortal } from "react-dom";
 import { MediaCategoryIcon } from "@/components/media-category-icon";
 import { MediaPostedBadges } from "@/components/media-posted-badges";
-import { FALLBACK_MEDIA_CATEGORY_SLUG } from "@/lib/media-categories";
+import { FALLBACK_MEDIA_CATEGORY_NAME, FALLBACK_MEDIA_CATEGORY_SLUG } from "@/lib/media-categories";
 import {
   formatBytes,
   formatDimensions,
@@ -84,7 +84,7 @@ function getPageCount(totalItems: number, pageSize: number) {
 function getDisplayCategory(asset: MediaAssetGallerySummary) {
   return asset.categories[0] ?? {
     id: "uncategorized",
-    name: "Other",
+    name: FALLBACK_MEDIA_CATEGORY_NAME,
     slug: FALLBACK_MEDIA_CATEGORY_SLUG,
     color: "#8f9bb3",
     icon: "OTHER",
@@ -173,7 +173,15 @@ export function MediaUploadField({
       }
     }
 
-    return [...categoryMap.values()].sort((left, right) => left.name.localeCompare(right.name));
+    return [...categoryMap.values()].sort((left, right) => {
+      if (left.slug === FALLBACK_MEDIA_CATEGORY_SLUG) {
+        return 1;
+      }
+      if (right.slug === FALLBACK_MEDIA_CATEGORY_SLUG) {
+        return -1;
+      }
+      return left.name.localeCompare(right.name);
+    });
   }, [mediaOptions]);
 
   const filteredGalleryAssets = useMemo(() => {

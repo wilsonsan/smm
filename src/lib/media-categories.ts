@@ -23,6 +23,9 @@ export type MediaCategorySeed = {
   sortOrder: number;
 };
 
+export const FALLBACK_MEDIA_CATEGORY_SLUG = "other";
+export const FALLBACK_MEDIA_CATEGORY_NAME = "Unassigned";
+
 export const DEFAULT_MEDIA_CATEGORIES: MediaCategorySeed[] = [
   { name: "Kitchens", slug: "kitchens", color: "#5b8cff", icon: "KITCHENS", sortOrder: 10 },
   { name: "Bathrooms", slug: "bathrooms", color: "#45c4ff", icon: "BATHROOMS", sortOrder: 20 },
@@ -31,7 +34,7 @@ export const DEFAULT_MEDIA_CATEGORIES: MediaCategorySeed[] = [
   { name: "Fireplaces", slug: "fireplaces", color: "#ff8a3d", icon: "FIREPLACES", sortOrder: 50 },
   { name: "Floors", slug: "floors", color: "#f4c84c", icon: "FLOORS", sortOrder: 60 },
   { name: "Outdoor", slug: "outdoor", color: "#3fd1c6", icon: "OUTDOOR", sortOrder: 70 },
-  { name: "Other", slug: "other", color: "#8f9bb3", icon: "OTHER", sortOrder: 999 },
+  { name: FALLBACK_MEDIA_CATEGORY_NAME, slug: FALLBACK_MEDIA_CATEGORY_SLUG, color: "#8f9bb3", icon: "OTHER", sortOrder: 999 },
 ] as const;
 
 export const MEDIA_CATEGORY_ICON_OPTIONS: Array<{ value: MediaCategoryIconKey; label: string }> = [
@@ -49,7 +52,7 @@ export const MEDIA_CATEGORY_ICON_OPTIONS: Array<{ value: MediaCategoryIconKey; l
   { value: "WRENCH", label: "Wrench" },
   { value: "HOME", label: "Home" },
   { value: "CLOCK", label: "Clock" },
-  { value: "OTHER", label: "Other" },
+  { value: "OTHER", label: FALLBACK_MEDIA_CATEGORY_NAME },
 ];
 
 export const MEDIA_CATEGORY_COLOR_OPTIONS = [
@@ -66,8 +69,6 @@ export const MEDIA_CATEGORY_COLOR_OPTIONS = [
   "#9f7aea",
   "#8f9bb3",
 ] as const;
-
-export const FALLBACK_MEDIA_CATEGORY_SLUG = "other";
 
 export function normalizeMediaCategoryName(value: string) {
   return value.trim().replace(/\s+/g, " ");

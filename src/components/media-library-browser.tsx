@@ -26,6 +26,7 @@ import {
 } from "@/lib/media-presentation";
 import {
   FALLBACK_MEDIA_CATEGORY_SLUG,
+  FALLBACK_MEDIA_CATEGORY_NAME,
   MEDIA_CATEGORY_COLOR_OPTIONS,
   MEDIA_CATEGORY_ICON_OPTIONS,
 } from "@/lib/media-categories";
@@ -41,7 +42,6 @@ type MediaLibraryBrowserProps = {
 type StatusFilterValue = "ALL" | "USED" | "UNUSED";
 type TypeFilterValue = "ALL_TYPES" | "IMAGES" | "VIDEOS";
 type SortOrderValue = "NEWEST" | "OLDEST" | "MOST_USED" | "LEAST_USED";
-type ViewModeValue = "GRID" | "LIST";
 type BulkActionValue = "assignCategories" | "deleteSelected";
 type CategoryActionMode = "single-assign" | "single-replace" | "bulk-assign" | "bulk-replace";
 
@@ -95,16 +95,6 @@ const BULK_ACTION_OPTIONS: Array<{ value: BulkActionValue; label: string }> = [
 ];
 
 const ITEMS_PER_PAGE_OPTIONS = [12, 24, 48];
-const GALLERY_SELECTED_ASSET_STORAGE_KEY = "gallery-v2-selected-assets";
-
-function SearchIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      <circle cx="11" cy="11" r="6.5" />
-      <path d="m16 16 4 4" />
-    </svg>
-  );
-}
 
 function UploadIcon(props: SVGProps<SVGSVGElement>) {
   return (
@@ -112,30 +102,6 @@ function UploadIcon(props: SVGProps<SVGSVGElement>) {
       <path d="M12 16V5.5" />
       <path d="m8.5 9 3.5-3.5L15.5 9" />
       <path d="M5 18.5h14" />
-    </svg>
-  );
-}
-
-function GridIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      <rect x="4.5" y="4.5" width="5.5" height="5.5" rx="1.2" />
-      <rect x="14" y="4.5" width="5.5" height="5.5" rx="1.2" />
-      <rect x="4.5" y="14" width="5.5" height="5.5" rx="1.2" />
-      <rect x="14" y="14" width="5.5" height="5.5" rx="1.2" />
-    </svg>
-  );
-}
-
-function ListIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      <path d="M8 7h12" />
-      <path d="M8 12h12" />
-      <path d="M8 17h12" />
-      <circle cx="4.5" cy="7" r="1" fill="currentColor" stroke="none" />
-      <circle cx="4.5" cy="12" r="1" fill="currentColor" stroke="none" />
-      <circle cx="4.5" cy="17" r="1" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -198,6 +164,22 @@ function ArrowRightIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
       <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
+}
+
+function ArrowUpIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="m18 15-6-6-6 6" />
+    </svg>
+  );
+}
+
+function ArrowDownIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="m6 9 6 6 6-6" />
     </svg>
   );
 }
@@ -277,6 +259,18 @@ function dedupeAssets(assets: MediaAssetGallerySummary[]) {
   });
 }
 
+function normalizeLocalCategory(category: GalleryCategorySummary): GalleryCategorySummary {
+  if (category.slug !== FALLBACK_MEDIA_CATEGORY_SLUG) {
+    return category;
+  }
+
+  return {
+    ...category,
+    name: FALLBACK_MEDIA_CATEGORY_NAME,
+    sortOrder: Number.MAX_SAFE_INTEGER,
+  };
+}
+
 export function MediaLibraryBrowser({
   assets,
   categories,
@@ -286,13 +280,11 @@ export function MediaLibraryBrowser({
 }: MediaLibraryBrowserProps) {
   const router = useRouter();
   const [localAssets, setLocalAssets] = useState(() => dedupeAssets(assets));
-  const [localCategories, setLocalCategories] = useState<GalleryCategorySummary[]>(categories);
-  const [searchTerm, setSearchTerm] = useState("");
+  const [localCategories, setLocalCategories] = useState<GalleryCategorySummary[]>(() => categories.map(normalizeLocalCategory));
   const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>("ALL");
   const [typeFilter, setTypeFilter] = useState<TypeFilterValue>("ALL_TYPES");
   const [sortOrder, setSortOrder] = useState<SortOrderValue>("NEWEST");
-  const [viewMode, setViewMode] = useState<ViewModeValue>("GRID");
   const [itemsPerPage, setItemsPerPage] = useState(24);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
@@ -322,7 +314,6 @@ export function MediaLibraryBrowser({
   const [hasMounted, setHasMounted] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
-  const hasRestoredSelectionRef = useRef(false);
 
   useEffect(() => {
     setHasMounted(true);
@@ -333,48 +324,13 @@ export function MediaLibraryBrowser({
   }, [assets]);
 
   useEffect(() => {
-    if (!hasMounted) {
-      return;
-    }
-
-    try {
-      const storedValue = window.sessionStorage.getItem(GALLERY_SELECTED_ASSET_STORAGE_KEY);
-      if (!storedValue) {
-        hasRestoredSelectionRef.current = true;
-        return;
-      }
-
-      const parsed = JSON.parse(storedValue);
-      if (!Array.isArray(parsed)) {
-        return;
-      }
-
-      const validIds = new Set(localAssets.map((asset) => asset.id));
-      const restoredIds = parsed.filter((value): value is string => typeof value === "string" && validIds.has(value));
-      setSelectedAssetIds(restoredIds);
-      hasRestoredSelectionRef.current = true;
-    } catch {
-      hasRestoredSelectionRef.current = true;
-      return;
-    }
-  }, [hasMounted, localAssets]);
-
-  useEffect(() => {
-    setLocalCategories(categories);
+    setLocalCategories(categories.map(normalizeLocalCategory));
   }, [categories]);
 
   useEffect(() => {
     const validIds = new Set(localAssets.map((asset) => asset.id));
     setSelectedAssetIds((current) => current.filter((id) => validIds.has(id)));
   }, [localAssets]);
-
-  useEffect(() => {
-    if (!hasMounted || !hasRestoredSelectionRef.current) {
-      return;
-    }
-
-    window.sessionStorage.setItem(GALLERY_SELECTED_ASSET_STORAGE_KEY, JSON.stringify(selectedAssetIds));
-  }, [hasMounted, selectedAssetIds]);
 
   useEffect(() => {
     if (!isUploadModalOpen && !openAssetId && !isCategoryManagerOpen && !categoryDialog && !renameAssetDraft) {
@@ -400,14 +356,8 @@ export function MediaLibraryBrowser({
   );
 
   const filteredAssets = useMemo(() => {
-    const normalizedSearch = searchTerm.trim().toLowerCase();
-
     return sortAssets(
       localAssets.filter((asset) => {
-        if (normalizedSearch && !asset.originalFilename.toLowerCase().includes(normalizedSearch)) {
-          return false;
-        }
-
         if (categoryFilter !== "ALL") {
           if (categoryFilter === FALLBACK_MEDIA_CATEGORY_SLUG) {
             if (asset.categories.length > 0 && !asset.categories.some((category) => category.slug === FALLBACK_MEDIA_CATEGORY_SLUG)) {
@@ -438,11 +388,11 @@ export function MediaLibraryBrowser({
       }),
       sortOrder,
     );
-  }, [categoryFilter, localAssets, searchTerm, sortOrder, statusFilter, typeFilter]);
+  }, [categoryFilter, localAssets, sortOrder, statusFilter, typeFilter]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, categoryFilter, statusFilter, typeFilter, sortOrder, itemsPerPage]);
+  }, [categoryFilter, statusFilter, typeFilter, sortOrder, itemsPerPage]);
 
   const totalPages = Math.max(1, Math.ceil(filteredAssets.length / itemsPerPage));
   const clampedCurrentPage = Math.min(currentPage, totalPages);
@@ -674,6 +624,10 @@ export function MediaLibraryBrowser({
   async function handleReorderCategory(categoryId: string, direction: -1 | 1) {
     const currentIndex = localCategories.findIndex((category) => category.id === categoryId);
     if (currentIndex === -1) {
+      return;
+    }
+
+    if (localCategories[currentIndex]?.slug === FALLBACK_MEDIA_CATEGORY_SLUG) {
       return;
     }
 
@@ -958,16 +912,6 @@ export function MediaLibraryBrowser({
           <div className="gallery-v2-main">
             <section className="gallery-v2-toolbar panel">
               <div className="panel-body gallery-v2-toolbar-grid">
-                <label className="gallery-search-field">
-                  <SearchIcon />
-                  <input
-                    type="search"
-                    value={searchTerm}
-                    onChange={(event) => setSearchTerm(event.target.value)}
-                    placeholder="Search media"
-                  />
-                </label>
-
                 <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="gallery-filter-select">
                   <option value="ALL">All Categories</option>
                   {categorySummaries.map((category) => (
@@ -1000,21 +944,23 @@ export function MediaLibraryBrowser({
                     </option>
                   ))}
                 </select>
-
-                <div className="gallery-view-toggle" role="group" aria-label="Gallery view mode">
-                  <button type="button" className={`gallery-view-toggle-button${viewMode === "GRID" ? " is-active" : ""}`.trim()} onClick={() => setViewMode("GRID")} aria-pressed={viewMode === "GRID"}>
-                    <GridIcon />
-                  </button>
-                  <button type="button" className={`gallery-view-toggle-button${viewMode === "LIST" ? " is-active" : ""}`.trim()} onClick={() => setViewMode("LIST")} aria-pressed={viewMode === "LIST"}>
-                    <ListIcon />
-                  </button>
-                </div>
               </div>
             </section>
 
             <div className="gallery-v2-summary-row">
               <span>{filteredAssets.length} item{filteredAssets.length === 1 ? "" : "s"}</span>
-              {selectedCount > 0 ? <strong>{selectedCount} selected</strong> : null}
+              {selectedCount > 0 ? (
+                <div className="gallery-v2-selection-summary">
+                  <button
+                    type="button"
+                    className="ghost-link-button gallery-v2-clear-selection-button"
+                    onClick={() => setSelectedAssetIds([])}
+                  >
+                    Clear Selections
+                  </button>
+                  <strong>{selectedCount} selected</strong>
+                </div>
+              ) : null}
             </div>
 
             {uploadSummary ? <p className="success-text">{uploadSummary}</p> : null}
@@ -1026,7 +972,7 @@ export function MediaLibraryBrowser({
                   <p className="muted">No media items match the current filters.</p>
                 </div>
               </section>
-            ) : viewMode === "GRID" ? (
+            ) : (
               <section className="gallery-v2-grid">
                 {visibleAssets.map((asset) => {
                   const previewVariant = getGalleryThumbnailVariant(asset.variants) ?? getGalleryPreviewVariant(asset.variants) ?? getOriginalVariant(asset.variants);
@@ -1096,58 +1042,6 @@ export function MediaLibraryBrowser({
                     </article>
                   );
                 })}
-              </section>
-            ) : (
-              <section className="gallery-v2-list panel">
-                <div className="panel-body">
-                  {visibleAssets.map((asset) => {
-                    const previewVariant = getGalleryThumbnailVariant(asset.variants) ?? getGalleryPreviewVariant(asset.variants) ?? getOriginalVariant(asset.variants);
-                    const displayCategory = getFallbackDisplayCategory(categorySummaries, asset.categories);
-                    const isSelected = selectedAssetIds.includes(asset.id);
-
-                    return (
-                      <article key={asset.id} className={`gallery-v2-list-row${isSelected ? " is-selected" : ""}`.trim()}>
-                        <label className="gallery-v2-card-check" onClick={(event) => event.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onClick={(event) => event.stopPropagation()}
-                            onChange={() => toggleSelectedAsset(asset.id)}
-                          />
-                          <span onClick={(event) => event.stopPropagation()} />
-                        </label>
-                        <button type="button" className="gallery-v2-list-thumb-button" onClick={() => setOpenAssetId(asset.id)}>
-                          {previewVariant ? (
-                            <img
-                              src={getMediaVariantUrl(previewVariant.id)}
-                              alt={asset.originalFilename}
-                              className="gallery-v2-list-thumb"
-                              loading="lazy"
-                              decoding="async"
-                            />
-                          ) : (
-                            <div className="gallery-v2-card-thumb-fallback">No preview</div>
-                          )}
-                        </button>
-                        <div className="gallery-v2-list-copy">
-                          <strong>{asset.originalFilename}</strong>
-                          <div className="gallery-v2-card-meta">
-                            <span>{getTypeLabel(asset)}</span>
-                            <span>{formatBytes(asset.sizeBytes)}</span>
-                            <span>{formatUploadDate(asset.createdAt, timezone)}</span>
-                          </div>
-                        </div>
-                        <span className="gallery-v2-category-pill" style={{ "--category-color": displayCategory.color } as CSSProperties}>
-                          <MediaCategoryIcon icon={displayCategory.icon} className="gallery-v2-category-icon" />
-                          <span>{displayCategory.name}</span>
-                        </span>
-                        <button type="button" className="gallery-v2-card-menu-button" onClick={() => setOpenAssetId(asset.id)} aria-label={`Open details for ${asset.originalFilename}`}>
-                          <MoreIcon />
-                        </button>
-                      </article>
-                    );
-                  })}
-                </div>
               </section>
             )}
 
@@ -1423,21 +1317,23 @@ export function MediaLibraryBrowser({
                           type="button"
                           className="ghost-link-button gallery-manage-reorder-button"
                           onClick={() => handleReorderCategory(category.id, -1)}
-                          disabled={index === 0}
+                          disabled={index === 0 || category.slug === FALLBACK_MEDIA_CATEGORY_SLUG}
                           aria-label={`Move ${category.name} up`}
                         >
-                          <ArrowLeftIcon />
+                          <ArrowUpIcon />
                         </button>
                         <button
                           type="button"
                           className="ghost-link-button gallery-manage-reorder-button"
                           onClick={() => handleReorderCategory(category.id, 1)}
-                          disabled={index === categorySummaries.length - 1}
+                          disabled={index === categorySummaries.length - 1 || category.slug === FALLBACK_MEDIA_CATEGORY_SLUG}
                           aria-label={`Move ${category.name} down`}
                         >
-                          <ArrowRightIcon />
+                          <ArrowDownIcon />
                         </button>
-                        <button type="button" className="ghost-link-button" onClick={() => setCategoryEditorDraft({ categoryId: category.id, name: category.name, color: category.color, icon: category.icon })}>Edit</button>
+                        {category.slug !== FALLBACK_MEDIA_CATEGORY_SLUG ? (
+                          <button type="button" className="ghost-link-button" onClick={() => setCategoryEditorDraft({ categoryId: category.id, name: category.name, color: category.color, icon: category.icon })}>Edit</button>
+                        ) : null}
                         {category.slug !== FALLBACK_MEDIA_CATEGORY_SLUG ? (
                           <button type="button" className="ghost-link-button is-danger" onClick={() => void handleDeleteCategory(category.id)}>Delete</button>
                         ) : null}

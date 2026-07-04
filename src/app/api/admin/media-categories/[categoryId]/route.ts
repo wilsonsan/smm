@@ -88,7 +88,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
 
     if (isFallbackMediaCategorySlug(existing.slug) && !isFallbackMediaCategorySlug(slug)) {
-      return NextResponse.json({ error: "The fallback Other category cannot be renamed." }, { status: 400 });
+      return NextResponse.json({ error: "The fallback Unassigned category cannot be renamed." }, { status: 400 });
     }
 
     const category = await prisma.mediaCategory.update({
@@ -166,7 +166,7 @@ export async function DELETE(request: Request, context: RouteContext) {
     }
 
     if (isFallbackMediaCategorySlug(existing.slug)) {
-      return NextResponse.json({ error: "The fallback Other category cannot be deleted." }, { status: 400 });
+      return NextResponse.json({ error: "The fallback Unassigned category cannot be deleted." }, { status: 400 });
     }
 
     await prisma.mediaCategory.delete({

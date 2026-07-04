@@ -10986,7 +10986,7 @@ th {
 
 .gallery-v2-toolbar-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1.5fr) repeat(4, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   align-items: center;
 }
@@ -10998,6 +10998,16 @@ th {
 
 .gallery-v2-summary-row strong {
   color: #f5f7ff;
+}
+
+.gallery-v2-selection-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.gallery-v2-clear-selection-button {
+  color: #cfd8ff;
 }
 
 .gallery-v2-grid {
