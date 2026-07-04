@@ -1413,14 +1413,30 @@ export function MediaLibraryBrowser({
                         <span className="gallery-v2-category-swatch" style={{ backgroundColor: category.color }}>
                           <MediaCategoryIcon icon={category.icon} className="gallery-v2-category-swatch-icon" />
                         </span>
-                        <span>
+                        <span className="gallery-manage-category-copy">
                           <strong>{category.name}</strong>
                           <small>{category.assetCount} item{category.assetCount === 1 ? "" : "s"}</small>
                         </span>
                       </span>
                       <div className="gallery-manage-category-actions">
-                        <button type="button" className="ghost-link-button" onClick={() => handleReorderCategory(category.id, -1)} disabled={index === 0}>Up</button>
-                        <button type="button" className="ghost-link-button" onClick={() => handleReorderCategory(category.id, 1)} disabled={index === categorySummaries.length - 1}>Down</button>
+                        <button
+                          type="button"
+                          className="ghost-link-button gallery-manage-reorder-button"
+                          onClick={() => handleReorderCategory(category.id, -1)}
+                          disabled={index === 0}
+                          aria-label={`Move ${category.name} up`}
+                        >
+                          <ArrowLeftIcon />
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost-link-button gallery-manage-reorder-button"
+                          onClick={() => handleReorderCategory(category.id, 1)}
+                          disabled={index === categorySummaries.length - 1}
+                          aria-label={`Move ${category.name} down`}
+                        >
+                          <ArrowRightIcon />
+                        </button>
                         <button type="button" className="ghost-link-button" onClick={() => setCategoryEditorDraft({ categoryId: category.id, name: category.name, color: category.color, icon: category.icon })}>Edit</button>
                         {category.slug !== FALLBACK_MEDIA_CATEGORY_SLUG ? (
                           <button type="button" className="ghost-link-button is-danger" onClick={() => void handleDeleteCategory(category.id)}>Delete</button>
