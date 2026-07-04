@@ -12213,6 +12213,10 @@ th {
   gap: 1.25rem;
 }
 
+.media-editor-layout--crop-only {
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 320px);
+}
+
 .media-editor-sidebar {
   display: grid;
   gap: 1rem;
