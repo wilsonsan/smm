@@ -3,7 +3,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { fileTypeFromBuffer } from "file-type";
-import { MediaVariantType } from "@prisma/client";
+import { MediaVariantType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { getAppSettings, getUploadDirectory } from "@/lib/settings";
@@ -88,6 +88,23 @@ export type ClearGalleryLibraryResult = {
   deletedFileCount: number;
   missingFileCount: number;
   failedFileDeleteCount: number;
+};
+
+export type MediaAssetEditInput = {
+  mediaAssetId: string;
+  crop: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  zoom: number;
+  rotation: number;
+  flipHorizontal: boolean;
+  flipVertical: boolean;
+  aspectRatio: string;
+  annotations?: unknown;
+  uploadBasePath?: string;
 };
 
 export function resolveUploadBasePath(configuredPath: string) {
@@ -931,8 +948,10 @@ export async function deleteStoredMediaAsset(input: {
   let deletedFileCount = 0;
   let missingFileCount = 0;
 
-  for (const variant of mediaAsset.variants) {
-    const absolutePath = ensureSafeAbsolutePath(uploadBasePath, variant.storagePath);
+  const uniqueStoragePaths = new Set<string>([mediaAsset.storagePath, ...mediaAsset.variants.map((variant) => variant.storagePath)]);
+
+  for (const storagePath of uniqueStoragePaths) {
+    const absolutePath = ensureSafeAbsolutePath(uploadBasePath, storagePath);
     try {
       await unlink(absolutePath);
       deletedFileCount += 1;
@@ -1210,6 +1229,455 @@ export async function ensureGalleryVariantsForMediaAsset(input: {
     });
   } catch (error) {
     await Promise.all(createdVariants.map((variant) => unlink(variant.absolutePath).catch(() => undefined)));
+    throw error;
+  }
+}
+
+function getMediaVariantRecord(
+  variants: Array<{
+    id: string;
+    variantType: MediaVariantType;
+    mimeType: string;
+    sizeBytes: bigint;
+    width: number;
+    height: number;
+    storagePath: string;
+  }>,
+  variantType: MediaVariantType,
+) {
+  return variants.find((variant) => variant.variantType === variantType) ?? null;
+}
+
+function clampCropRegion(input: {
+  crop: MediaAssetEditInput["crop"];
+  sourceWidth: number;
+  sourceHeight: number;
+}) {
+  const x = Math.max(0, Math.min(Math.round(input.crop.x), Math.max(0, input.sourceWidth - 1)));
+  const y = Math.max(0, Math.min(Math.round(input.crop.y), Math.max(0, input.sourceHeight - 1)));
+  const width = Math.max(1, Math.min(Math.round(input.crop.width), input.sourceWidth - x));
+  const height = Math.max(1, Math.min(Math.round(input.crop.height), input.sourceHeight - y));
+
+  return {
+    left: x,
+    top: y,
+    width,
+    height,
+  };
+}
+
+async function buildEditedMediaBuffer(input: {
+  sourceBuffer: Buffer;
+  crop: MediaAssetEditInput["crop"];
+  rotation: number;
+  flipHorizontal: boolean;
+  flipVertical: boolean;
+}) {
+  let transformedBuffer = await sharp(input.sourceBuffer, { failOn: "none" })
+    .rotate(input.rotation, { background: LIGHT_BACKGROUND })
+    .flop(input.flipHorizontal)
+    .flip(input.flipVertical)
+    .toColorspace("srgb")
+    .toBuffer();
+
+  const transformedMetadata = await getImageMetadata(transformedBuffer, JPEG_MIME_TYPE);
+  const extractRegion = clampCropRegion({
+    crop: input.crop,
+    sourceWidth: transformedMetadata.width,
+    sourceHeight: transformedMetadata.height,
+  });
+
+  return sharp(transformedBuffer, { failOn: "none" })
+    .extract(extractRegion)
+    .flatten({ background: LIGHT_BACKGROUND })
+    .jpeg({
+      quality: 92,
+      progressive: false,
+      force: true,
+    })
+    .toBuffer();
+}
+
+async function saveActiveEditedFile(input: {
+  occurredAt: Date;
+  outputBuffer: Buffer;
+  uploadBasePath: string;
+}) {
+  const storagePath = buildStoragePath(["edited", ...getDetailedDatedPathSegments(input.occurredAt)], "jpg");
+  const metadata = await getImageMetadata(input.outputBuffer, JPEG_MIME_TYPE);
+  const absolutePath = await writeStoredFile(input.uploadBasePath, storagePath, input.outputBuffer);
+
+  return {
+    absolutePath,
+    height: metadata.height,
+    mimeType: JPEG_MIME_TYPE,
+    sizeBytes: BigInt(input.outputBuffer.byteLength),
+    storagePath,
+    width: metadata.width,
+  };
+}
+
+function buildMediaEditHistory(input: {
+  crop: MediaAssetEditInput["crop"];
+  zoom: number;
+  rotation: number;
+  flipHorizontal: boolean;
+  flipVertical: boolean;
+  aspectRatio: string;
+  annotations?: unknown;
+  occurredAt: Date;
+}) {
+  const editHistory: Prisma.InputJsonValue = {
+    crop: {
+      x: Math.round(input.crop.x),
+      y: Math.round(input.crop.y),
+      width: Math.round(input.crop.width),
+      height: Math.round(input.crop.height),
+    },
+    zoom: input.zoom,
+    rotation: input.rotation,
+    flipHorizontal: input.flipHorizontal,
+    flipVertical: input.flipVertical,
+    aspectRatio: input.aspectRatio,
+    annotationsEnabled: Boolean(input.annotations),
+    savedAt: input.occurredAt.toISOString(),
+  };
+
+  return editHistory;
+}
+
+export async function saveEditedMediaAsset(input: MediaAssetEditInput) {
+  const uploadBasePath =
+    input.uploadBasePath ??
+    resolveUploadBasePath((await getUploadDirectory()) || env.UPLOAD_DIR);
+  const occurredAt = new Date();
+  const mediaAsset = await prisma.mediaAsset.findUnique({
+    where: { id: input.mediaAssetId },
+    include: {
+      variants: {
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+
+  if (!mediaAsset) {
+    throw new Error("This media asset no longer exists.");
+  }
+
+  const originalVariant =
+    getMediaVariantRecord(mediaAsset.variants, MediaVariantType.ORIGINAL) ??
+    ({
+      id: `${mediaAsset.id}-synthetic-original`,
+      variantType: MediaVariantType.ORIGINAL,
+      mimeType: mediaAsset.mimeType,
+      sizeBytes: mediaAsset.sizeBytes,
+      width: mediaAsset.width,
+      height: mediaAsset.height,
+      storagePath: mediaAsset.storagePath,
+    } as const);
+
+  if (!isSupportedStoredImageMimeType(originalVariant.mimeType)) {
+    throw new Error("This file type cannot be edited in the photo editor.");
+  }
+
+  const { sourceBuffer } = await readStoredMediaBuffer(originalVariant.storagePath);
+  const createdFiles: Array<{ absolutePath: string; storagePath: string }> = [];
+  const previousThumbnail = getMediaVariantRecord(mediaAsset.variants, MediaVariantType.GALLERY_THUMBNAIL);
+  const previousPreview = getMediaVariantRecord(mediaAsset.variants, MediaVariantType.GALLERY_PREVIEW);
+
+  try {
+    const editedBuffer = await buildEditedMediaBuffer({
+      sourceBuffer,
+      crop: input.crop,
+      rotation: input.rotation,
+      flipHorizontal: input.flipHorizontal,
+      flipVertical: input.flipVertical,
+    });
+
+    const activeFile = await saveActiveEditedFile({
+      occurredAt,
+      outputBuffer: editedBuffer,
+      uploadBasePath,
+    });
+    createdFiles.push({ absolutePath: activeFile.absolutePath, storagePath: activeFile.storagePath });
+
+    const thumbnailVariant = await generateGalleryThumbnailVariant({
+      occurredAt,
+      sourceBuffer: editedBuffer,
+      sourceMimeType: activeFile.mimeType,
+      uploadBasePath,
+    });
+    createdFiles.push({ absolutePath: thumbnailVariant.absolutePath, storagePath: thumbnailVariant.storagePath });
+
+    const previewVariant = await generateGalleryPreviewVariant({
+      occurredAt,
+      sourceBuffer: editedBuffer,
+      sourceMimeType: activeFile.mimeType,
+      uploadBasePath,
+    });
+    createdFiles.push({ absolutePath: previewVariant.absolutePath, storagePath: previewVariant.storagePath });
+
+    await prisma.$transaction(async (tx) => {
+      if (!getMediaVariantRecord(mediaAsset.variants, MediaVariantType.ORIGINAL)) {
+        await tx.mediaVariant.create({
+          data: {
+            mediaAssetId: mediaAsset.id,
+            variantType: MediaVariantType.ORIGINAL,
+            mimeType: mediaAsset.mimeType,
+            sizeBytes: mediaAsset.sizeBytes,
+            width: mediaAsset.width,
+            height: mediaAsset.height,
+            storagePath: mediaAsset.storagePath,
+          },
+        });
+      }
+
+      await tx.mediaAsset.update({
+        where: { id: mediaAsset.id },
+        data: {
+          mimeType: activeFile.mimeType,
+          sizeBytes: activeFile.sizeBytes,
+          width: activeFile.width,
+          height: activeFile.height,
+          storagePath: activeFile.storagePath,
+          isEdited: true,
+          editedAt: occurredAt,
+          editHistoryJson: buildMediaEditHistory({
+            crop: input.crop,
+            zoom: input.zoom,
+            rotation: input.rotation,
+            flipHorizontal: input.flipHorizontal,
+            flipVertical: input.flipVertical,
+            aspectRatio: input.aspectRatio,
+            annotations: input.annotations,
+            occurredAt,
+          }),
+        },
+      });
+
+      await tx.mediaVariant.upsert({
+        where: {
+          mediaAssetId_variantType: {
+            mediaAssetId: mediaAsset.id,
+            variantType: MediaVariantType.GALLERY_THUMBNAIL,
+          },
+        },
+        update: {
+          mimeType: thumbnailVariant.mimeType,
+          sizeBytes: thumbnailVariant.sizeBytes,
+          width: thumbnailVariant.width,
+          height: thumbnailVariant.height,
+          storagePath: thumbnailVariant.storagePath,
+        },
+        create: {
+          mediaAssetId: mediaAsset.id,
+          variantType: MediaVariantType.GALLERY_THUMBNAIL,
+          mimeType: thumbnailVariant.mimeType,
+          sizeBytes: thumbnailVariant.sizeBytes,
+          width: thumbnailVariant.width,
+          height: thumbnailVariant.height,
+          storagePath: thumbnailVariant.storagePath,
+        },
+      });
+
+      await tx.mediaVariant.upsert({
+        where: {
+          mediaAssetId_variantType: {
+            mediaAssetId: mediaAsset.id,
+            variantType: MediaVariantType.GALLERY_PREVIEW,
+          },
+        },
+        update: {
+          mimeType: previewVariant.mimeType,
+          sizeBytes: previewVariant.sizeBytes,
+          width: previewVariant.width,
+          height: previewVariant.height,
+          storagePath: previewVariant.storagePath,
+        },
+        create: {
+          mediaAssetId: mediaAsset.id,
+          variantType: MediaVariantType.GALLERY_PREVIEW,
+          mimeType: previewVariant.mimeType,
+          sizeBytes: previewVariant.sizeBytes,
+          width: previewVariant.width,
+          height: previewVariant.height,
+          storagePath: previewVariant.storagePath,
+        },
+      });
+    });
+
+    const replacedStoragePaths = new Set<string>();
+    if (mediaAsset.storagePath !== originalVariant.storagePath && mediaAsset.storagePath !== activeFile.storagePath) {
+      replacedStoragePaths.add(mediaAsset.storagePath);
+    }
+    if (previousThumbnail && previousThumbnail.storagePath !== thumbnailVariant.storagePath) {
+      replacedStoragePaths.add(previousThumbnail.storagePath);
+    }
+    if (previousPreview && previousPreview.storagePath !== previewVariant.storagePath) {
+      replacedStoragePaths.add(previousPreview.storagePath);
+    }
+
+    await Promise.all(
+      [...replacedStoragePaths].map((storagePath) =>
+        deleteStoredFile(storagePath, { uploadBasePath }).catch(() => undefined),
+      ),
+    );
+
+    return prisma.mediaAsset.findUniqueOrThrow({
+      where: { id: mediaAsset.id },
+      include: {
+        variants: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+  } catch (error) {
+    await Promise.all(createdFiles.map((file) => unlink(file.absolutePath).catch(() => undefined)));
+    throw error;
+  }
+}
+
+export async function revertEditedMediaAssetToOriginal(input: {
+  mediaAssetId: string;
+  uploadBasePath?: string;
+}) {
+  const uploadBasePath =
+    input.uploadBasePath ??
+    resolveUploadBasePath((await getUploadDirectory()) || env.UPLOAD_DIR);
+  const occurredAt = new Date();
+  const mediaAsset = await prisma.mediaAsset.findUnique({
+    where: { id: input.mediaAssetId },
+    include: {
+      variants: {
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+
+  if (!mediaAsset) {
+    throw new Error("This media asset no longer exists.");
+  }
+
+  const originalVariant = getMediaVariantRecord(mediaAsset.variants, MediaVariantType.ORIGINAL);
+  if (!originalVariant) {
+    throw new Error("The original uploaded file is missing, so this image cannot be reverted.");
+  }
+
+  const { sourceBuffer } = await readStoredMediaBuffer(originalVariant.storagePath);
+  const createdFiles: Array<{ absolutePath: string; storagePath: string }> = [];
+  const previousThumbnail = getMediaVariantRecord(mediaAsset.variants, MediaVariantType.GALLERY_THUMBNAIL);
+  const previousPreview = getMediaVariantRecord(mediaAsset.variants, MediaVariantType.GALLERY_PREVIEW);
+
+  try {
+    const thumbnailVariant = await generateGalleryThumbnailVariant({
+      occurredAt,
+      sourceBuffer,
+      sourceMimeType: originalVariant.mimeType,
+      uploadBasePath,
+    });
+    createdFiles.push({ absolutePath: thumbnailVariant.absolutePath, storagePath: thumbnailVariant.storagePath });
+
+    const previewVariant = await generateGalleryPreviewVariant({
+      occurredAt,
+      sourceBuffer,
+      sourceMimeType: originalVariant.mimeType,
+      uploadBasePath,
+    });
+    createdFiles.push({ absolutePath: previewVariant.absolutePath, storagePath: previewVariant.storagePath });
+
+    await prisma.$transaction(async (tx) => {
+      await tx.mediaAsset.update({
+        where: { id: mediaAsset.id },
+        data: {
+          mimeType: originalVariant.mimeType,
+          sizeBytes: originalVariant.sizeBytes,
+          width: originalVariant.width,
+          height: originalVariant.height,
+          storagePath: originalVariant.storagePath,
+          isEdited: false,
+          editedAt: null,
+          editHistoryJson: Prisma.JsonNull,
+        },
+      });
+
+      await tx.mediaVariant.upsert({
+        where: {
+          mediaAssetId_variantType: {
+            mediaAssetId: mediaAsset.id,
+            variantType: MediaVariantType.GALLERY_THUMBNAIL,
+          },
+        },
+        update: {
+          mimeType: thumbnailVariant.mimeType,
+          sizeBytes: thumbnailVariant.sizeBytes,
+          width: thumbnailVariant.width,
+          height: thumbnailVariant.height,
+          storagePath: thumbnailVariant.storagePath,
+        },
+        create: {
+          mediaAssetId: mediaAsset.id,
+          variantType: MediaVariantType.GALLERY_THUMBNAIL,
+          mimeType: thumbnailVariant.mimeType,
+          sizeBytes: thumbnailVariant.sizeBytes,
+          width: thumbnailVariant.width,
+          height: thumbnailVariant.height,
+          storagePath: thumbnailVariant.storagePath,
+        },
+      });
+
+      await tx.mediaVariant.upsert({
+        where: {
+          mediaAssetId_variantType: {
+            mediaAssetId: mediaAsset.id,
+            variantType: MediaVariantType.GALLERY_PREVIEW,
+          },
+        },
+        update: {
+          mimeType: previewVariant.mimeType,
+          sizeBytes: previewVariant.sizeBytes,
+          width: previewVariant.width,
+          height: previewVariant.height,
+          storagePath: previewVariant.storagePath,
+        },
+        create: {
+          mediaAssetId: mediaAsset.id,
+          variantType: MediaVariantType.GALLERY_PREVIEW,
+          mimeType: previewVariant.mimeType,
+          sizeBytes: previewVariant.sizeBytes,
+          width: previewVariant.width,
+          height: previewVariant.height,
+          storagePath: previewVariant.storagePath,
+        },
+      });
+    });
+
+    const replacedStoragePaths = new Set<string>();
+    if (mediaAsset.storagePath !== originalVariant.storagePath) {
+      replacedStoragePaths.add(mediaAsset.storagePath);
+    }
+    if (previousThumbnail && previousThumbnail.storagePath !== thumbnailVariant.storagePath) {
+      replacedStoragePaths.add(previousThumbnail.storagePath);
+    }
+    if (previousPreview && previousPreview.storagePath !== previewVariant.storagePath) {
+      replacedStoragePaths.add(previousPreview.storagePath);
+    }
+
+    await Promise.all(
+      [...replacedStoragePaths].map((storagePath) =>
+        deleteStoredFile(storagePath, { uploadBasePath }).catch(() => undefined),
+      ),
+    );
+
+    return prisma.mediaAsset.findUniqueOrThrow({
+      where: { id: mediaAsset.id },
+      include: {
+        variants: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+  } catch (error) {
+    await Promise.all(createdFiles.map((file) => unlink(file.absolutePath).catch(() => undefined)));
     throw error;
   }
 }

@@ -1,0 +1,4 @@
+ALTER TABLE `MediaAsset`
+  ADD COLUMN `isEdited` BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN `editedAt` DATETIME(3) NULL,
+  ADD COLUMN `editHistoryJson` JSON NULL;

@@ -91,7 +91,7 @@ const SORT_OPTIONS: Array<{ value: SortOrderValue; label: string }> = [
 ];
 
 const BULK_ACTION_OPTIONS: Array<{ value: BulkActionValue; label: string }> = [
-  { value: "assignCategories", label: "Assign Categories" },
+  { value: "assignCategories", label: "Assign Category" },
   { value: "deleteSelected", label: "Delete Selected" },
 ];
 
@@ -131,15 +131,6 @@ function CloseIcon(props: SVGProps<SVGSVGElement>) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
       <path d="m6 6 12 12" />
       <path d="M18 6 6 18" />
-    </svg>
-  );
-}
-
-function EditIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      <path d="M4 20h4.3l9.9-9.9a2.1 2.1 0 0 0 0-3l-1.3-1.3a2.1 2.1 0 0 0-3 0L4 15.7V20Z" />
-      <path d="m12.8 6.8 4.4 4.4" />
     </svg>
   );
 }
@@ -788,7 +779,7 @@ export function MediaLibraryBrowser({
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            mode: categoryDialog.mode === "single-assign" ? "assign" : "replace",
+            mode: "replace",
             categoryIds: categoryDialogSelection,
           }),
         });
@@ -804,12 +795,6 @@ export function MediaLibraryBrowser({
           current.map((asset) => (asset.id === payload.mediaAsset?.id ? payload.mediaAsset : asset)),
         );
       } else {
-        const action =
-          categoryDialog.mode === "bulk-assign"
-            ? "assignCategories"
-            : categoryDialog.mode === "bulk-replace"
-              ? "replaceCategories"
-              : "clearCategories";
         const response = await fetch("/api/admin/media-assets/bulk", {
           method: "POST",
           headers: {
@@ -817,7 +802,7 @@ export function MediaLibraryBrowser({
           },
           body: JSON.stringify({
             mediaAssetIds: categoryDialog.mediaAssetIds,
-            action,
+            action: "assignCategories",
             categoryIds: categoryDialogSelection,
           }),
         });
@@ -1111,7 +1096,8 @@ export function MediaLibraryBrowser({
                         {activeMenuAssetId === asset.id ? (
                           <div className="gallery-v2-card-menu">
                             <button type="button" className="gallery-v2-menu-item" onClick={() => { setOpenAssetId(asset.id); setActiveMenuAssetId(null); }}>Open Details</button>
-                            <button type="button" className="gallery-v2-menu-item" onClick={() => openCategoryDialogForAsset(asset.id, "single-replace")}>Assign Categories</button>
+                            <button type="button" className="gallery-v2-menu-item" onClick={() => { router.push(`/dashboard/media/${encodeURIComponent(asset.id)}/edit`); setActiveMenuAssetId(null); }}>Edit</button>
+                            <button type="button" className="gallery-v2-menu-item" onClick={() => openCategoryDialogForAsset(asset.id, "single-replace")}>Assign Category</button>
                             <button type="button" className="gallery-v2-menu-item" onClick={() => { setRenameAssetDraft({ mediaAssetId: asset.id, originalFilename: asset.originalFilename }); setActiveMenuAssetId(null); }}>Rename</button>
                             <button type="button" className="gallery-v2-menu-item is-danger" onClick={() => { setOpenAssetId(asset.id); setActiveMenuAssetId(null); }}>Delete</button>
                           </div>
@@ -1387,8 +1373,11 @@ export function MediaLibraryBrowser({
                       <button type="button" className="secondary-button" onClick={() => { closeAssetModal(); router.push(`/dashboard/posts/new?mediaId=${encodeURIComponent(openAsset.id)}`); }}>
                         Create Post
                       </button>
+                      <button type="button" className="secondary-button" onClick={() => { closeAssetModal(); router.push(`/dashboard/media/${encodeURIComponent(openAsset.id)}/edit`); }}>
+                        Edit
+                      </button>
                       <button type="button" className="secondary-button" onClick={() => openCategoryDialogForAsset(openAsset.id, "single-replace")}>
-                        Assign Categories
+                        Assign Category
                       </button>
                       <button type="button" className="secondary-button" onClick={() => setRenameAssetDraft({ mediaAssetId: openAsset.id, originalFilename: openAsset.originalFilename })}>
                         Rename
@@ -1545,8 +1534,8 @@ export function MediaLibraryBrowser({
               <div className="modal-card gallery-category-editor-modal">
                 <div className="preview-header">
                   <div>
-                    <strong>{categoryDialog.mediaAssetIds.length === 1 ? "Assign Categories" : "Bulk Category Update"}</strong>
-                    <p className="muted">Select the categories you want applied to the chosen media.</p>
+                    <strong>{categoryDialog.mediaAssetIds.length === 1 ? "Assign Category" : "Bulk Assign Category"}</strong>
+                    <p className="muted">Choose one category to apply to the selected media.</p>
                   </div>
                   <button type="button" className="ghost-link-button" onClick={() => setCategoryDialog(null)}>Close</button>
                 </div>
@@ -1559,7 +1548,7 @@ export function MediaLibraryBrowser({
                       className={`gallery-v2-category-chip${categoryDialogSelection.includes(category.id) ? " is-active" : ""}`.trim()}
                       onClick={() =>
                         setCategoryDialogSelection((current) =>
-                          current.includes(category.id) ? current.filter((id) => id !== category.id) : [...current, category.id],
+                          current.includes(category.id) ? [] : [category.id],
                         )
                       }
                     >
@@ -1574,7 +1563,7 @@ export function MediaLibraryBrowser({
                 <div className="gallery-upload-modal-actions">
                   <button type="button" className="secondary-button" onClick={() => setCategoryDialog(null)} disabled={isSavingCategoryDialog}>Cancel</button>
                   <button type="button" className="gallery-upload-button" onClick={() => void submitCategoryDialog()} disabled={isSavingCategoryDialog}>
-                    <span>{isSavingCategoryDialog ? "Saving..." : "Save Categories"}</span>
+                    <span>{isSavingCategoryDialog ? "Saving..." : "Save Category"}</span>
                   </button>
                 </div>
               </div>

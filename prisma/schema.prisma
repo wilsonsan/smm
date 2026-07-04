@@ -161,6 +161,9 @@ model MediaAsset {
   width                Int
   height               Int
   storagePath          String
+  isEdited             Boolean        @default(false)
+  editedAt             DateTime?
+  editHistoryJson      Json?
   createdByAdminUserId String
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt

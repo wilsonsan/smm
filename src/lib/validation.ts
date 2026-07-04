@@ -302,14 +302,14 @@ export const mediaCategoryReorderSchema = z.object({
 });
 
 export const mediaAssetCategoryUpdateSchema = z.object({
-  categoryIds: z.array(z.string().trim().min(1)).default([]),
+  categoryIds: z.array(z.string().trim().min(1)).max(1, "Choose only one category.").default([]),
   mode: z.enum(["assign", "replace", "clear"]).default("replace"),
 });
 
 export const bulkMediaActionSchema = z.object({
   mediaAssetIds: z.array(z.string().trim().min(1)).min(1, "Select at least one media item."),
   action: z.enum(["assignCategories", "replaceCategories", "clearCategories", "deleteSelected"]),
-  categoryIds: z.array(z.string().trim().min(1)).default([]),
+  categoryIds: z.array(z.string().trim().min(1)).max(1, "Choose only one category.").default([]),
 });
 
 export const mediaAssetRenameSchema = z.object({
@@ -320,6 +320,29 @@ export const mediaAssetRenameSchema = z.object({
     .max(180, "Filename must be 180 characters or less.")
     .refine((value) => !/[\\/:*?"<>|]/.test(value), "Remove unsupported filename characters."),
 });
+
+const mediaEditCropSchema = z.object({
+  x: z.coerce.number().min(0, "Crop x must be 0 or greater."),
+  y: z.coerce.number().min(0, "Crop y must be 0 or greater."),
+  width: z.coerce.number().positive("Crop width must be greater than 0."),
+  height: z.coerce.number().positive("Crop height must be greater than 0."),
+});
+
+export const mediaAssetEditSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("save"),
+    crop: mediaEditCropSchema,
+    zoom: z.coerce.number().min(1).max(4),
+    rotation: z.coerce.number().min(-180).max(180),
+    flipHorizontal: z.boolean().optional().default(false),
+    flipVertical: z.boolean().optional().default(false),
+    aspectRatio: z.string().trim().max(40).optional().default("free"),
+    annotations: z.any().optional(),
+  }),
+  z.object({
+    mode: z.literal("revert"),
+  }),
+]);
 
 export const facebookSettingsSchema = z.object({
   facebookAppId: z

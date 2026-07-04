@@ -19,18 +19,20 @@ export async function getExistingMediaCategoriesByIds(categoryIds: string[]) {
 }
 
 export async function replaceMediaAssetCategories(mediaAssetId: string, categoryIds: string[]) {
+  const normalizedCategoryIds = categoryIds.slice(-1);
+
   await prisma.mediaAssetCategory.deleteMany({
     where: {
       mediaAssetId,
     },
   });
 
-  if (categoryIds.length === 0) {
+  if (normalizedCategoryIds.length === 0) {
     return [];
   }
 
   await prisma.mediaAssetCategory.createMany({
-    data: categoryIds.map((mediaCategoryId) => ({
+    data: normalizedCategoryIds.map((mediaCategoryId) => ({
       mediaAssetId,
       mediaCategoryId,
     })),
@@ -53,43 +55,7 @@ export async function replaceMediaAssetCategories(mediaAssetId: string, category
 }
 
 export async function assignMediaAssetCategories(mediaAssetId: string, categoryIds: string[]) {
-  if (categoryIds.length === 0) {
-    return prisma.mediaAssetCategory.findMany({
-      where: {
-        mediaAssetId,
-      },
-      include: {
-        mediaCategory: true,
-      },
-      orderBy: {
-        mediaCategory: {
-          sortOrder: "asc",
-        },
-      },
-    });
-  }
-
-  await prisma.mediaAssetCategory.createMany({
-    data: categoryIds.map((mediaCategoryId) => ({
-      mediaAssetId,
-      mediaCategoryId,
-    })),
-    skipDuplicates: true,
-  });
-
-  return prisma.mediaAssetCategory.findMany({
-    where: {
-      mediaAssetId,
-    },
-    include: {
-      mediaCategory: true,
-    },
-    orderBy: {
-      mediaCategory: {
-        sortOrder: "asc",
-      },
-    },
-  });
+  return replaceMediaAssetCategories(mediaAssetId, categoryIds);
 }
 
 export async function updateMediaAssetCategoriesBulk(input: {
@@ -109,7 +75,7 @@ export async function updateMediaAssetCategoriesBulk(input: {
     return;
   }
 
-  if (input.mode === "replace") {
+  if (input.mode === "replace" || input.mode === "assign") {
     await prisma.mediaAssetCategory.deleteMany({
       where: {
         mediaAssetId: {
@@ -119,12 +85,14 @@ export async function updateMediaAssetCategoriesBulk(input: {
     });
   }
 
-  if (input.categoryIds.length === 0) {
+  const normalizedCategoryIds = input.categoryIds.slice(-1);
+
+  if (normalizedCategoryIds.length === 0) {
     return;
   }
 
   const rows = input.mediaAssetIds.flatMap((mediaAssetId) =>
-    input.categoryIds.map((mediaCategoryId) => ({
+    normalizedCategoryIds.map((mediaCategoryId) => ({
       mediaAssetId,
       mediaCategoryId,
     })),
