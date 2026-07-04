@@ -2,6 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
+import { ChevronDownIcon, GalleryIcon } from "@/components/dashboard-icons";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type SVGProps } from "react";
 import { createPortal } from "react-dom";
 import { MediaCategoryIcon } from "@/components/media-category-icon";
@@ -39,6 +40,18 @@ type PickerCategoryOption = {
   count: number;
 };
 
+type CategoryDropdownOption =
+  | {
+      kind: "option";
+      slug: string;
+      name: string;
+      count: number;
+      color: string;
+      icon: string;
+    }
+  | { kind: "label"; key: string; label: string }
+  | { kind: "divider"; key: string };
+
 function UploadCloudIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
@@ -61,6 +74,42 @@ function ChevronRightIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
       <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
+}
+
+function SearchIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m16 16 4 4" />
+    </svg>
+  );
+}
+
+function FilterIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M4.5 6.5h15" />
+      <path d="M7.5 12h9" />
+      <path d="M10.5 17.5h3" />
+    </svg>
+  );
+}
+
+function CloseIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="m6 6 12 12" />
+      <path d="M18 6 6 18" />
+    </svg>
+  );
+}
+
+function CheckIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="m5.5 12.5 4 4L18.5 7.5" />
     </svg>
   );
 }
@@ -112,9 +161,14 @@ export function MediaUploadField({
   const [pendingGallerySelectionIds, setPendingGallerySelectionIds] = useState<string[]>(selectedMediaAssetIds);
   const [gallerySearch, setGallerySearch] = useState("");
   const [galleryCategoryFilter, setGalleryCategoryFilter] = useState("ALL");
+  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
+  const [activeCategoryOptionIndex, setActiveCategoryOptionIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const categoryDropdownRef = useRef<HTMLDivElement | null>(null);
+  const categoryDropdownButtonRef = useRef<HTMLButtonElement | null>(null);
+  const categoryOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   useEffect(() => {
     setMediaOptions(dedupedAssets);
@@ -135,6 +189,7 @@ export function MediaUploadField({
 
     setGallerySearch("");
     setGalleryCategoryFilter("ALL");
+    setIsCategoryDropdownOpen(false);
   }, [isGalleryOpen]);
 
   const selectedMediaAssets = useMemo(
@@ -184,6 +239,66 @@ export function MediaUploadField({
     });
   }, [mediaOptions]);
 
+  const fallbackCategoryOption = useMemo(
+    () =>
+      galleryCategoryOptions.find((category) => category.slug === FALLBACK_MEDIA_CATEGORY_SLUG) ?? {
+        id: "uncategorized",
+        name: FALLBACK_MEDIA_CATEGORY_NAME,
+        slug: FALLBACK_MEDIA_CATEGORY_SLUG,
+        color: "#8f9bb3",
+        icon: "OTHER",
+        count: mediaOptions.filter((asset) => asset.categories.length === 0).length,
+      },
+    [galleryCategoryOptions, mediaOptions],
+  );
+
+  const standardCategoryOptions = useMemo(
+    () => galleryCategoryOptions.filter((category) => category.slug !== FALLBACK_MEDIA_CATEGORY_SLUG),
+    [galleryCategoryOptions],
+  );
+
+  const categoryDropdownItems = useMemo<CategoryDropdownOption[]>(
+    () => [
+      {
+        kind: "option",
+        slug: "ALL",
+        name: "All Categories",
+        count: mediaOptions.length,
+        color: "#7d67ff",
+        icon: "OTHER",
+      },
+      {
+        kind: "option",
+        slug: fallbackCategoryOption.slug,
+        name: fallbackCategoryOption.name,
+        count: fallbackCategoryOption.count,
+        color: fallbackCategoryOption.color,
+        icon: fallbackCategoryOption.icon,
+      },
+      { kind: "divider", key: "category-divider" },
+      ...(standardCategoryOptions.length > 0 ? [{ kind: "label" as const, key: "category-label", label: "Categories" }] : []),
+      ...standardCategoryOptions.map((category) => ({
+        kind: "option" as const,
+        slug: category.slug,
+        name: category.name,
+        count: category.count,
+        color: category.color,
+        icon: category.icon,
+      })),
+    ],
+    [fallbackCategoryOption, mediaOptions.length, standardCategoryOptions],
+  );
+
+  const categoryDropdownOptions = useMemo(
+    () => categoryDropdownItems.filter((item): item is Extract<CategoryDropdownOption, { kind: "option" }> => item.kind === "option"),
+    [categoryDropdownItems],
+  );
+
+  const selectedCategoryDropdownOption = useMemo(
+    () => categoryDropdownOptions.find((item) => item.slug === galleryCategoryFilter) ?? categoryDropdownOptions[0],
+    [categoryDropdownOptions, galleryCategoryFilter],
+  );
+
   const filteredGalleryAssets = useMemo(() => {
     const normalizedSearch = gallerySearch.trim().toLowerCase();
 
@@ -227,6 +342,45 @@ export function MediaUploadField({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isGalleryOpen]);
+
+  useEffect(() => {
+    if (!isCategoryDropdownOpen) {
+      return;
+    }
+
+    const selectedIndex = Math.max(
+      0,
+      categoryDropdownOptions.findIndex((option) => option.slug === galleryCategoryFilter),
+    );
+    setActiveCategoryOptionIndex(selectedIndex);
+  }, [categoryDropdownOptions, galleryCategoryFilter, isCategoryDropdownOpen]);
+
+  useEffect(() => {
+    if (!isCategoryDropdownOpen) {
+      return;
+    }
+
+    const option = categoryOptionRefs.current[activeCategoryOptionIndex];
+    option?.focus();
+  }, [activeCategoryOptionIndex, isCategoryDropdownOpen]);
+
+  useEffect(() => {
+    if (!isCategoryDropdownOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node | null;
+      if (target && categoryDropdownRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsCategoryDropdownOpen(false);
+    }
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, [isCategoryDropdownOpen]);
 
   useEffect(() => {
     if (!isGalleryOpen) {
@@ -414,6 +568,63 @@ export function MediaUploadField({
     }
   }
 
+  function selectGalleryCategory(slug: string) {
+    setGalleryCategoryFilter(slug);
+    setGalleryPage(1);
+    setIsCategoryDropdownOpen(false);
+    categoryDropdownButtonRef.current?.focus();
+  }
+
+  function handleCategoryDropdownKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const selectedIndex = Math.max(
+        0,
+        categoryDropdownOptions.findIndex((option) => option.slug === galleryCategoryFilter),
+      );
+      setActiveCategoryOptionIndex(selectedIndex);
+      setIsCategoryDropdownOpen(true);
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      setIsCategoryDropdownOpen((current) => !current);
+    }
+  }
+
+  function handleCategoryOptionKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, optionIndex: number) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveCategoryOptionIndex((optionIndex + 1) % categoryDropdownOptions.length);
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveCategoryOptionIndex((optionIndex - 1 + categoryDropdownOptions.length) % categoryDropdownOptions.length);
+      return;
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault();
+      setActiveCategoryOptionIndex(0);
+      return;
+    }
+
+    if (event.key === "End") {
+      event.preventDefault();
+      setActiveCategoryOptionIndex(categoryDropdownOptions.length - 1);
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setIsCategoryDropdownOpen(false);
+      categoryDropdownButtonRef.current?.focus();
+    }
+  }
+
   return (
     <div className="composer-media-stack">
       <div
@@ -568,20 +779,27 @@ export function MediaUploadField({
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Browse gallery">
           <button type="button" className="modal-dismiss-surface" aria-label="Close gallery picker" onClick={() => setIsGalleryOpen(false)} />
           <div className="modal-card composer-gallery-picker-modal">
-            <div className="preview-header">
-              <div>
-                <strong>Browse Gallery</strong>
-                <p className="muted">
-                  {pendingGallerySelectionIds.length} selected - Attach up to {maxMediaCount} image{maxMediaCount === 1 ? "" : "s"}.
-                </p>
+            <div className="composer-gallery-picker-header">
+              <div className="composer-gallery-picker-header-copy">
+                <span className="composer-gallery-picker-header-icon">
+                  <GalleryIcon />
+                </span>
+                <div>
+                  <strong>Browse Gallery</strong>
+                  <p className="muted">
+                    {pendingGallerySelectionIds.length} selected • Attach up to {maxMediaCount} image{maxMediaCount === 1 ? "" : "s"}.
+                  </p>
+                </div>
               </div>
-              <button type="button" className="ghost-link-button" onClick={() => setIsGalleryOpen(false)}>
-                Close
+              <button type="button" className="composer-gallery-picker-close" onClick={() => setIsGalleryOpen(false)} aria-label="Close gallery picker">
+                <CloseIcon />
               </button>
             </div>
+            <div className="composer-gallery-picker-divider" />
 
             <div className="composer-gallery-picker-toolbar">
-              <label className="gallery-search-field composer-gallery-picker-search">
+              <label className="composer-gallery-picker-search">
+                <SearchIcon />
                 <input
                   type="search"
                   value={gallerySearch}
@@ -589,19 +807,86 @@ export function MediaUploadField({
                   placeholder="Search gallery"
                 />
               </label>
-              <select
-                value={galleryCategoryFilter}
-                onChange={(event) => setGalleryCategoryFilter(event.target.value)}
-                className="gallery-filter-select composer-gallery-picker-filter"
-              >
-                <option value="ALL">All Categories</option>
-                {galleryCategoryOptions.map((category) => (
-                  <option key={category.slug} value={category.slug}>
-                    {category.name} ({category.count})
-                  </option>
-                ))}
-              </select>
+              <div className={`composer-gallery-picker-category-dropdown${isCategoryDropdownOpen ? " is-open" : ""}`.trim()} ref={categoryDropdownRef}>
+                <button
+                  ref={categoryDropdownButtonRef}
+                  type="button"
+                  className="composer-gallery-picker-category-trigger"
+                  onClick={() => setIsCategoryDropdownOpen((current) => !current)}
+                  onKeyDown={handleCategoryDropdownKeyDown}
+                  aria-haspopup="listbox"
+                  aria-expanded={isCategoryDropdownOpen}
+                >
+                  <span className="composer-gallery-picker-category-trigger-copy">
+                    <span className="composer-gallery-picker-category-trigger-icon" style={{ backgroundColor: selectedCategoryDropdownOption?.color ?? "#7d67ff" }}>
+                      <MediaCategoryIcon icon={(selectedCategoryDropdownOption?.icon ?? "OTHER") as never} className="composer-gallery-picker-category-trigger-icon-svg" />
+                    </span>
+                    <span>{selectedCategoryDropdownOption?.name ?? "All Categories"}</span>
+                  </span>
+                  <ChevronDownIcon className="composer-gallery-picker-category-chevron" />
+                </button>
+
+                {isCategoryDropdownOpen ? (
+                  <div className="composer-gallery-picker-category-menu" role="listbox" aria-label="Filter gallery by category">
+                    {categoryDropdownItems.map((item) => {
+                      if (item.kind === "divider") {
+                        return <div key={item.key} className="composer-gallery-picker-category-divider" />;
+                      }
+
+                      if (item.kind === "label") {
+                        return (
+                          <div key={item.key} className="composer-gallery-picker-category-section-label">
+                            {item.label}
+                          </div>
+                        );
+                      }
+
+                      const optionIndex = categoryDropdownOptions.findIndex((option) => option.slug === item.slug);
+                      const isSelected = galleryCategoryFilter === item.slug;
+                      const isAllOption = item.slug === "ALL";
+                      const itemLabel = isAllOption ? item.name : `${item.name} (${item.count})`;
+
+                      return (
+                        <button
+                          key={item.slug}
+                          ref={(element) => {
+                            categoryOptionRefs.current[optionIndex] = element;
+                          }}
+                          type="button"
+                          role="option"
+                          aria-selected={isSelected}
+                          className={`composer-gallery-picker-category-option${isSelected ? " is-selected" : ""}`.trim()}
+                          onClick={() => selectGalleryCategory(item.slug)}
+                          onKeyDown={(event) => handleCategoryOptionKeyDown(event, optionIndex)}
+                        >
+                          <span className="composer-gallery-picker-category-option-copy">
+                            <span className="composer-gallery-picker-category-option-icon" style={{ backgroundColor: item.color }}>
+                              <MediaCategoryIcon icon={item.icon as never} className="composer-gallery-picker-category-option-icon-svg" />
+                            </span>
+                            <span className="composer-gallery-picker-category-option-text">
+                              <span>{item.name}</span>
+                              {!isAllOption ? <span>{item.count}</span> : null}
+                            </span>
+                          </span>
+                          {isSelected ? (
+                            <span className="composer-gallery-picker-category-option-check">
+                              <CheckIcon />
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+
+              <button type="button" className="composer-gallery-picker-filter-button" aria-label="Additional gallery filters coming soon">
+                <FilterIcon />
+                <span>Filters</span>
+              </button>
             </div>
+
+            <div className="composer-gallery-picker-divider" />
 
             <div className="composer-gallery-picker-grid">
               {galleryVisibleAssets.map((asset) => {
@@ -621,6 +906,9 @@ export function MediaUploadField({
                     aria-pressed={isSelected}
                   >
                     <div className="composer-gallery-picker-thumb-wrap">
+                      <span className={`composer-gallery-picker-selection-circle${isSelected ? " is-selected" : ""}`.trim()}>
+                        {isSelected ? <CheckIcon /> : null}
+                      </span>
                       {previewVariant ? (
                         <img
                           src={getMediaVariantUrl(previewVariant.id)}
@@ -636,7 +924,6 @@ export function MediaUploadField({
                         postedPlatforms={asset.postedPlatforms}
                         className="gallery-posted-badges composer-gallery-picker-badges"
                       />
-                      {isSelected ? <span className="composer-gallery-picker-check">Selected</span> : null}
                     </div>
                     <div className="composer-gallery-picker-meta">
                       <strong>{asset.originalFilename}</strong>
@@ -682,7 +969,12 @@ export function MediaUploadField({
                 <button type="button" className="secondary-button" onClick={() => setIsGalleryOpen(false)}>
                   Cancel
                 </button>
-                <button type="button" className="composer-action-button is-blue" onClick={confirmGallerySelection}>
+                <button
+                  type="button"
+                  className="composer-action-button is-blue"
+                  onClick={confirmGallerySelection}
+                  disabled={pendingGallerySelectionIds.length === 0}
+                >
                   Attach Selected
                 </button>
               </div>
