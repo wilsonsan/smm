@@ -17,8 +17,18 @@ import {
   getFallbackDisplayCategory,
 } from "@/lib/media-gallery";
 import type { MediaAssetGallerySummary } from "@/lib/media-presentation";
-import { formatBytes, getMediaVariantUrl, getPreferredPreviewVariant } from "@/lib/media-presentation";
-import { FALLBACK_MEDIA_CATEGORY_SLUG, MEDIA_CATEGORY_ICON_OPTIONS } from "@/lib/media-categories";
+import {
+  formatBytes,
+  getGalleryPreviewVariant,
+  getGalleryThumbnailVariant,
+  getMediaVariantUrl,
+  getOriginalVariant,
+} from "@/lib/media-presentation";
+import {
+  FALLBACK_MEDIA_CATEGORY_SLUG,
+  MEDIA_CATEGORY_COLOR_OPTIONS,
+  MEDIA_CATEGORY_ICON_OPTIONS,
+} from "@/lib/media-categories";
 
 type MediaLibraryBrowserProps = {
   assets: MediaAssetGallerySummary[];
@@ -895,22 +905,23 @@ export function MediaLibraryBrowser({
     }
   }
 
-  const openAssetPreviewVariant = openAsset ? getPreferredPreviewVariant(openAsset.variants) : null;
-  const openAssetMediaUrl = openAssetPreviewVariant ? getMediaVariantUrl(openAssetPreviewVariant.id) : null;
+  const openAssetPreviewVariant = openAsset ? getGalleryPreviewVariant(openAsset.variants) ?? getOriginalVariant(openAsset.variants) : null;
+  const openAssetOriginalVariant = openAsset ? getOriginalVariant(openAsset.variants) : null;
+  const openAssetPreviewUrl = openAssetPreviewVariant ? getMediaVariantUrl(openAssetPreviewVariant.id) : null;
+  const openAssetOriginalUrl = openAssetOriginalVariant ? getMediaVariantUrl(openAssetOriginalVariant.id) : openAssetPreviewUrl;
 
   return (
     <>
       <section className="gallery-v2-shell">
         <header className="gallery-v2-header">
-          <div className="gallery-v2-header-copy">
-            <div className="gallery-v2-title-pill">
-              <GalleryIcon />
+            <div className="gallery-v2-header-copy">
+              <div className="gallery-v2-title-pill">
+                <GalleryIcon />
+              </div>
+              <div>
+                <h1>Gallery</h1>
+              </div>
             </div>
-            <div>
-              <h1>Gallery</h1>
-              <p>Organize your media and assign categories to easily find content when creating posts.</p>
-            </div>
-          </div>
 
           <div className="gallery-v2-header-actions">
             <div className={`gallery-v2-bulk-menu${bulkMenuOpen ? " is-open" : ""}`.trim()}>
@@ -1039,7 +1050,7 @@ export function MediaLibraryBrowser({
             ) : viewMode === "GRID" ? (
               <section className="gallery-v2-grid">
                 {visibleAssets.map((asset) => {
-                  const previewVariant = getPreferredPreviewVariant(asset.variants);
+                  const previewVariant = getGalleryThumbnailVariant(asset.variants) ?? getGalleryPreviewVariant(asset.variants) ?? getOriginalVariant(asset.variants);
                   const displayCategory = getFallbackDisplayCategory(categorySummaries, asset.categories);
                   const isSelected = selectedAssetIds.includes(asset.id);
 
@@ -1079,7 +1090,13 @@ export function MediaLibraryBrowser({
 
                         <button type="button" className="gallery-v2-card-thumb-button" onClick={() => setOpenAssetId(asset.id)}>
                           {previewVariant ? (
-                            <img src={getMediaVariantUrl(previewVariant.id)} alt={asset.originalFilename} className="gallery-v2-card-thumb" />
+                            <img
+                              src={getMediaVariantUrl(previewVariant.id)}
+                              alt={asset.originalFilename}
+                              className="gallery-v2-card-thumb"
+                              loading="lazy"
+                              decoding="async"
+                            />
                           ) : (
                             <div className="gallery-v2-card-thumb-fallback">No preview</div>
                           )}
@@ -1108,7 +1125,7 @@ export function MediaLibraryBrowser({
               <section className="gallery-v2-list panel">
                 <div className="panel-body">
                   {visibleAssets.map((asset) => {
-                    const previewVariant = getPreferredPreviewVariant(asset.variants);
+                    const previewVariant = getGalleryThumbnailVariant(asset.variants) ?? getGalleryPreviewVariant(asset.variants) ?? getOriginalVariant(asset.variants);
                     const displayCategory = getFallbackDisplayCategory(categorySummaries, asset.categories);
                     const isSelected = selectedAssetIds.includes(asset.id);
 
@@ -1127,7 +1144,17 @@ export function MediaLibraryBrowser({
                           <span />
                         </label>
                         <button type="button" className="gallery-v2-list-thumb-button" onClick={() => setOpenAssetId(asset.id)}>
-                          {previewVariant ? <img src={getMediaVariantUrl(previewVariant.id)} alt={asset.originalFilename} className="gallery-v2-list-thumb" /> : <div className="gallery-v2-card-thumb-fallback">No preview</div>}
+                          {previewVariant ? (
+                            <img
+                              src={getMediaVariantUrl(previewVariant.id)}
+                              alt={asset.originalFilename}
+                              className="gallery-v2-list-thumb"
+                              loading="lazy"
+                              decoding="async"
+                            />
+                          ) : (
+                            <div className="gallery-v2-card-thumb-fallback">No preview</div>
+                          )}
                         </button>
                         <div className="gallery-v2-list-copy">
                           <strong>{asset.originalFilename}</strong>
@@ -1249,7 +1276,6 @@ export function MediaLibraryBrowser({
                     <span style={{ width: "24%" }} />
                   </div>
                   <strong>{formatBytes(trackedStorageBytes)} tracked</strong>
-                  <p>Original uploads currently stored in the gallery. Storage limit is ready when you decide to set one.</p>
                 </div>
               </div>
             </section>
@@ -1348,9 +1374,9 @@ export function MediaLibraryBrowser({
 
                 <div className="media-modal-layout">
                   <div className="media-modal-preview">
-                    {openAssetMediaUrl ? (
-                      <a href={openAssetMediaUrl} target="_blank" rel="noopener noreferrer" className="media-modal-image-link" title="Open original image in a new tab">
-                        <span aria-hidden="true" className="media-modal-image" style={{ backgroundImage: `url(${openAssetMediaUrl})` }} />
+                    {openAssetPreviewUrl ? (
+                      <a href={openAssetOriginalUrl ?? openAssetPreviewUrl} target="_blank" rel="noopener noreferrer" className="media-modal-image-link" title="Open original image in a new tab">
+                        <span aria-hidden="true" className="media-modal-image" style={{ backgroundImage: `url(${openAssetPreviewUrl})` }} />
                       </a>
                     ) : (
                       <div className="gallery-asset-thumb-fallback">No preview available</div>
@@ -1474,7 +1500,18 @@ export function MediaLibraryBrowser({
 
                 <div className="field">
                   <label>Color</label>
-                  <input type="color" value={categoryEditorDraft.color} onChange={(event) => setCategoryEditorDraft((current) => current ? { ...current, color: event.target.value } : current)} />
+                  <div className="gallery-v2-color-grid">
+                    {MEDIA_CATEGORY_COLOR_OPTIONS.map((colorOption) => (
+                      <button
+                        key={colorOption}
+                        type="button"
+                        className={`gallery-v2-color-choice${categoryEditorDraft.color === colorOption ? " is-active" : ""}`.trim()}
+                        onClick={() => setCategoryEditorDraft((current) => current ? { ...current, color: colorOption } : current)}
+                        aria-label={`Choose color ${colorOption}`}
+                        style={{ backgroundColor: colorOption }}
+                      />
+                    ))}
+                  </div>
                 </div>
 
                 <div className="field">

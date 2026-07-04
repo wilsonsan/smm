@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import {
   formatBytes,
   formatDimensions,
+  getGalleryPreviewVariant,
   getMediaVariantUrl,
-  getPreferredPreviewVariant,
-  getVariantByType,
+  getGalleryThumbnailVariant,
+  getOriginalVariant,
   type MediaAssetSummary,
 } from "@/lib/media-presentation";
 
@@ -22,14 +23,12 @@ export function MediaAssetGallery({
   showComposerHint = false,
 }: MediaAssetGalleryProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const originalVariant = useMemo(() => getVariantByType(mediaAsset.variants, "ORIGINAL"), [mediaAsset.variants]);
-  const displayVariant = useMemo(() => {
-    if (originalVariant && originalVariant.mimeType !== "image/heic" && originalVariant.mimeType !== "image/heif") {
-      return originalVariant;
-    }
-
-    return getPreferredPreviewVariant(mediaAsset.variants);
-  }, [mediaAsset.variants, originalVariant]);
+  const originalVariant = useMemo(() => getOriginalVariant(mediaAsset.variants), [mediaAsset.variants]);
+  const thumbnailVariant = useMemo(() => getGalleryThumbnailVariant(mediaAsset.variants), [mediaAsset.variants]);
+  const previewVariant = useMemo(
+    () => getGalleryPreviewVariant(mediaAsset.variants) ?? originalVariant,
+    [mediaAsset.variants, originalVariant],
+  );
 
   useEffect(() => {
     if (!isOpen) {
@@ -64,11 +63,11 @@ export function MediaAssetGallery({
 
         <button type="button" className="media-asset-card" onClick={() => setIsOpen(true)}>
           <div className="media-asset-card-thumb-wrap">
-            {displayVariant ? (
+            {thumbnailVariant || previewVariant ? (
               <span
                 aria-hidden="true"
                 className="media-asset-card-thumb"
-                style={{ backgroundImage: `url(${getMediaVariantUrl(displayVariant.id)})` }}
+                style={{ backgroundImage: `url(${getMediaVariantUrl((thumbnailVariant ?? previewVariant)!.id)})` }}
               />
             ) : (
               <div className="media-picker-missing">No preview available</div>
@@ -105,11 +104,11 @@ export function MediaAssetGallery({
 
             <div className="media-modal-layout">
               <div className="media-modal-preview">
-                {displayVariant ? (
+                {previewVariant ? (
                   <span
                     aria-hidden="true"
                     className="media-modal-image"
-                    style={{ backgroundImage: `url(${getMediaVariantUrl(displayVariant.id)})` }}
+                    style={{ backgroundImage: `url(${getMediaVariantUrl(previewVariant.id)})` }}
                   />
                 ) : (
                   <div className="media-picker-missing">No original preview available</div>

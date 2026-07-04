@@ -10,8 +10,10 @@ import { FALLBACK_MEDIA_CATEGORY_SLUG } from "@/lib/media-categories";
 import {
   formatBytes,
   formatDimensions,
+  getGalleryPreviewVariant,
+  getGalleryThumbnailVariant,
   getMediaVariantUrl,
-  getPreferredPreviewVariant,
+  getOriginalVariant,
   type MediaAssetGallerySummary,
 } from "@/lib/media-presentation";
 
@@ -482,7 +484,10 @@ export function MediaUploadField({
 
           <div className="composer-attached-media-row">
             {selectedMediaAssets.map((asset, index) => {
-              const previewVariant = getPreferredPreviewVariant(asset.variants);
+              const previewVariant =
+                getGalleryPreviewVariant(asset.variants) ??
+                getGalleryThumbnailVariant(asset.variants) ??
+                getOriginalVariant(asset.variants);
 
               return (
                 <div key={asset.id} className="composer-attached-media-card">
@@ -492,6 +497,8 @@ export function MediaUploadField({
                       src={getMediaVariantUrl(previewVariant.id)}
                       alt={`${asset.originalFilename} attached preview`}
                       className="composer-attached-media-thumb"
+                      loading="lazy"
+                      decoding="async"
                     />
                   ) : (
                     <div className="composer-attached-media-fallback">No preview</div>
@@ -590,7 +597,10 @@ export function MediaUploadField({
 
             <div className="composer-gallery-picker-grid">
               {galleryVisibleAssets.map((asset) => {
-                const previewVariant = getPreferredPreviewVariant(asset.variants);
+                const previewVariant =
+                  getGalleryThumbnailVariant(asset.variants) ??
+                  getGalleryPreviewVariant(asset.variants) ??
+                  getOriginalVariant(asset.variants);
                 const isSelected = pendingGallerySelectionIds.includes(asset.id);
                 const displayCategory = getDisplayCategory(asset);
 
@@ -608,6 +618,8 @@ export function MediaUploadField({
                           src={getMediaVariantUrl(previewVariant.id)}
                           alt={`${asset.originalFilename} preview`}
                           className="composer-gallery-picker-thumb"
+                          loading="lazy"
+                          decoding="async"
                         />
                       ) : (
                         <div className="composer-gallery-picker-fallback">No preview</div>

@@ -1,5 +1,7 @@
 export type MediaVariantTypeValue =
   | "ORIGINAL"
+  | "GALLERY_THUMBNAIL"
+  | "GALLERY_PREVIEW"
   | "FACEBOOK_FEED"
   | "GOOGLE_BUSINESS_SAFE"
   | "INSTAGRAM_FEED_PLACEHOLDER";
@@ -58,6 +60,8 @@ export type MediaAssetGallerySummary = MediaAssetSummary & {
 
 const variantLabels: Record<MediaVariantTypeValue, string> = {
   ORIGINAL: "Original",
+  GALLERY_THUMBNAIL: "Gallery thumbnail",
+  GALLERY_PREVIEW: "Gallery preview",
   FACEBOOK_FEED: "Facebook feed",
   GOOGLE_BUSINESS_SAFE: "Google Business safe",
   INSTAGRAM_FEED_PLACEHOLDER: "Instagram placeholder",
@@ -65,9 +69,11 @@ const variantLabels: Record<MediaVariantTypeValue, string> = {
 
 const variantSortOrder: Record<MediaVariantTypeValue, number> = {
   ORIGINAL: 0,
-  FACEBOOK_FEED: 1,
-  GOOGLE_BUSINESS_SAFE: 2,
-  INSTAGRAM_FEED_PLACEHOLDER: 3,
+  GALLERY_THUMBNAIL: 1,
+  GALLERY_PREVIEW: 2,
+  FACEBOOK_FEED: 3,
+  GOOGLE_BUSINESS_SAFE: 4,
+  INSTAGRAM_FEED_PLACEHOLDER: 5,
 };
 
 export function getMediaVariantLabel(variantType: MediaVariantTypeValue) {
@@ -115,6 +121,18 @@ export function getVariantByType<T extends { variantType: MediaVariantTypeValue 
   return variants.find((variant) => variant.variantType === variantType) ?? null;
 }
 
+export function getGalleryThumbnailVariant<T extends { variantType: MediaVariantTypeValue }>(variants: T[]) {
+  return getVariantByType(variants, "GALLERY_THUMBNAIL");
+}
+
+export function getGalleryPreviewVariant<T extends { variantType: MediaVariantTypeValue }>(variants: T[]) {
+  return getVariantByType(variants, "GALLERY_PREVIEW");
+}
+
+export function getOriginalVariant<T extends { variantType: MediaVariantTypeValue }>(variants: T[]) {
+  return getVariantByType(variants, "ORIGINAL");
+}
+
 function isBrowserPreviewFriendlyMimeType(mimeType: string | undefined) {
   return mimeType === "image/jpeg" || mimeType === "image/png" || mimeType === "image/webp";
 }
@@ -122,13 +140,20 @@ function isBrowserPreviewFriendlyMimeType(mimeType: string | undefined) {
 export function getPreferredPreviewVariant<
   T extends { variantType: MediaVariantTypeValue; mimeType?: string | undefined },
 >(variants: T[]) {
-  const original = getVariantByType(variants, "ORIGINAL");
+  const galleryPreview = getGalleryPreviewVariant(variants);
+  if (galleryPreview && isBrowserPreviewFriendlyMimeType(galleryPreview.mimeType)) {
+    return galleryPreview;
+  }
+
+  const original = getOriginalVariant(variants);
   if (original && isBrowserPreviewFriendlyMimeType(original.mimeType)) {
     return original;
   }
 
   return (
     original ??
+    galleryPreview ??
+    getGalleryThumbnailVariant(variants) ??
     getVariantByType(variants, "FACEBOOK_FEED") ??
     getVariantByType(variants, "GOOGLE_BUSINESS_SAFE") ??
     variants[0] ??

@@ -18,6 +18,7 @@ const ALLOWED_UPLOAD_MIME_TYPES = new Set([
 
 const HEIC_MIME_TYPES = new Set(["image/heic", "image/heif"]);
 const JPEG_MIME_TYPE = "image/jpeg";
+const WEBP_MIME_TYPE = "image/webp";
 const LIGHT_BACKGROUND = { r: 255, g: 255, b: 255 };
 
 type StoredMediaFile = {
@@ -237,6 +238,33 @@ async function generateVariantBuffer(input: {
   }
 }
 
+async function generateWebpVariantBuffer(input: {
+  maxHeight: number;
+  maxWidth: number;
+  quality: number;
+  sourceBuffer: Buffer;
+  sourceMimeType?: string;
+}) {
+  try {
+    return await sharp(input.sourceBuffer, { failOn: "none" })
+      .rotate()
+      .resize({
+        width: input.maxWidth,
+        height: input.maxHeight,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .toColorspace("srgb")
+      .webp({
+        quality: input.quality,
+        force: true,
+      })
+      .toBuffer();
+  } catch (error) {
+    throw toImageProcessingError(error, input.sourceMimeType);
+  }
+}
+
 export async function saveOriginalUpload(input: {
   file: File;
   occurredAt?: Date;
@@ -362,6 +390,70 @@ export async function generateFacebookVariant(input: {
   } satisfies GeneratedVariant;
 }
 
+export async function generateGalleryThumbnailVariant(input: {
+  occurredAt?: Date;
+  sourceBuffer: Buffer;
+  sourceMimeType?: string;
+  uploadBasePath?: string;
+}) {
+  const occurredAt = input.occurredAt ?? new Date();
+  const uploadBasePath =
+    input.uploadBasePath ??
+    resolveUploadBasePath((await getUploadDirectory()) || env.UPLOAD_DIR);
+  const outputBuffer = await generateWebpVariantBuffer({
+    sourceBuffer: input.sourceBuffer,
+    sourceMimeType: input.sourceMimeType,
+    maxWidth: 400,
+    maxHeight: 400,
+    quality: 76,
+  });
+  const storagePath = buildStoragePath(["thumbnails", ...getDatedPathSegments(occurredAt)], "webp");
+  const metadata = await getImageMetadata(outputBuffer, WEBP_MIME_TYPE);
+  const absolutePath = await writeStoredFile(uploadBasePath, storagePath, outputBuffer);
+
+  return {
+    absolutePath,
+    height: metadata.height,
+    mimeType: WEBP_MIME_TYPE,
+    sizeBytes: BigInt(outputBuffer.byteLength),
+    storagePath,
+    variantType: MediaVariantType.GALLERY_THUMBNAIL,
+    width: metadata.width,
+  } satisfies GeneratedVariant;
+}
+
+export async function generateGalleryPreviewVariant(input: {
+  occurredAt?: Date;
+  sourceBuffer: Buffer;
+  sourceMimeType?: string;
+  uploadBasePath?: string;
+}) {
+  const occurredAt = input.occurredAt ?? new Date();
+  const uploadBasePath =
+    input.uploadBasePath ??
+    resolveUploadBasePath((await getUploadDirectory()) || env.UPLOAD_DIR);
+  const outputBuffer = await generateWebpVariantBuffer({
+    sourceBuffer: input.sourceBuffer,
+    sourceMimeType: input.sourceMimeType,
+    maxWidth: 1200,
+    maxHeight: 1200,
+    quality: 82,
+  });
+  const storagePath = buildStoragePath(["previews", ...getDatedPathSegments(occurredAt)], "webp");
+  const metadata = await getImageMetadata(outputBuffer, WEBP_MIME_TYPE);
+  const absolutePath = await writeStoredFile(uploadBasePath, storagePath, outputBuffer);
+
+  return {
+    absolutePath,
+    height: metadata.height,
+    mimeType: WEBP_MIME_TYPE,
+    sizeBytes: BigInt(outputBuffer.byteLength),
+    storagePath,
+    variantType: MediaVariantType.GALLERY_PREVIEW,
+    width: metadata.width,
+  } satisfies GeneratedVariant;
+}
+
 export async function generateGoogleBusinessVariant(input: {
   occurredAt?: Date;
   sourceBuffer: Buffer;
@@ -401,6 +493,8 @@ export async function generateMediaVariants(input: {
   uploadBasePath?: string;
 }) {
   const variants = await Promise.all([
+    generateGalleryThumbnailVariant(input),
+    generateGalleryPreviewVariant(input),
     generateFacebookVariant(input),
     generateGoogleBusinessVariant(input),
   ]);
@@ -948,10 +1042,15 @@ export async function storeUploadedMedia(input: {
     });
 
     if (existingMediaAsset) {
+      const refreshedMediaAsset = await ensureGalleryVariantsForMediaAsset({
+        mediaAssetId: existingMediaAsset.id,
+        uploadBasePath,
+      });
+
       return {
         status: "duplicate" as const,
-        mediaAsset: existingMediaAsset,
-        variants: existingMediaAsset.variants,
+        mediaAsset: refreshedMediaAsset,
+        variants: refreshedMediaAsset.variants,
       };
     }
 
@@ -962,6 +1061,22 @@ export async function storeUploadedMedia(input: {
       validatedUpload,
     });
     storedFiles.push(originalUpload);
+
+    const galleryVariants = await Promise.all([
+      generateGalleryThumbnailVariant({
+        occurredAt,
+        sourceBuffer: originalUpload.sourceBuffer,
+        sourceMimeType: originalUpload.mimeType,
+        uploadBasePath,
+      }),
+      generateGalleryPreviewVariant({
+        occurredAt,
+        sourceBuffer: originalUpload.sourceBuffer,
+        sourceMimeType: originalUpload.mimeType,
+        uploadBasePath,
+      }),
+    ]);
+    storedFiles.push(...galleryVariants);
 
     const mediaAsset = await prisma.mediaAsset.create({
       data: {
@@ -983,6 +1098,14 @@ export async function storeUploadedMedia(input: {
               height: originalUpload.height,
               storagePath: originalUpload.storagePath,
             },
+            ...galleryVariants.map((variant) => ({
+              variantType: variant.variantType,
+              mimeType: variant.mimeType,
+              sizeBytes: variant.sizeBytes,
+              width: variant.width,
+              height: variant.height,
+              storagePath: variant.storagePath,
+            })),
           ],
         },
       },
@@ -1002,4 +1125,195 @@ export async function storeUploadedMedia(input: {
     await Promise.all(storedFiles.map((file) => unlink(file.absolutePath).catch(() => undefined)));
     throw error;
   }
+}
+
+export async function ensureGalleryVariantsForMediaAsset(input: {
+  mediaAssetId: string;
+  uploadBasePath?: string;
+}) {
+  const uploadBasePath =
+    input.uploadBasePath ??
+    resolveUploadBasePath((await getUploadDirectory()) || env.UPLOAD_DIR);
+
+  const mediaAsset = await prisma.mediaAsset.findUnique({
+    where: {
+      id: input.mediaAssetId,
+    },
+    include: {
+      variants: {
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+
+  if (!mediaAsset) {
+    throw new Error("Media asset not found.");
+  }
+
+  const hasThumbnail = mediaAsset.variants.some((variant) => variant.variantType === MediaVariantType.GALLERY_THUMBNAIL);
+  const hasPreview = mediaAsset.variants.some((variant) => variant.variantType === MediaVariantType.GALLERY_PREVIEW);
+
+  if (hasThumbnail && hasPreview) {
+    return mediaAsset;
+  }
+
+  const { sourceBuffer } = await readStoredMediaBuffer(mediaAsset.storagePath);
+  const createdVariants: GeneratedVariant[] = [];
+
+  try {
+    if (!hasThumbnail) {
+      const thumbnailVariant = await generateGalleryThumbnailVariant({
+        sourceBuffer,
+        sourceMimeType: mediaAsset.mimeType,
+        uploadBasePath,
+      });
+      createdVariants.push(thumbnailVariant);
+    }
+
+    if (!hasPreview) {
+      const previewVariant = await generateGalleryPreviewVariant({
+        sourceBuffer,
+        sourceMimeType: mediaAsset.mimeType,
+        uploadBasePath,
+      });
+      createdVariants.push(previewVariant);
+    }
+
+    if (createdVariants.length > 0) {
+      await prisma.mediaAsset.update({
+        where: { id: mediaAsset.id },
+        data: {
+          variants: {
+            createMany: {
+              data: createdVariants.map((variant) => ({
+                variantType: variant.variantType,
+                mimeType: variant.mimeType,
+                sizeBytes: variant.sizeBytes,
+                width: variant.width,
+                height: variant.height,
+                storagePath: variant.storagePath,
+              })),
+              skipDuplicates: true,
+            },
+          },
+        },
+      });
+    }
+
+    return await prisma.mediaAsset.findUniqueOrThrow({
+      where: { id: mediaAsset.id },
+      include: {
+        variants: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+  } catch (error) {
+    await Promise.all(createdVariants.map((variant) => unlink(variant.absolutePath).catch(() => undefined)));
+    throw error;
+  }
+}
+
+export async function backfillGalleryMediaVariants(input?: {
+  batchSize?: number;
+  uploadBasePath?: string;
+  logger?: Pick<Console, "log" | "warn" | "error">;
+}) {
+  const batchSize = Math.max(1, input?.batchSize ?? 50);
+  const uploadBasePath =
+    input?.uploadBasePath ??
+    resolveUploadBasePath((await getUploadDirectory()) || env.UPLOAD_DIR);
+  const logger = input?.logger ?? console;
+
+  let cursorId: string | null = null;
+  let scanned = 0;
+  let updated = 0;
+  let skipped = 0;
+  let failed = 0;
+  const failures: Array<{ mediaAssetId: string; originalFilename: string; message: string }> = [];
+
+  while (true) {
+    let mediaAssets: Array<{
+      id: string;
+      originalFilename: string;
+      variants: Array<{
+        variantType: MediaVariantType;
+      }>;
+    }>;
+
+    if (cursorId) {
+      mediaAssets = await prisma.mediaAsset.findMany({
+        take: batchSize,
+        skip: 1,
+        cursor: { id: cursorId },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          originalFilename: true,
+          variants: {
+            select: {
+              variantType: true,
+            },
+          },
+        },
+      });
+    } else {
+      mediaAssets = await prisma.mediaAsset.findMany({
+        take: batchSize,
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          originalFilename: true,
+          variants: {
+            select: {
+              variantType: true,
+            },
+          },
+        },
+      });
+    }
+
+    if (mediaAssets.length === 0) {
+      break;
+    }
+
+    for (const mediaAsset of mediaAssets) {
+      scanned += 1;
+      const hasThumbnail = mediaAsset.variants.some((variant) => variant.variantType === MediaVariantType.GALLERY_THUMBNAIL);
+      const hasPreview = mediaAsset.variants.some((variant) => variant.variantType === MediaVariantType.GALLERY_PREVIEW);
+
+      if (hasThumbnail && hasPreview) {
+        skipped += 1;
+        continue;
+      }
+
+      try {
+        await ensureGalleryVariantsForMediaAsset({
+          mediaAssetId: mediaAsset.id,
+          uploadBasePath,
+        });
+        updated += 1;
+        logger.log(`Backfilled gallery variants for ${mediaAsset.originalFilename} (${mediaAsset.id}).`);
+      } catch (error) {
+        failed += 1;
+        const message = error instanceof Error ? error.message : "Unknown backfill error.";
+        failures.push({
+          mediaAssetId: mediaAsset.id,
+          originalFilename: mediaAsset.originalFilename,
+          message,
+        });
+        logger.warn(`Skipped ${mediaAsset.originalFilename} (${mediaAsset.id}): ${message}`);
+      }
+    }
+
+    cursorId = mediaAssets[mediaAssets.length - 1]?.id ?? null;
+  }
+
+  return {
+    scanned,
+    updated,
+    skipped,
+    failed,
+    failures,
+  };
 }
