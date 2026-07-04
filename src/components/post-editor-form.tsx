@@ -486,6 +486,7 @@ export function PostEditorForm({
   const [scheduledMinute, setScheduledMinute] = useState(formValues.scheduledMinute);
   const [scheduledMeridiem, setScheduledMeridiem] = useState(formValues.scheduledMeridiem);
   const [selectedMediaAssetIds, setSelectedMediaAssetIds] = useState(formValues.mediaAssetIds);
+  const [liveResolvedMediaAssets, setLiveResolvedMediaAssets] = useState<MediaAssetSummary[]>([]);
   const [selectedPlatforms, setSelectedPlatforms] = useState(formValues.platforms);
   const [mediaSelectionSource, setMediaSelectionSource] = useState(formValues.mediaSelectionSource ?? "");
   const [hashtags, setHashtags] = useState(formValues.hashtags);
@@ -532,6 +533,7 @@ export function PostEditorForm({
       ),
     );
     setSelectedMediaAssetIds(formValues.mediaAssetIds);
+    setLiveResolvedMediaAssets([]);
     setSelectedPlatforms(formValues.platforms);
     setMediaSelectionSource(formValues.mediaSelectionSource ?? "");
     setHashtags(formValues.hashtags);
@@ -584,12 +586,13 @@ export function PostEditorForm({
       selectedMediaAssetIds
         .map(
           (selectedId) =>
+            liveResolvedMediaAssets.find((asset) => asset.id === selectedId) ??
             recentMediaAssets.find((asset) => asset.id === selectedId) ??
             post?.mediaAssets.find((asset) => asset.id === selectedId) ??
             null,
         )
         .filter((asset): asset is MediaAssetSummary => asset !== null),
-    [post?.mediaAssets, recentMediaAssets, selectedMediaAssetIds],
+    [liveResolvedMediaAssets, post?.mediaAssets, recentMediaAssets, selectedMediaAssetIds],
   );
 
   const minuteOptions = SCHEDULER_MINUTE_OPTIONS.includes(
@@ -1048,6 +1051,7 @@ export function PostEditorForm({
               availableAssets={recentMediaAssets}
               selectedMediaAssetIds={selectedMediaAssetIds}
               onSelectedMediaAssetIdsChange={setSelectedMediaAssetIds}
+              onResolvedSelectionChange={setLiveResolvedMediaAssets}
               onSelectionSourceChange={setMediaSelectionSource}
               maxMediaCount={maxMediaCount}
               mediaLimitMessage={mediaLimitMessage}
