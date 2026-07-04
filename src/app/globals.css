@@ -11066,10 +11066,17 @@ th {
 
 .gallery-v2-card-check {
   position: absolute;
-  top: 14px;
-  left: 14px;
+  top: 10px;
+  left: 10px;
   z-index: 2;
   cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: rgba(7, 14, 30, 0.36);
+  backdrop-filter: blur(6px);
 }
 
 .gallery-v2-card-check input {
@@ -11080,8 +11087,8 @@ th {
 
 .gallery-v2-card-check span {
   display: block;
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   border-radius: 8px;
   border: 1px solid rgba(171, 188, 226, 0.46);
   background: rgba(6, 12, 27, 0.78);
@@ -11370,6 +11377,7 @@ th {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  margin-bottom: 20px;
 }
 
 .composer-gallery-picker-toolbar {

@@ -42,7 +42,7 @@ type StatusFilterValue = "ALL" | "USED" | "UNUSED";
 type TypeFilterValue = "ALL_TYPES" | "IMAGES" | "VIDEOS";
 type SortOrderValue = "NEWEST" | "OLDEST" | "MOST_USED" | "LEAST_USED";
 type ViewModeValue = "GRID" | "LIST";
-type BulkActionValue = "assignCategories" | "replaceCategories" | "clearCategories" | "deleteSelected";
+type BulkActionValue = "assignCategories" | "deleteSelected";
 type CategoryActionMode = "single-assign" | "single-replace" | "bulk-assign" | "bulk-replace";
 
 type QueuedUpload = {
@@ -91,12 +91,11 @@ const SORT_OPTIONS: Array<{ value: SortOrderValue; label: string }> = [
 
 const BULK_ACTION_OPTIONS: Array<{ value: BulkActionValue; label: string }> = [
   { value: "assignCategories", label: "Assign Categories" },
-  { value: "replaceCategories", label: "Replace Categories" },
-  { value: "clearCategories", label: "Clear Categories" },
   { value: "deleteSelected", label: "Delete Selected" },
 ];
 
 const ITEMS_PER_PAGE_OPTIONS = [12, 24, 48];
+const GALLERY_SELECTED_ASSET_STORAGE_KEY = "gallery-v2-selected-assets";
 
 function SearchIcon(props: SVGProps<SVGSVGElement>) {
   return (
@@ -160,32 +159,11 @@ function CloseIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function TrashIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      <path d="M4.5 7.5h15" />
-      <path d="M9 7.5V5.4h6v2.1" />
-      <path d="M7.5 7.5 8.2 19h7.6l.7-11.5" />
-      <path d="M10 11v5.5" />
-      <path d="M14 11v5.5" />
-    </svg>
-  );
-}
-
 function EditIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
       <path d="M4 20h4.3l9.9-9.9a2.1 2.1 0 0 0 0-3l-1.3-1.3a2.1 2.1 0 0 0-3 0L4 15.7V20Z" />
       <path d="m12.8 6.8 4.4 4.4" />
-    </svg>
-  );
-}
-
-function TagIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      <path d="M20 13 11 22l-8-8V4h10l7 7Z" />
-      <circle cx="7.5" cy="8.5" r="1.2" />
     </svg>
   );
 }
@@ -342,9 +320,9 @@ export function MediaLibraryBrowser({
   const [isRenamingAsset, setIsRenamingAsset] = useState(false);
   const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
-  const [isRunningQuickDelete, setIsRunningQuickDelete] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const hasRestoredSelectionRef = useRef(false);
 
   useEffect(() => {
     setHasMounted(true);
@@ -355,8 +333,48 @@ export function MediaLibraryBrowser({
   }, [assets]);
 
   useEffect(() => {
+    if (!hasMounted) {
+      return;
+    }
+
+    try {
+      const storedValue = window.sessionStorage.getItem(GALLERY_SELECTED_ASSET_STORAGE_KEY);
+      if (!storedValue) {
+        hasRestoredSelectionRef.current = true;
+        return;
+      }
+
+      const parsed = JSON.parse(storedValue);
+      if (!Array.isArray(parsed)) {
+        return;
+      }
+
+      const validIds = new Set(localAssets.map((asset) => asset.id));
+      const restoredIds = parsed.filter((value): value is string => typeof value === "string" && validIds.has(value));
+      setSelectedAssetIds(restoredIds);
+      hasRestoredSelectionRef.current = true;
+    } catch {
+      hasRestoredSelectionRef.current = true;
+      return;
+    }
+  }, [hasMounted, localAssets]);
+
+  useEffect(() => {
     setLocalCategories(categories);
   }, [categories]);
+
+  useEffect(() => {
+    const validIds = new Set(localAssets.map((asset) => asset.id));
+    setSelectedAssetIds((current) => current.filter((id) => validIds.has(id)));
+  }, [localAssets]);
+
+  useEffect(() => {
+    if (!hasMounted || !hasRestoredSelectionRef.current) {
+      return;
+    }
+
+    window.sessionStorage.setItem(GALLERY_SELECTED_ASSET_STORAGE_KEY, JSON.stringify(selectedAssetIds));
+  }, [hasMounted, selectedAssetIds]);
 
   useEffect(() => {
     if (!isUploadModalOpen && !openAssetId && !isCategoryManagerOpen && !categoryDialog && !renameAssetDraft) {
@@ -437,6 +455,12 @@ export function MediaLibraryBrowser({
     setOpenAssetId(null);
     setDeleteError(null);
     setIsDeleteConfirming(false);
+  }
+
+  function toggleSelectedAsset(mediaAssetId: string) {
+    setSelectedAssetIds((current) =>
+      current.includes(mediaAssetId) ? current.filter((id) => id !== mediaAssetId) : [...current, mediaAssetId],
+    );
   }
 
   function resetUploadState() {
@@ -580,40 +604,6 @@ export function MediaLibraryBrowser({
       setDeleteError(error instanceof Error ? error.message : "Could not delete this media asset.");
     } finally {
       setIsDeleting(false);
-    }
-  }
-
-  async function handleDeleteUnused() {
-    if (!window.confirm("Delete all media not currently used in any posts?")) {
-      return;
-    }
-
-    setIsRunningQuickDelete(true);
-    setUploadError(null);
-    setUploadSummary(null);
-
-    try {
-      const response = await fetch("/api/admin/media-assets/delete-unused", {
-        method: "POST",
-      });
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string;
-        deletedCount?: number;
-        blockedCount?: number;
-      } | null;
-
-      if (!response.ok) {
-        throw new Error(payload?.error || "Could not delete unused media.");
-      }
-
-      setUploadSummary(
-        `Deleted ${payload?.deletedCount ?? 0} unused item${payload?.deletedCount === 1 ? "" : "s"}${payload?.blockedCount ? ` and skipped ${payload.blockedCount} blocked item${payload.blockedCount === 1 ? "" : "s"}` : ""}.`,
-      );
-      router.refresh();
-    } catch (error) {
-      setUploadError(error instanceof Error ? error.message : "Could not delete unused media.");
-    } finally {
-      setIsRunningQuickDelete(false);
     }
   }
 
@@ -947,18 +937,7 @@ export function MediaLibraryBrowser({
                           return;
                         }
 
-                        if (option.value === "clearCategories") {
-                          setCategoryDialog({
-                            mode: "bulk-replace",
-                            mediaAssetIds: selectedAssetIds,
-                            categoryIds: [],
-                          });
-                          setCategoryDialogSelection([]);
-                          setBulkMenuOpen(false);
-                          return;
-                        }
-
-                        openBulkCategoryDialog(option.value === "assignCategories" ? "bulk-assign" : "bulk-replace");
+                        openBulkCategoryDialog("bulk-assign");
                       }}
                     >
                       {option.label}
@@ -1057,17 +1036,14 @@ export function MediaLibraryBrowser({
                   return (
                     <article key={asset.id} className={`gallery-v2-card${isSelected ? " is-selected" : ""}`.trim()}>
                       <div className="gallery-v2-card-thumb-wrap">
-                        <label className="gallery-v2-card-check">
+                        <label className="gallery-v2-card-check" onClick={(event) => event.stopPropagation()}>
                           <input
                             type="checkbox"
                             checked={isSelected}
-                            onChange={() =>
-                              setSelectedAssetIds((current) =>
-                                current.includes(asset.id) ? current.filter((id) => id !== asset.id) : [...current, asset.id],
-                              )
-                            }
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={() => toggleSelectedAsset(asset.id)}
                           />
-                          <span />
+                          <span onClick={(event) => event.stopPropagation()} />
                         </label>
 
                         <button
@@ -1131,17 +1107,14 @@ export function MediaLibraryBrowser({
 
                     return (
                       <article key={asset.id} className={`gallery-v2-list-row${isSelected ? " is-selected" : ""}`.trim()}>
-                        <label className="gallery-v2-card-check">
+                        <label className="gallery-v2-card-check" onClick={(event) => event.stopPropagation()}>
                           <input
                             type="checkbox"
                             checked={isSelected}
-                            onChange={() =>
-                              setSelectedAssetIds((current) =>
-                                current.includes(asset.id) ? current.filter((id) => id !== asset.id) : [...current, asset.id],
-                              )
-                            }
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={() => toggleSelectedAsset(asset.id)}
                           />
-                          <span />
+                          <span onClick={(event) => event.stopPropagation()} />
                         </label>
                         <button type="button" className="gallery-v2-list-thumb-button" onClick={() => setOpenAssetId(asset.id)}>
                           {previewVariant ? (
@@ -1245,24 +1218,6 @@ export function MediaLibraryBrowser({
                     </button>
                   ))}
                 </div>
-              </div>
-            </section>
-
-            <section className="panel gallery-v2-sidebar-card">
-              <div className="panel-body">
-                <div className="gallery-v2-sidebar-card-head">
-                  <strong>Quick Actions</strong>
-                </div>
-                <button type="button" className="gallery-v2-quick-action" onClick={() => openBulkCategoryDialog("bulk-assign")}>
-                  <TagIcon />
-                  <span>Bulk Edit Categories</span>
-                </button>
-                {canManageCategories ? (
-                  <button type="button" className="gallery-v2-quick-action is-danger" onClick={() => void handleDeleteUnused()} disabled={isRunningQuickDelete}>
-                    <TrashIcon />
-                    <span>{isRunningQuickDelete ? "Deleting..." : "Delete Unused"}</span>
-                  </button>
-                ) : null}
               </div>
             </section>
 
