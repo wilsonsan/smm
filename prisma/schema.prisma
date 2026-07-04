@@ -166,9 +166,36 @@ model MediaAsset {
   variants             MediaVariant[]
   posts                SocialPost[]
   attachedToPosts      SocialPostMediaAsset[]
+  categoryAssignments  MediaAssetCategory[]
 
   @@index([createdByAdminUserId])
   @@index([contentHash])
+}
+
+model MediaCategory {
+  id          String               @id @default(cuid())
+  name        String
+  slug        String               @unique
+  color       String
+  icon        String
+  sortOrder   Int                  @default(0)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  mediaAssets MediaAssetCategory[]
+
+  @@index([sortOrder, name])
+}
+
+model MediaAssetCategory {
+  mediaAssetId    String
+  mediaCategoryId String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  mediaAsset      MediaAsset    @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+  mediaCategory   MediaCategory @relation(fields: [mediaCategoryId], references: [id], onDelete: Cascade)
+
+  @@id([mediaAssetId, mediaCategoryId])
+  @@index([mediaCategoryId])
 }
 
 model MediaVariant {

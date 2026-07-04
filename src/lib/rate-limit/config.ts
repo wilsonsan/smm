@@ -99,7 +99,7 @@ export const RATE_LIMITS = {
     imageUpload: {
       name: "uploads.imageUpload",
       scope: "user",
-      limit: 20,
+      limit: 120,
       windowMs: minute,
       message: "Too many uploads. Please wait a moment and try again.",
       actionLabel: "media_upload",
@@ -107,9 +107,9 @@ export const RATE_LIMITS = {
     uploadConcurrency: {
       name: "uploads.uploadConcurrency",
       scope: "user",
-      limit: 20,
+      limit: 120,
       windowMs: minute,
-      concurrentLimit: 4,
+      concurrentLimit: 12,
       leaseTtlMs: 2 * minute,
       message: "Too many uploads are already in progress. Please wait a moment and try again.",
       actionLabel: "media_upload_concurrent",

@@ -1,6 +1,7 @@
 import { SocialPlatform } from "@prisma/client";
 import { z } from "zod";
 import { normalizeHashtagList } from "@/lib/hashtags";
+import { MEDIA_CATEGORY_ICON_OPTIONS } from "@/lib/media-categories";
 import {
   areSelectedPlatformsPublishableNow,
   doSelectedPlatformsRequireMedia,
@@ -282,6 +283,42 @@ export const galleryDeletionSchema = z.object({
     .string()
     .trim()
     .refine((value) => value === "CLEAR GALLERY", "Type CLEAR GALLERY to confirm."),
+});
+
+const mediaCategoryIconValues = MEDIA_CATEGORY_ICON_OPTIONS.map((option) => option.value) as [string, ...string[]];
+
+export const mediaCategoryEditorSchema = z.object({
+  categoryId: z.string().trim().optional().transform((value) => value || ""),
+  name: z.string().trim().min(1, "Category name is required.").max(60, "Category name must be 60 characters or less."),
+  color: z
+    .string()
+    .trim()
+    .regex(/^#([a-fA-F0-9]{6})$/, "Choose a valid hex color like #5B8CFF."),
+  icon: z.enum(mediaCategoryIconValues),
+});
+
+export const mediaCategoryReorderSchema = z.object({
+  orderedCategoryIds: z.array(z.string().trim().min(1)).min(1, "Choose at least one category."),
+});
+
+export const mediaAssetCategoryUpdateSchema = z.object({
+  categoryIds: z.array(z.string().trim().min(1)).default([]),
+  mode: z.enum(["assign", "replace", "clear"]).default("replace"),
+});
+
+export const bulkMediaActionSchema = z.object({
+  mediaAssetIds: z.array(z.string().trim().min(1)).min(1, "Select at least one media item."),
+  action: z.enum(["assignCategories", "replaceCategories", "clearCategories", "deleteSelected"]),
+  categoryIds: z.array(z.string().trim().min(1)).default([]),
+});
+
+export const mediaAssetRenameSchema = z.object({
+  originalFilename: z
+    .string()
+    .trim()
+    .min(1, "Filename is required.")
+    .max(180, "Filename must be 180 characters or less.")
+    .refine((value) => !/[\\/:*?"<>|]/.test(value), "Remove unsupported filename characters."),
 });
 
 export const facebookSettingsSchema = z.object({

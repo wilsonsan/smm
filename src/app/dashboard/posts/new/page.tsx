@@ -33,6 +33,11 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
       },
       include: {
         variants: true,
+        categoryAssignments: {
+          include: {
+            mediaCategory: true,
+          },
+        },
         posts: {
           select: {
             id: true,

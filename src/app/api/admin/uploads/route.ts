@@ -129,6 +129,7 @@ export async function POST(request: Request) {
         height: mediaAsset.height,
         sizeBytes: mediaAsset.sizeBytes.toString(),
         createdAt: mediaAsset.createdAt.toISOString(),
+        categories: [],
         postedPlatforms: {
           postedToFacebook: false,
           postedToInstagram: false,

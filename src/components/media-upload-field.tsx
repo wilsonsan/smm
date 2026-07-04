@@ -2,9 +2,11 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useRef, useState, type SVGProps } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type SVGProps } from "react";
 import { createPortal } from "react-dom";
+import { MediaCategoryIcon } from "@/components/media-category-icon";
 import { MediaPostedBadges } from "@/components/media-posted-badges";
+import { FALLBACK_MEDIA_CATEGORY_SLUG } from "@/lib/media-categories";
 import {
   formatBytes,
   formatDimensions,
@@ -25,6 +27,15 @@ type MediaUploadFieldProps = {
 };
 
 const GALLERY_PAGE_SIZE = 12;
+
+type PickerCategoryOption = {
+  id: string;
+  name: string;
+  slug: string;
+  color: string;
+  icon: string;
+  count: number;
+};
 
 function UploadCloudIcon(props: SVGProps<SVGSVGElement>) {
   return (
@@ -68,6 +79,17 @@ function getPageCount(totalItems: number, pageSize: number) {
   return Math.max(1, Math.ceil(totalItems / pageSize));
 }
 
+function getDisplayCategory(asset: MediaAssetGallerySummary) {
+  return asset.categories[0] ?? {
+    id: "uncategorized",
+    name: "Other",
+    slug: FALLBACK_MEDIA_CATEGORY_SLUG,
+    color: "#8f9bb3",
+    icon: "OTHER",
+    sortOrder: 9999,
+  };
+}
+
 export function MediaUploadField({
   availableAssets,
   selectedMediaAssetIds,
@@ -86,6 +108,8 @@ export function MediaUploadField({
   const [hasMounted, setHasMounted] = useState(false);
   const [galleryPage, setGalleryPage] = useState(1);
   const [pendingGallerySelectionIds, setPendingGallerySelectionIds] = useState<string[]>(selectedMediaAssetIds);
+  const [gallerySearch, setGallerySearch] = useState("");
+  const [galleryCategoryFilter, setGalleryCategoryFilter] = useState("ALL");
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -102,6 +126,15 @@ export function MediaUploadField({
     setPendingGallerySelectionIds(selectedMediaAssetIds);
   }, [selectedMediaAssetIds, isGalleryOpen]);
 
+  useEffect(() => {
+    if (!isGalleryOpen) {
+      return;
+    }
+
+    setGallerySearch("");
+    setGalleryCategoryFilter("ALL");
+  }, [isGalleryOpen]);
+
   const selectedMediaAssets = useMemo(
     () =>
       selectedMediaAssetIds
@@ -114,12 +147,61 @@ export function MediaUploadField({
     onResolvedSelectionChange?.(selectedMediaAssets);
   }, [onResolvedSelectionChange, selectedMediaAssets]);
 
-  const galleryTotalPages = getPageCount(mediaOptions.length, GALLERY_PAGE_SIZE);
-  const galleryVisibleAssets = mediaOptions.slice((galleryPage - 1) * GALLERY_PAGE_SIZE, galleryPage * GALLERY_PAGE_SIZE);
+  const galleryCategoryOptions = useMemo(() => {
+    const categoryMap = new Map<string, PickerCategoryOption>();
+
+    for (const asset of mediaOptions) {
+      const categories = asset.categories.length > 0 ? asset.categories : [getDisplayCategory(asset)];
+
+      for (const category of categories) {
+        const existing = categoryMap.get(category.slug);
+        if (existing) {
+          existing.count += 1;
+          continue;
+        }
+
+        categoryMap.set(category.slug, {
+          id: category.id,
+          name: category.name,
+          slug: category.slug,
+          color: category.color,
+          icon: category.icon,
+          count: 1,
+        });
+      }
+    }
+
+    return [...categoryMap.values()].sort((left, right) => left.name.localeCompare(right.name));
+  }, [mediaOptions]);
+
+  const filteredGalleryAssets = useMemo(() => {
+    const normalizedSearch = gallerySearch.trim().toLowerCase();
+
+    return mediaOptions.filter((asset) => {
+      if (normalizedSearch && !asset.originalFilename.toLowerCase().includes(normalizedSearch)) {
+        return false;
+      }
+
+      if (galleryCategoryFilter === "ALL") {
+        return true;
+      }
+
+      return (asset.categories.length > 0 ? asset.categories : [getDisplayCategory(asset)]).some(
+        (category) => category.slug === galleryCategoryFilter,
+      );
+    });
+  }, [galleryCategoryFilter, gallerySearch, mediaOptions]);
+
+  const galleryTotalPages = getPageCount(filteredGalleryAssets.length, GALLERY_PAGE_SIZE);
+  const galleryVisibleAssets = filteredGalleryAssets.slice((galleryPage - 1) * GALLERY_PAGE_SIZE, galleryPage * GALLERY_PAGE_SIZE);
 
   useEffect(() => {
     setGalleryPage((current) => Math.min(current, galleryTotalPages));
   }, [galleryTotalPages]);
+
+  useEffect(() => {
+    setGalleryPage(1);
+  }, [galleryCategoryFilter, gallerySearch]);
 
   useEffect(() => {
     if (!isGalleryOpen) {
@@ -483,10 +565,34 @@ export function MediaUploadField({
               </button>
             </div>
 
+            <div className="composer-gallery-picker-toolbar">
+              <label className="gallery-search-field composer-gallery-picker-search">
+                <input
+                  type="search"
+                  value={gallerySearch}
+                  onChange={(event) => setGallerySearch(event.target.value)}
+                  placeholder="Search gallery"
+                />
+              </label>
+              <select
+                value={galleryCategoryFilter}
+                onChange={(event) => setGalleryCategoryFilter(event.target.value)}
+                className="gallery-filter-select composer-gallery-picker-filter"
+              >
+                <option value="ALL">All Categories</option>
+                {galleryCategoryOptions.map((category) => (
+                  <option key={category.slug} value={category.slug}>
+                    {category.name} ({category.count})
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="composer-gallery-picker-grid">
               {galleryVisibleAssets.map((asset) => {
                 const previewVariant = getPreferredPreviewVariant(asset.variants);
                 const isSelected = pendingGallerySelectionIds.includes(asset.id);
+                const displayCategory = getDisplayCategory(asset);
 
                 return (
                   <button
@@ -514,6 +620,13 @@ export function MediaUploadField({
                     </div>
                     <div className="composer-gallery-picker-meta">
                       <strong>{asset.originalFilename}</strong>
+                      <span
+                        className="composer-gallery-picker-category"
+                        style={{ "--category-color": displayCategory.color } as CSSProperties}
+                      >
+                        <MediaCategoryIcon icon={displayCategory.icon} className="composer-gallery-picker-category-icon" />
+                        <span>{displayCategory.name}</span>
+                      </span>
                     </div>
                   </button>
                 );

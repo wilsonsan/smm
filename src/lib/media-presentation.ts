@@ -40,8 +40,18 @@ export type MediaAssetUsageSummary = {
   lastUsedAt: string | null;
 };
 
+export type MediaCategorySummary = {
+  id: string;
+  name: string;
+  slug: string;
+  color: string;
+  icon: string;
+  sortOrder: number;
+};
+
 export type MediaAssetGallerySummary = MediaAssetSummary & {
   createdAt: string;
+  categories: MediaCategorySummary[];
   postedPlatforms: MediaAssetPostedPlatformFlags;
   usage: MediaAssetUsageSummary;
 };
@@ -263,6 +273,16 @@ export function toMediaAssetGallerySummary(asset: {
   width: number;
   height: number;
   createdAt: Date;
+  categoryAssignments: Array<{
+    mediaCategory: {
+      id: string;
+      name: string;
+      slug: string;
+      color: string;
+      icon: string;
+      sortOrder: number;
+    };
+  }>;
   variants: Array<{
     id: string;
     variantType: MediaVariantTypeValue;
@@ -323,6 +343,17 @@ export function toMediaAssetGallerySummary(asset: {
   return {
     ...toMediaAssetSummary(asset),
     createdAt: asset.createdAt.toISOString(),
+    categories: [...asset.categoryAssignments]
+      .map((assignment) => assignment.mediaCategory)
+      .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))
+      .map((category) => ({
+        id: category.id,
+        name: category.name,
+        slug: category.slug,
+        color: category.color,
+        icon: category.icon,
+        sortOrder: category.sortOrder,
+      })),
     postedPlatforms: resolvePostedPlatformFlags(
       normalizedPosts.flatMap((post) => post.platforms),
     ),

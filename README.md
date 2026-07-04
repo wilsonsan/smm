@@ -181,10 +181,11 @@ If you are locked out and cannot use Account Settings:
 
 - Upload endpoint: `POST /api/admin/uploads`
 - Media route: `GET /api/admin/media/:variantId`
-- Current scope: single-image upload for the composer flow and media library
+- Current scope: single-image API requests with multi-image bulk upload support in the composer flow and media library
 - Stored metadata: original filename, MIME type, size, width, height, storage path
 - Preserved source: the original upload is stored untouched and also recorded as the `ORIGINAL` variant
 - Permanent storage now keeps only the original upload
+- Duplicate protection: uploads are fingerprinted with a content hash so matching files reuse the existing gallery asset instead of creating duplicates
 - Temporary Facebook publish images are generated on demand with:
   - max `2048x2048`
   - JPEG quality `88`

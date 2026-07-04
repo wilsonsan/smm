@@ -95,6 +95,11 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
       },
       include: {
         variants: true,
+        categoryAssignments: {
+          include: {
+            mediaCategory: true,
+          },
+        },
         posts: {
           select: {
             id: true,

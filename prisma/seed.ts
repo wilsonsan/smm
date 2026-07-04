@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
+import { DEFAULT_MEDIA_CATEGORIES } from "@/lib/media-categories";
 
 const prisma = new PrismaClient();
 
@@ -85,6 +86,22 @@ async function main() {
       where: { key: setting.key },
       update: { value: setting.value },
       create: setting,
+    });
+  }
+
+  for (const category of DEFAULT_MEDIA_CATEGORIES) {
+    await prisma.mediaCategory.upsert({
+      where: {
+        slug: category.slug,
+      },
+      update: {},
+      create: {
+        name: category.name,
+        slug: category.slug,
+        color: category.color,
+        icon: category.icon,
+        sortOrder: category.sortOrder,
+      },
     });
   }
 }
