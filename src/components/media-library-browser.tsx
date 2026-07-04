@@ -293,6 +293,7 @@ export function MediaLibraryBrowser({
   trackedStorageBytes,
 }: MediaLibraryBrowserProps) {
   const router = useRouter();
+  const topRef = useRef<HTMLElement | null>(null);
   const [localAssets, setLocalAssets] = useState(() => dedupeAssets(assets));
   const [localCategories, setLocalCategories] = useState<GalleryCategorySummary[]>(() => categories.map(normalizeLocalCategory));
   const [categoryFilter, setCategoryFilter] = useState("ALL");
@@ -445,8 +446,35 @@ export function MediaLibraryBrowser({
   const visibleAssets = filteredAssets.slice((clampedCurrentPage - 1) * itemsPerPage, clampedCurrentPage * itemsPerPage);
   const pageNumbers = getPageNumbers(clampedCurrentPage, totalPages);
   const openAsset = localAssets.find((asset) => asset.id === openAssetId) ?? null;
+  const openAssetDisplayCategories = openAsset
+    ? openAsset.categories.length > 0
+      ? openAsset.categories
+      : [getFallbackDisplayCategory(categorySummaries, openAsset.categories)]
+    : [];
   const selectedCount = selectedAssetIds.length;
   const allVisibleSelected = visibleAssets.length > 0 && visibleAssets.every((asset) => selectedAssetIds.includes(asset.id));
+
+  function scrollToTop() {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function changePage(nextPage: number | ((page: number) => number)) {
+    setCurrentPage((currentPageValue) => {
+      const resolvedPage = typeof nextPage === "function" ? nextPage(currentPageValue) : nextPage;
+      const clampedPage = Math.min(Math.max(resolvedPage, 1), totalPages);
+      if (clampedPage !== currentPageValue) {
+        scrollToTop();
+      }
+      return clampedPage;
+    });
+  }
+
   function closeAssetModal() {
     setOpenAssetId(null);
     setDeleteError(null);
@@ -909,7 +937,7 @@ export function MediaLibraryBrowser({
 
   return (
     <>
-      <section className="gallery-v2-shell">
+      <section ref={topRef} className="gallery-v2-shell">
         <header className="gallery-v2-header">
             <div className="gallery-v2-header-copy">
               <div className="gallery-v2-title-pill">
@@ -1136,7 +1164,7 @@ export function MediaLibraryBrowser({
             <section className="gallery-pagination panel">
               <div className="panel-body gallery-pagination-body">
                 <div className="gallery-pagination-controls">
-                  <button type="button" className="gallery-page-button" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={clampedCurrentPage === 1}>
+                  <button type="button" className="gallery-page-button" onClick={() => changePage((page) => Math.max(1, page - 1))} disabled={clampedCurrentPage === 1}>
                     <ArrowLeftIcon />
                     <span>Previous</span>
                   </button>
@@ -1145,13 +1173,13 @@ export function MediaLibraryBrowser({
                       page === "ELLIPSIS" ? (
                         <span key={`ellipsis-${index}`} className="gallery-page-ellipsis">...</span>
                       ) : (
-                        <button key={page} type="button" className={`gallery-page-number${page === clampedCurrentPage ? " is-active" : ""}`.trim()} onClick={() => setCurrentPage(page)}>
+                        <button key={page} type="button" className={`gallery-page-number${page === clampedCurrentPage ? " is-active" : ""}`.trim()} onClick={() => changePage(page)}>
                           {page}
                         </button>
                       ),
                     )}
                   </div>
-                  <button type="button" className="gallery-page-button" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={clampedCurrentPage === totalPages}>
+                  <button type="button" className="gallery-page-button" onClick={() => changePage((page) => Math.min(totalPages, page + 1))} disabled={clampedCurrentPage === totalPages}>
                     <span>Next</span>
                     <ArrowRightIcon />
                   </button>
@@ -1330,8 +1358,19 @@ export function MediaLibraryBrowser({
                       <p>{openAsset.originalFilename}</p>
                     </div>
                     <div className="media-variant-info-card">
-                      <strong>Category</strong>
-                      <p>{getFallbackDisplayCategory(categorySummaries, openAsset.categories).name}</p>
+                      <strong>Categories</strong>
+                      <div className="media-modal-category-list">
+                        {openAssetDisplayCategories.map((category) => (
+                          <span
+                            key={`${openAsset.id}-${category.id}-${category.slug}`}
+                            className="media-modal-category-pill"
+                            style={{ "--category-color": category.color } as CSSProperties}
+                          >
+                            <MediaCategoryIcon icon={category.icon} className="gallery-v2-category-icon" />
+                            <span>{category.name}</span>
+                          </span>
+                        ))}
+                      </div>
                     </div>
                     <div className="media-variant-info-card">
                       <strong>Uploaded</strong>
