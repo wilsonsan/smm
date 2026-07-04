@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { initialAccountMfaFormState } from "@/app/dashboard/account/form-state";
@@ -32,6 +32,10 @@ export function AccountMfaCard({
   const [localRecoveryCodes, setLocalRecoveryCodes] = useState<string[]>([]);
   const [showDisablePanel, setShowDisablePanel] = useState(false);
   const [showRecoveryPanel, setShowRecoveryPanel] = useState(false);
+  const handledStartSuccessRef = useRef(false);
+  const handledVerifySuccessRef = useRef(false);
+  const handledRecoverySuccessRef = useRef(false);
+  const handledDisableSuccessRef = useRef(false);
 
   const [startState, startAction] = useActionState(startMfaSetupAction, initialAccountMfaFormState);
   const [verifyState, verifyAction] = useActionState(verifyMfaSetupAction, initialAccountMfaFormState);
@@ -39,35 +43,74 @@ export function AccountMfaCard({
   const [disableState, disableAction] = useActionState(disableMfaAction, initialAccountMfaFormState);
 
   useEffect(() => {
-    if (startState.success) {
-      router.refresh();
+    if (!startState.success) {
+      handledStartSuccessRef.current = false;
+      return;
     }
+
+    if (handledStartSuccessRef.current) {
+      return;
+    }
+
+    handledStartSuccessRef.current = true;
+    router.refresh();
   }, [router, startState.success]);
 
   useEffect(() => {
-    if (verifyState.success && verifyState.recoveryCodes?.length) {
-      setLocalRecoveryCodes(verifyState.recoveryCodes);
-      setShowDisablePanel(false);
-      setShowRecoveryPanel(false);
-      router.refresh();
+    if (!verifyState.success) {
+      handledVerifySuccessRef.current = false;
+      return;
     }
+
+    if (handledVerifySuccessRef.current) {
+      return;
+    }
+
+    handledVerifySuccessRef.current = true;
+
+    if (verifyState.recoveryCodes?.length) {
+      setLocalRecoveryCodes(verifyState.recoveryCodes);
+    }
+
+    setShowDisablePanel(false);
+    setShowRecoveryPanel(false);
+    router.refresh();
   }, [router, verifyState.recoveryCodes, verifyState.success]);
 
   useEffect(() => {
-    if (recoveryState.success && recoveryState.recoveryCodes?.length) {
-      setLocalRecoveryCodes(recoveryState.recoveryCodes);
-      setShowRecoveryPanel(true);
-      router.refresh();
+    if (!recoveryState.success) {
+      handledRecoverySuccessRef.current = false;
+      return;
     }
+
+    if (handledRecoverySuccessRef.current) {
+      return;
+    }
+
+    handledRecoverySuccessRef.current = true;
+
+    if (recoveryState.recoveryCodes?.length) {
+      setLocalRecoveryCodes(recoveryState.recoveryCodes);
+    }
+
+    setShowRecoveryPanel(true);
   }, [recoveryState.recoveryCodes, recoveryState.success, router]);
 
   useEffect(() => {
-    if (disableState.success) {
-      setLocalRecoveryCodes([]);
-      setShowDisablePanel(false);
-      setShowRecoveryPanel(false);
-      router.refresh();
+    if (!disableState.success) {
+      handledDisableSuccessRef.current = false;
+      return;
     }
+
+    if (handledDisableSuccessRef.current) {
+      return;
+    }
+
+    handledDisableSuccessRef.current = true;
+    setLocalRecoveryCodes([]);
+    setShowDisablePanel(false);
+    setShowRecoveryPanel(false);
+    router.refresh();
   }, [disableState.success, router]);
 
   const effectiveEnabled = isEnabled || verifyState.success;
