@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ConnectedAccountStatus } from "@prisma/client";
+import { requireAdminUser } from "@/lib/auth/session";
 import {
   disconnectFacebookAction,
   saveFacebookSettingsAction,
@@ -72,6 +73,7 @@ function getStatusTone(status: ConnectedAccountStatus | null) {
 }
 
 export default async function FacebookChannelSettingsPage({ searchParams }: FacebookSettingsPageProps) {
+  await requireAdminUser({ redirectTo: "/dashboard/settings", targetType: "FacebookSettingsPage" });
   const resolvedSearchParams = await searchParams;
   await refreshFacebookConnectionHealth({
     createNotification: true,

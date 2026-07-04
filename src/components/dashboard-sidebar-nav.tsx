@@ -69,9 +69,7 @@ export function DashboardSidebarNav({ role }: DashboardSidebarNavProps) {
   const visibleItems =
     role === AdminUserRole.ADMIN
       ? NAV_ITEMS
-      : NAV_ITEMS.filter(
-          (item) => item.href !== "/dashboard/settings" && item.href !== "/dashboard/analytics",
-        );
+      : NAV_ITEMS.filter((item) => item.href !== "/dashboard/analytics");
 
   return (
     <nav className="sidebar-nav" aria-label="Dashboard navigation">

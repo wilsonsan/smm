@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { AdminUserRole } from "@prisma/client";
 import { isProduction } from "@/lib/env";
+import { requireAuthenticatedUser } from "@/lib/auth/session";
 
 const SETTINGS_SECTIONS = [
   {
@@ -86,18 +88,28 @@ const SETTINGS_SECTIONS = [
   },
 ];
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const adminUser = await requireAuthenticatedUser();
+  const visibleSections =
+    adminUser.role === AdminUserRole.ADMIN
+      ? SETTINGS_SECTIONS
+      : SETTINGS_SECTIONS.filter((section) => section.title === "Composer Defaults");
+
   return (
     <section className="section-stack">
       <header className="page-header">
         <div>
           <h2>Settings</h2>
-          <p>Pick the area you want to update.</p>
+          <p>
+            {adminUser.role === AdminUserRole.ADMIN
+              ? "Pick the area you want to update."
+              : "Update the composer defaults you use while creating posts."}
+          </p>
         </div>
       </header>
 
       <div className="settings-layout-grid">
-        {SETTINGS_SECTIONS.map((section) => (
+        {visibleSections.map((section) => (
           <section key={section.title} className="panel settings-section-card">
             <div className="settings-section-head">
               <div>

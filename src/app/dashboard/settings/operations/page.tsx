@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SocialPostStatus } from "@prisma/client";
+import { requireAdminUser } from "@/lib/auth/session";
 import {
   ClockIcon,
   FacebookIcon,
@@ -25,6 +26,7 @@ function getSnapshotTitle(value: string | null | undefined) {
 }
 
 export default async function OperationsPage() {
+  await requireAdminUser({ redirectTo: "/dashboard/settings", targetType: "OperationsSettingsPage" });
   const timezone = await getResolvedAppTimezone();
   const [workerStatus, nextScheduledPost, databaseHealth] = await Promise.all([
     getWorkerStatusOverview(),

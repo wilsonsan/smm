@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { testGoogleConnectionAdvancedAction } from "@/app/dashboard/settings/channels/google/actions";
+import { requireAdminUser } from "@/lib/auth/session";
 import { getGoogleDiagnostics } from "@/lib/google";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
 
@@ -11,6 +12,7 @@ type GoogleAdvancedSettingsPageProps = {
 };
 
 export default async function GoogleAdvancedSettingsPage({ searchParams }: GoogleAdvancedSettingsPageProps) {
+  await requireAdminUser({ redirectTo: "/dashboard/settings", targetType: "GoogleAdvancedSettingsPage" });
   const resolvedSearchParams = await searchParams;
   const [diagnostics, timezone] = await Promise.all([
     getGoogleDiagnostics({ refreshHealth: true }),

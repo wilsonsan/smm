@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { saveFacebookSettingsAction } from "@/app/dashboard/settings/channels/facebook/actions";
 import { testInstagramConnectionAction } from "@/app/dashboard/settings/channels/instagram/actions";
+import { requireAdminUser } from "@/lib/auth/session";
 import { getFacebookConfiguration } from "@/lib/facebook";
 import { getInstagramDiagnostics } from "@/lib/instagram";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
@@ -25,6 +26,7 @@ function getStatusTone(status: Awaited<ReturnType<typeof getInstagramDiagnostics
 }
 
 export default async function InstagramChannelSettingsPage({ searchParams }: InstagramSettingsPageProps) {
+  await requireAdminUser({ redirectTo: "/dashboard/settings", targetType: "InstagramSettingsPage" });
   const resolvedSearchParams = await searchParams;
   const [diagnostics, config, timezone] = await Promise.all([
     getInstagramDiagnostics({ refreshHealth: true }),

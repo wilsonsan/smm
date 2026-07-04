@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import Link from "next/link";
 import { ConnectedAccountStatus } from "@prisma/client";
+import { requireAdminUser } from "@/lib/auth/session";
 import {
   clearFacebookDebugResultAction,
   clearFacebookPendingSelectionAction,
@@ -130,6 +131,7 @@ function getManualResolvedPage(debugResult: Awaited<ReturnType<typeof getFaceboo
 export default async function FacebookAdvancedChannelSettingsPage({
   searchParams,
 }: FacebookAdvancedSettingsPageProps) {
+  await requireAdminUser({ redirectTo: "/dashboard/settings", targetType: "FacebookAdvancedSettingsPage" });
   const resolvedSearchParams = await searchParams;
   await refreshFacebookConnectionHealth({
     createNotification: true,

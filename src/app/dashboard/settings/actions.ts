@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdminUser } from "@/lib/auth/session";
+import { requireAdminUser, requireAuthenticatedUser } from "@/lib/auth/session";
 import { createAuditLog, AUDIT_ACTIONS } from "@/lib/audit";
 import { isProduction } from "@/lib/env";
 import { getRequestMetadata } from "@/lib/http";
@@ -89,10 +89,7 @@ export async function saveSettingsAction(_: FormState, formData: FormData): Prom
 }
 
 export async function saveInsertContentTemplatesAction(_: FormState, formData: FormData): Promise<FormState> {
-  const adminUser = await requireAdminUser({
-    redirectTo: "/dashboard",
-    targetType: "InsertContentSettingsPage",
-  });
+  const adminUser = await requireAuthenticatedUser();
   try {
     await enforceSettingsRateLimit(adminUser.id, "save_insert_content_templates");
   } catch (error) {
@@ -263,10 +260,7 @@ export async function saveDeveloperSettingsAction(_: FormState, formData: FormDa
 }
 
 export async function saveHashtagSettingsAction(_: FormState, formData: FormData): Promise<FormState> {
-  const adminUser = await requireAdminUser({
-    redirectTo: "/dashboard",
-    targetType: "HashtagSettingsPage",
-  });
+  const adminUser = await requireAuthenticatedUser();
   try {
     await enforceSettingsRateLimit(adminUser.id, "save_hashtag_settings");
   } catch (error) {

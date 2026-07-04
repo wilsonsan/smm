@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { DeletionSettingsPanel } from "@/components/deletion-settings-panel";
+import { requireAdminUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 
 export default async function DeletionSettingsPage() {
+  await requireAdminUser({ redirectTo: "/dashboard/settings", targetType: "DeletionSettingsPage" });
   const mediaAssetCount = await prisma.mediaAsset.count();
 
   return (

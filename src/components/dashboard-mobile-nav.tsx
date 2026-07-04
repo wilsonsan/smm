@@ -27,7 +27,7 @@ type DashboardMobileNavProps = {
 
 export function DashboardMobileNav({ role }: DashboardMobileNavProps) {
   const pathname = usePathname();
-  const moreHref = role === AdminUserRole.ADMIN ? "/dashboard/settings" : "/dashboard/account";
+  const moreHref = "/dashboard/settings";
 
   return (
     <nav className="dashboard-mobile-nav" aria-label="Mobile navigation">

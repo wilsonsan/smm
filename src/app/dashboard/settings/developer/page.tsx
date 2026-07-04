@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DeveloperSettingsPanel } from "@/components/developer-settings-panel";
+import { requireAdminUser } from "@/lib/auth/session";
 import { isProduction } from "@/lib/env";
 import { getDeveloperSettings } from "@/lib/settings";
 
 export default async function DeveloperSettingsPage() {
+  await requireAdminUser({ redirectTo: "/dashboard/settings", targetType: "DeveloperSettingsPage" });
   if (isProduction) {
     notFound();
   }

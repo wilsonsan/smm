@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { ConnectedAccountStatus } from "@prisma/client";
+import { requireAdminUser } from "@/lib/auth/session";
 import {
   clearGooglePendingSelectionAction,
   disconnectGoogleAction,
@@ -67,6 +68,7 @@ function getStatusTone(status: ConnectedAccountStatus | null) {
 }
 
 export default async function GoogleChannelSettingsPage({ searchParams }: GoogleSettingsPageProps) {
+  await requireAdminUser({ redirectTo: "/dashboard/settings", targetType: "GoogleSettingsPage" });
   const resolvedSearchParams = await searchParams;
   await refreshGoogleConnectionHealth({
     createNotification: true,

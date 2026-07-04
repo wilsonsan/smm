@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { SettingsForm } from "@/components/settings-form";
+import { requireAdminUser } from "@/lib/auth/session";
 import { getAppSettings } from "@/lib/settings";
 
 export default async function SiteSettingsPage() {
+  await requireAdminUser({ redirectTo: "/dashboard/settings", targetType: "SiteSettingsPage" });
   const settings = await getAppSettings();
 
   return (

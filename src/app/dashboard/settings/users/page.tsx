@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { UserManagementPanel } from "@/components/user-management-panel";
+import { requireAdminUser } from "@/lib/auth/session";
 import { isDeletedArchiveUser } from "@/lib/managed-users";
 import { prisma } from "@/lib/prisma";
 
@@ -27,6 +28,7 @@ function sortUsers(
 }
 
 export default async function UsersPage() {
+  await requireAdminUser({ redirectTo: "/dashboard/settings", targetType: "UsersSettingsPage" });
   const users = sortUsers(
     (await prisma.adminUser.findMany({
       select: {

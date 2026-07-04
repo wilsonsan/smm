@@ -1,14 +1,11 @@
-import { requireAdminUser } from "@/lib/auth/session";
+import { requireAuthenticatedUser } from "@/lib/auth/session";
 
 export default async function SettingsLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  await requireAdminUser({
-    redirectTo: "/dashboard",
-    targetType: "SettingsPage",
-  });
+  await requireAuthenticatedUser();
 
   return children;
 }

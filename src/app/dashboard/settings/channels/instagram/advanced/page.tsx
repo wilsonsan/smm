@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireAdminUser } from "@/lib/auth/session";
 import { getInstagramDiagnostics } from "@/lib/instagram";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
 
@@ -15,6 +16,7 @@ function getStatusTone(status: Awaited<ReturnType<typeof getInstagramDiagnostics
 }
 
 export default async function InstagramAdvancedChannelSettingsPage() {
+  await requireAdminUser({ redirectTo: "/dashboard/settings", targetType: "InstagramAdvancedSettingsPage" });
   const [diagnostics, timezone] = await Promise.all([
     getInstagramDiagnostics({ refreshHealth: true }),
     getResolvedAppTimezone(),
