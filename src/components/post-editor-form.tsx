@@ -651,11 +651,13 @@ export function PostEditorForm({
     [liveResolvedMediaAssets, post?.mediaAssets, recentMediaAssets, selectedMediaAssetIds],
   );
 
-  const minuteOptions = SCHEDULER_MINUTE_OPTIONS.includes(
-    scheduledMinute as (typeof SCHEDULER_MINUTE_OPTIONS)[number],
-  )
-    ? [...SCHEDULER_MINUTE_OPTIONS]
-    : [scheduledMinute || "00", ...SCHEDULER_MINUTE_OPTIONS];
+  const minuteOptions = useMemo(
+    () =>
+      SCHEDULER_MINUTE_OPTIONS.includes(scheduledMinute as (typeof SCHEDULER_MINUTE_OPTIONS)[number])
+        ? [...SCHEDULER_MINUTE_OPTIONS]
+        : [scheduledMinute || "00", ...SCHEDULER_MINUTE_OPTIONS],
+    [scheduledMinute],
+  );
   const resolvedScheduledPlatformMarkers = useMemo(
     () =>
       scheduledPlatformMarkers && scheduledPlatformMarkers.length > 0
@@ -738,6 +740,30 @@ export function PostEditorForm({
   const hashtagGroupOptions = useMemo<CustomSelectOption[]>(
     () => hashtagGroups.map((group) => ({ value: group.id, label: group.name })),
     [hashtagGroups],
+  );
+  const scheduleHourOptions = useMemo<CustomSelectOption[]>(
+    () =>
+      HOUR_OPTIONS.map((hour) => ({
+        value: hour,
+        label: hour.padStart(2, "0"),
+      })),
+    [],
+  );
+  const scheduleMinuteOptions = useMemo<CustomSelectOption[]>(
+    () =>
+      minuteOptions.map((minute) => ({
+        value: minute,
+        label: minute,
+      })),
+    [minuteOptions],
+  );
+  const scheduleMeridiemOptions = useMemo<CustomSelectOption[]>(
+    () =>
+      MERIDIEM_OPTIONS.map((option) => ({
+        value: option,
+        label: option,
+      })),
+    [],
   );
   const selectedOverridePlatforms = useMemo(
     () =>
@@ -1536,55 +1562,54 @@ export function PostEditorForm({
                   </div>
 
                   <div className="composer-schedule-time-row">
-                    <div className="composer-input-wrap">
-                      <ClockIcon />
-                      <select
-                        name="scheduledHour"
-                        value={scheduledHour}
-                        onChange={(event) => setScheduledHour(event.target.value)}
-                        disabled={isReadOnly}
-                        aria-label="Scheduled hour"
-                      >
-                        {HOUR_OPTIONS.map((hour) => (
-                          <option key={hour} value={hour}>
-                            {hour.padStart(2, "0")}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <input type="hidden" name="scheduledHour" value={scheduledHour} />
+                    <input type="hidden" name="scheduledMinute" value={scheduledMinute} />
+                    <input type="hidden" name="scheduledMeridiem" value={scheduledMeridiem} />
 
-                    <div className="composer-input-wrap">
-                      <ClockIcon />
-                      <select
-                        name="scheduledMinute"
-                        value={scheduledMinute}
-                        onChange={(event) => setScheduledMinute(event.target.value)}
-                        disabled={isReadOnly}
-                        aria-label="Scheduled minute"
-                      >
-                        {minuteOptions.map((minute) => (
-                          <option key={minute} value={minute}>
-                            {minute}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <CustomSelect
+                      value={scheduledHour}
+                      options={scheduleHourOptions}
+                      onChange={setScheduledHour}
+                      ariaLabel="Scheduled hour"
+                      disabled={isReadOnly}
+                      className="composer-schedule-select"
+                      triggerClassName="composer-schedule-select-trigger"
+                      menuClassName="composer-schedule-select-menu"
+                      renderTrigger={(option) => (
+                        <span className="composer-schedule-select-copy">
+                          <ClockIcon />
+                          <span>{option?.label ?? scheduledHour.padStart(2, "0")}</span>
+                        </span>
+                      )}
+                    />
 
-                    <div className="composer-input-wrap">
-                      <select
-                        name="scheduledMeridiem"
-                        value={scheduledMeridiem}
-                        onChange={(event) => setScheduledMeridiem(event.target.value)}
-                        disabled={isReadOnly}
-                        aria-label="Scheduled meridiem"
-                      >
-                        {MERIDIEM_OPTIONS.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <CustomSelect
+                      value={scheduledMinute}
+                      options={scheduleMinuteOptions}
+                      onChange={setScheduledMinute}
+                      ariaLabel="Scheduled minute"
+                      disabled={isReadOnly}
+                      className="composer-schedule-select"
+                      triggerClassName="composer-schedule-select-trigger"
+                      menuClassName="composer-schedule-select-menu"
+                      renderTrigger={(option) => (
+                        <span className="composer-schedule-select-copy">
+                          <ClockIcon />
+                          <span>{option?.label ?? scheduledMinute}</span>
+                        </span>
+                      )}
+                    />
+
+                    <CustomSelect
+                      value={scheduledMeridiem}
+                      options={scheduleMeridiemOptions}
+                      onChange={setScheduledMeridiem}
+                      ariaLabel="Scheduled meridiem"
+                      disabled={isReadOnly}
+                      className="composer-schedule-select composer-schedule-select--meridiem"
+                      triggerClassName="composer-schedule-select-trigger"
+                      menuClassName="composer-schedule-select-menu"
+                    />
                   </div>
 
                   {state.fieldErrors?.scheduledHour?.map((error) => (
