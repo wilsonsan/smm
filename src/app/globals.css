@@ -6574,6 +6574,11 @@ th {
 
 .app-select {
   position: relative;
+  z-index: 1;
+}
+
+.app-select.is-open {
+  z-index: 140;
 }
 
 .app-select-trigger {
@@ -6634,7 +6639,7 @@ th {
   top: calc(100% + 10px);
   left: 0;
   min-width: 100%;
-  z-index: 25;
+  z-index: 160;
   padding: 10px;
   border-radius: 20px;
   border: 1px solid rgba(127, 149, 206, 0.18);
@@ -11500,7 +11505,18 @@ th {
 }
 
 .gallery-v2-toolbar {
-  overflow: hidden;
+  overflow: visible;
+}
+
+.composer-section-card:has(.app-select.is-open),
+.settings-section-card:has(.app-select.is-open),
+.panel:has(.app-select.is-open),
+.gallery-v2-toolbar:has(.app-select.is-open),
+.gallery-v2-summary-row:has(.app-select.is-open),
+.gallery-items-per-page:has(.app-select.is-open) {
+  position: relative;
+  z-index: 90;
+  overflow: visible;
 }
 
 .gallery-v2-toolbar-grid {
@@ -11537,10 +11553,16 @@ th {
   display: inline-flex;
   align-items: center;
   gap: 18px;
+  flex-wrap: wrap;
 }
 
+.gallery-v2-assign-category-button,
 .gallery-v2-clear-selection-button {
   color: #cfd8ff;
+}
+
+.gallery-v2-assign-category-button {
+  color: #e5ebff;
 }
 
 .gallery-v2-grid {

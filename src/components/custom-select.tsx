@@ -151,7 +151,7 @@ export function CustomSelect({
   }
 
   return (
-    <div ref={wrapperRef} className={["app-select", className].filter(Boolean).join(" ")}>
+    <div ref={wrapperRef} className={["app-select", isOpen ? "is-open" : "", className].filter(Boolean).join(" ")}>
       <button
         ref={triggerRef}
         type="button"

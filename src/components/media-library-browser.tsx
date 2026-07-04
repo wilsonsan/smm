@@ -799,6 +799,9 @@ export function MediaLibraryBrowser({
         }
       }
 
+      if (categoryDialog.mediaAssetIds.length > 1) {
+        setSelectedAssetIds([]);
+      }
       setCategoryDialog(null);
       setCategoryDialogSelection([]);
       router.refresh();
@@ -1008,6 +1011,13 @@ export function MediaLibraryBrowser({
               <span>{filteredAssets.length} item{filteredAssets.length === 1 ? "" : "s"}</span>
               {selectedCount > 0 ? (
                 <div className="gallery-v2-selection-summary">
+                  <button
+                    type="button"
+                    className="ghost-link-button gallery-v2-assign-category-button"
+                    onClick={() => openBulkCategoryDialog("bulk-assign")}
+                  >
+                    Assign Category
+                  </button>
                   <button
                     type="button"
                     className="ghost-link-button gallery-v2-clear-selection-button"
