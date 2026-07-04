@@ -156,6 +156,30 @@ type PreviewPlatform = "FACEBOOK" | "INSTAGRAM" | "GOOGLE";
 type CaptionTarget = "main" | "facebook" | "instagram" | "google";
 type OverridePlatformTab = "FACEBOOK" | "INSTAGRAM" | "GOOGLE_BUSINESS";
 
+function getPreviewPlatformForSocialPlatform(platform: string): PreviewPlatform {
+  switch (platform) {
+    case INSTAGRAM_PLATFORM:
+      return "INSTAGRAM";
+    case GOOGLE_PLATFORM:
+      return "GOOGLE";
+    case FACEBOOK_PLATFORM:
+    default:
+      return "FACEBOOK";
+  }
+}
+
+function getSocialPlatformForPreviewPlatform(platform: PreviewPlatform): string {
+  switch (platform) {
+    case "INSTAGRAM":
+      return INSTAGRAM_PLATFORM;
+    case "GOOGLE":
+      return GOOGLE_PLATFORM;
+    case "FACEBOOK":
+    default:
+      return FACEBOOK_PLATFORM;
+  }
+}
+
 function SparkleIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
@@ -447,6 +471,8 @@ export function PostEditorForm({
   const instagramFirstCommentTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const hashtagInputRef = useRef<HTMLInputElement | null>(null);
   const [previewPlatform, setPreviewPlatform] = useState<PreviewPlatform>("FACEBOOK");
+  const previewPlatformRef = useRef<PreviewPlatform>("FACEBOOK");
+  const previousSelectedPlatformsRef = useRef<string[]>([]);
   const timezoneLabel = getSchedulerTimezoneLabel(timezone);
   const templateVariableValueMap = useMemo(
     () => buildTemplateVariableValueMap(templateVariables),
@@ -515,6 +541,10 @@ export function PostEditorForm({
   });
 
   useEffect(() => {
+    previewPlatformRef.current = previewPlatform;
+  }, [previewPlatform]);
+
+  useEffect(() => {
     setCaption(formValues.descriptionMain);
     setDescriptionFacebook(formValues.descriptionFacebook);
     setDescriptionInstagram(formValues.descriptionInstagram);
@@ -548,6 +578,7 @@ export function PostEditorForm({
     );
     setShowInstagramFirstComment(Boolean(formValues.instagramFirstComment));
     setActiveCaptionTarget("main");
+    previousSelectedPlatformsRef.current = formValues.platforms;
   }, [
     formValues.descriptionMain,
     formValues.descriptionFacebook,
@@ -566,6 +597,30 @@ export function PostEditorForm({
     formValues.scheduledMinute,
     timezone,
   ]);
+
+  useEffect(() => {
+    const previousSelectedPlatforms = previousSelectedPlatformsRef.current;
+    const addedPlatforms = selectedPlatforms.filter((platform) => !previousSelectedPlatforms.includes(platform));
+
+    if (addedPlatforms.length > 0) {
+      setPreviewPlatform(getPreviewPlatformForSocialPlatform(addedPlatforms[addedPlatforms.length - 1]));
+      previousSelectedPlatformsRef.current = selectedPlatforms;
+      return;
+    }
+
+    if (selectedPlatforms.length === 1) {
+      setPreviewPlatform(getPreviewPlatformForSocialPlatform(selectedPlatforms[0]));
+      previousSelectedPlatformsRef.current = selectedPlatforms;
+      return;
+    }
+
+    const activePreviewPlatform = getSocialPlatformForPreviewPlatform(previewPlatformRef.current);
+    if (selectedPlatforms.length > 1 && !selectedPlatforms.includes(activePreviewPlatform)) {
+      setPreviewPlatform(getPreviewPlatformForSocialPlatform(selectedPlatforms[selectedPlatforms.length - 1]));
+    }
+
+    previousSelectedPlatformsRef.current = selectedPlatforms;
+  }, [selectedPlatforms]);
 
   useEffect(() => {
     const hasFieldErrors = Boolean(state.fieldErrors && Object.keys(state.fieldErrors).length > 0);

@@ -78,15 +78,6 @@ function ChevronRightIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function SearchIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      <circle cx="11" cy="11" r="6.5" />
-      <path d="m16 16 4 4" />
-    </svg>
-  );
-}
-
 function FilterIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
@@ -159,7 +150,6 @@ export function MediaUploadField({
   const [hasMounted, setHasMounted] = useState(false);
   const [galleryPage, setGalleryPage] = useState(1);
   const [pendingGallerySelectionIds, setPendingGallerySelectionIds] = useState<string[]>(selectedMediaAssetIds);
-  const [gallerySearch, setGallerySearch] = useState("");
   const [galleryCategoryFilter, setGalleryCategoryFilter] = useState("ALL");
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const [activeCategoryOptionIndex, setActiveCategoryOptionIndex] = useState(0);
@@ -187,7 +177,6 @@ export function MediaUploadField({
       return;
     }
 
-    setGallerySearch("");
     setGalleryCategoryFilter("ALL");
     setIsCategoryDropdownOpen(false);
   }, [isGalleryOpen]);
@@ -300,13 +289,7 @@ export function MediaUploadField({
   );
 
   const filteredGalleryAssets = useMemo(() => {
-    const normalizedSearch = gallerySearch.trim().toLowerCase();
-
     return mediaOptions.filter((asset) => {
-      if (normalizedSearch && !asset.originalFilename.toLowerCase().includes(normalizedSearch)) {
-        return false;
-      }
-
       if (galleryCategoryFilter === "ALL") {
         return true;
       }
@@ -315,7 +298,7 @@ export function MediaUploadField({
         (category) => category.slug === galleryCategoryFilter,
       );
     });
-  }, [galleryCategoryFilter, gallerySearch, mediaOptions]);
+  }, [galleryCategoryFilter, mediaOptions]);
 
   const galleryTotalPages = getPageCount(filteredGalleryAssets.length, GALLERY_PAGE_SIZE);
   const galleryVisibleAssets = filteredGalleryAssets.slice((galleryPage - 1) * GALLERY_PAGE_SIZE, galleryPage * GALLERY_PAGE_SIZE);
@@ -326,7 +309,7 @@ export function MediaUploadField({
 
   useEffect(() => {
     setGalleryPage(1);
-  }, [galleryCategoryFilter, gallerySearch]);
+  }, [galleryCategoryFilter]);
 
   useEffect(() => {
     if (!isGalleryOpen) {
@@ -798,15 +781,6 @@ export function MediaUploadField({
             <div className="composer-gallery-picker-divider" />
 
             <div className="composer-gallery-picker-toolbar">
-              <label className="composer-gallery-picker-search">
-                <SearchIcon />
-                <input
-                  type="search"
-                  value={gallerySearch}
-                  onChange={(event) => setGallerySearch(event.target.value)}
-                  placeholder="Search gallery"
-                />
-              </label>
               <div className={`composer-gallery-picker-category-dropdown${isCategoryDropdownOpen ? " is-open" : ""}`.trim()} ref={categoryDropdownRef}>
                 <button
                   ref={categoryDropdownButtonRef}

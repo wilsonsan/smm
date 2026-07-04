@@ -5018,43 +5018,14 @@ th {
 
 .composer-gallery-picker-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.9fr) auto;
+  grid-template-columns: minmax(280px, 0.9fr) auto;
   gap: 16px;
   align-items: start;
 }
 
-.composer-gallery-picker-search {
-  min-height: 58px;
-  padding: 0 18px;
-  border-radius: 18px;
-  border: 1px solid rgba(127, 149, 206, 0.16);
-  background: rgba(8, 16, 30, 0.86);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: rgba(185, 199, 229, 0.72);
-}
-
-.composer-gallery-picker-search svg {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 auto;
-}
-
-.composer-gallery-picker-search input {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: #eff4ff;
-  font-size: 1rem;
-}
-
-.composer-gallery-picker-search input::placeholder {
-  color: rgba(185, 199, 229, 0.72);
-}
-
 .composer-gallery-picker-category-dropdown {
   position: relative;
+  width: min(100%, 520px);
 }
 
 .composer-gallery-picker-category-trigger {
@@ -5117,7 +5088,8 @@ th {
   position: absolute;
   top: calc(100% + 10px);
   left: 0;
-  right: 0;
+  width: min(520px, calc(100vw - 72px));
+  min-width: 100%;
   z-index: 30;
   padding: 10px;
   border-radius: 22px;
@@ -5129,6 +5101,7 @@ th {
   animation: composerPickerDropdownIn 160ms ease;
   max-height: min(420px, 56vh);
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .composer-gallery-picker-category-divider {
@@ -5173,19 +5146,20 @@ th {
 }
 
 .composer-gallery-picker-category-option-copy {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .composer-gallery-picker-category-option-text {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   min-width: 0;
-  width: min(320px, 100%);
+  width: 100%;
 }
 
 .composer-gallery-picker-category-option-text span:first-child {
