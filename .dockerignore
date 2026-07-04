@@ -5,4 +5,10 @@ node_modules
 .env.production
 uploads
 mysql-data
+storage
+storage/
+storage/**
+storage/mysql
+storage/mysql/
+storage/mysql/**
 npm-debug.log
