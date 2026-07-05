@@ -12340,6 +12340,12 @@ th {
   gap: 1.2rem;
 }
 
+.media-editor-canvas-toolbar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
 .media-editor-canvas {
   position: relative;
   min-height: 32rem;
@@ -12352,11 +12358,6 @@ th {
 }
 
 .media-editor-grid-toggle {
-  position: absolute;
-  top: 1rem;
-  left: 50%;
-  z-index: 5;
-  transform: translateX(-50%);
   min-width: 7rem;
   padding: 0.55rem 1rem;
   border-radius: 999px;

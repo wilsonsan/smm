@@ -417,7 +417,7 @@ export function MediaAssetEditor({ mediaAsset }: MediaAssetEditorProps) {
       <div className="media-editor-layout media-editor-layout--crop-only">
         <main className="media-editor-workspace">
           <div className="media-editor-canvas-card">
-            <div className="media-editor-canvas">
+            <div className="media-editor-canvas-toolbar">
               <button
                 type="button"
                 className={`media-editor-grid-toggle${showGrid ? " is-active" : ""}`.trim()}
@@ -425,6 +425,8 @@ export function MediaAssetEditor({ mediaAsset }: MediaAssetEditorProps) {
               >
                 Grid {showGrid ? "On" : "Off"}
               </button>
+            </div>
+            <div className="media-editor-canvas">
               {originalImageUrl ? (
                 <Cropper
                   image={originalImageUrl}
