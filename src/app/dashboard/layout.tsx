@@ -70,6 +70,12 @@ export default async function DashboardLayout({
       </aside>
 
       <main className="main">
+        <DashboardMobileNav
+          role={adminUser.role}
+          avatarLabel={avatarLabel || "A"}
+          username={adminUser.username}
+          logoutAction={logoutAction}
+        />
         <DashboardTopbar
           unreadCount={notificationCenter.unreadCount}
           notifications={notificationCenter.unreadNotifications.map((notification) => ({
@@ -85,7 +91,6 @@ export default async function DashboardLayout({
         />
         {children}
       </main>
-      <DashboardMobileNav role={adminUser.role} />
     </div>
   );
 }

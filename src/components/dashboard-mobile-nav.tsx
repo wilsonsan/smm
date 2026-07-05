@@ -3,77 +3,171 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AdminUserRole } from "@prisma/client";
-import type { SVGProps } from "react";
+import { useEffect, useMemo, useState, type ComponentType, type SVGProps } from "react";
 import {
+  AnalyticsIcon,
   CalendarIcon,
+  ChevronDownIcon,
   ComposeIcon,
   DashboardIcon,
   GalleryIcon,
+  LogoSparkIcon,
+  PostsIcon,
   SettingsIcon,
 } from "@/components/dashboard-icons";
 
-function PlusIcon(props: SVGProps<SVGSVGElement>) {
+type NavItem = {
+  href: string;
+  label: string;
+  icon: ComponentType<SVGProps<SVGSVGElement>>;
+  isActive: (pathname: string) => boolean;
+};
+
+type DashboardMobileNavProps = {
+  role: AdminUserRole;
+  avatarLabel: string;
+  username: string;
+  logoutAction: () => Promise<void>;
+};
+
+function MenuIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
-      <path d="M12 5v14" />
-      <path d="M5 12h14" />
+      <path d="M4 7h16" />
+      <path d="M4 12h16" />
+      <path d="M4 17h16" />
     </svg>
   );
 }
 
-type DashboardMobileNavProps = {
-  role: AdminUserRole;
-};
+function buildVisibleItems(role: AdminUserRole) {
+  const navItems: NavItem[] = [
+    {
+      href: "/dashboard",
+      label: "Dashboard",
+      icon: DashboardIcon,
+      isActive: (pathname) => pathname === "/dashboard",
+    },
+    {
+      href: "/dashboard/calendar",
+      label: "Calendar",
+      icon: CalendarIcon,
+      isActive: (pathname) => pathname.startsWith("/dashboard/calendar"),
+    },
+    {
+      href: "/dashboard/posts/new",
+      label: "New Post",
+      icon: ComposeIcon,
+      isActive: (pathname) => pathname === "/dashboard/posts/new",
+    },
+    {
+      href: "/dashboard/media",
+      label: "Gallery",
+      icon: GalleryIcon,
+      isActive: (pathname) => pathname.startsWith("/dashboard/media"),
+    },
+    {
+      href: "/dashboard/posts",
+      label: "Moderation",
+      icon: PostsIcon,
+      isActive: (pathname) =>
+        (pathname === "/dashboard/posts" || pathname.startsWith("/dashboard/posts/")) &&
+        pathname !== "/dashboard/posts/new",
+    },
+    {
+      href: "/dashboard/analytics",
+      label: "Analytics",
+      icon: AnalyticsIcon,
+      isActive: (pathname) => pathname.startsWith("/dashboard/analytics"),
+    },
+    {
+      href: "/dashboard/settings",
+      label: "Settings",
+      icon: SettingsIcon,
+      isActive: (pathname) => pathname === "/dashboard/settings" || pathname.startsWith("/dashboard/settings/") || pathname.startsWith("/dashboard/account"),
+    },
+  ];
 
-export function DashboardMobileNav({ role }: DashboardMobileNavProps) {
+  return role === AdminUserRole.ADMIN
+    ? navItems
+    : navItems.filter((item) => item.href !== "/dashboard/analytics");
+}
+
+export function DashboardMobileNav({
+  role,
+  avatarLabel,
+  username,
+  logoutAction,
+}: DashboardMobileNavProps) {
   const pathname = usePathname();
-  const moreHref = "/dashboard/settings";
+  const [isOpen, setIsOpen] = useState(false);
+  const visibleItems = useMemo(() => buildVisibleItems(role), [role]);
+
+  useEffect(() => {
+    setIsOpen(false);
+  }, [pathname]);
 
   return (
-    <nav className="dashboard-mobile-nav" aria-label="Mobile navigation">
-      <Link
-        href="/dashboard"
-        className={`dashboard-mobile-nav-item${pathname === "/dashboard" ? " is-active" : ""}`.trim()}
-      >
-        <span className="dashboard-mobile-nav-icon">
-          <DashboardIcon />
-        </span>
-        <span>Dashboard</span>
-      </Link>
+    <section className="dashboard-mobile-nav" aria-label="Mobile navigation">
+      <div className="dashboard-mobile-nav-bar">
+        <button
+          type="button"
+          className="dashboard-mobile-nav-toggle"
+          aria-expanded={isOpen}
+          aria-controls="dashboard-mobile-nav-menu"
+          aria-label={isOpen ? "Close navigation menu" : "Open navigation menu"}
+          onClick={() => setIsOpen((current) => !current)}
+        >
+          <MenuIcon />
+        </button>
 
-      <Link
-        href="/dashboard/calendar"
-        className={`dashboard-mobile-nav-item${pathname.startsWith("/dashboard/calendar") ? " is-active" : ""}`.trim()}
-      >
-        <span className="dashboard-mobile-nav-icon">
-          <CalendarIcon />
-        </span>
-        <span>Calendar</span>
-      </Link>
+        <Link href="/dashboard" className="dashboard-mobile-nav-brand" aria-label="Dashboard home">
+          <span className="dashboard-mobile-nav-brand-mark" aria-hidden="true">
+            <LogoSparkIcon />
+          </span>
+          <span className="dashboard-mobile-nav-brand-copy">SMM</span>
+        </Link>
 
-      <Link href="/dashboard/posts/new" className="dashboard-mobile-nav-plus" aria-label="New Post">
-        <PlusIcon />
-      </Link>
+        <Link href="/dashboard/account" className="dashboard-mobile-nav-profile" aria-label="Open account settings">
+          <span className="dashboard-mobile-nav-avatar" aria-hidden="true">
+            {avatarLabel}
+          </span>
+          <span className="dashboard-mobile-nav-profile-copy">@{username}</span>
+          <ChevronDownIcon />
+        </Link>
+      </div>
 
-      <Link
-        href="/dashboard/media"
-        className={`dashboard-mobile-nav-item${pathname.startsWith("/dashboard/media") ? " is-active" : ""}`.trim()}
-      >
-        <span className="dashboard-mobile-nav-icon">
-          <GalleryIcon />
-        </span>
-        <span>Gallery</span>
-      </Link>
+      {isOpen ? (
+        <div id="dashboard-mobile-nav-menu" className="dashboard-mobile-nav-menu">
+          <div className="dashboard-mobile-nav-links">
+            {visibleItems.map((item) => {
+              const active = item.isActive(pathname);
+              const Icon = item.icon;
 
-      <Link
-        href={moreHref}
-        className={`dashboard-mobile-nav-item${pathname.startsWith("/dashboard/settings") || pathname.startsWith("/dashboard/account") ? " is-active" : ""}`.trim()}
-      >
-        <span className="dashboard-mobile-nav-icon">
-          <SettingsIcon />
-        </span>
-        <span>More</span>
-      </Link>
-    </nav>
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`dashboard-mobile-nav-link ${active ? "is-active" : ""}`.trim()}
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => setIsOpen(false)}
+                >
+                  <span className="dashboard-mobile-nav-link-icon" aria-hidden="true">
+                    <Icon />
+                  </span>
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+
+          <form action={logoutAction} className="dashboard-mobile-nav-logout-form">
+            <button type="submit" className="dashboard-mobile-nav-logout">
+              Log Out
+            </button>
+          </form>
+        </div>
+      ) : null}
+    </section>
   );
 }

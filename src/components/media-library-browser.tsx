@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type SVGProps } from "react";
 import { createPortal } from "react-dom";
 import { CustomSelect, type CustomSelectOption } from "@/components/custom-select";
+import { MediaUploadModal, type MediaUploadResult } from "@/components/media-upload-modal";
 import {
   ChevronDownIcon,
   GalleryIcon,
@@ -46,18 +47,6 @@ type TypeFilterValue = "ALL_TYPES" | "IMAGES" | "VIDEOS";
 type SortOrderValue = "NEWEST" | "OLDEST" | "MOST_USED" | "LEAST_USED";
 type BulkActionValue = "assignCategories" | "deleteSelected";
 type CategoryActionMode = "single-assign" | "single-replace" | "bulk-assign" | "bulk-replace";
-
-type QueuedUpload = {
-  id: string;
-  file: File;
-  previewUrl: string;
-};
-
-type UploadApiPayload = {
-  error?: string;
-  status?: "uploaded" | "duplicate";
-  mediaAsset?: MediaAssetGallerySummary;
-};
 
 type CategoryEditorDraft = {
   categoryId: string | null;
@@ -293,17 +282,14 @@ export function MediaLibraryBrowser({
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>("ALL");
   const [typeFilter, setTypeFilter] = useState<TypeFilterValue>("ALL_TYPES");
   const [sortOrder, setSortOrder] = useState<SortOrderValue>("NEWEST");
-  const [itemsPerPage, setItemsPerPage] = useState(24);
+  const [itemsPerPage, setItemsPerPage] = useState(12);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [openAssetId, setOpenAssetId] = useState<string | null>(null);
   const [activeMenuAssetId, setActiveMenuAssetId] = useState<string | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [queuedUploads, setQueuedUploads] = useState<QueuedUpload[]>([]);
-  const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSummary, setUploadSummary] = useState<string | null>(null);
-  const [uploadProgressLabel, setUploadProgressLabel] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
   const [isDeleteConfirming, setIsDeleteConfirming] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -320,8 +306,6 @@ export function MediaLibraryBrowser({
   const [isRenamingAsset, setIsRenamingAsset] = useState(false);
   const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setHasMounted(true);
@@ -351,12 +335,6 @@ export function MediaLibraryBrowser({
       document.body.style.overflow = previousOverflow;
     };
   }, [categoryDialog, isCategoryManagerOpen, isUploadModalOpen, openAssetId, renameAssetDraft]);
-
-  useEffect(() => {
-    return () => {
-      queuedUploads.forEach((item) => URL.revokeObjectURL(item.previewUrl));
-    };
-  }, [queuedUploads]);
 
   const categorySummaries = useMemo(
     () => buildGalleryCategorySummaries({ categories: localCategories, assets: localAssets }),
@@ -491,123 +469,21 @@ export function MediaLibraryBrowser({
     );
   }
 
-  function resetUploadState() {
-    queuedUploads.forEach((item) => URL.revokeObjectURL(item.previewUrl));
-    setQueuedUploads([]);
-    setUploadError(null);
-    setUploadProgressLabel(null);
-    setIsUploading(false);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-    if (cameraInputRef.current) {
-      cameraInputRef.current.value = "";
-    }
-  }
-
-  function appendQueuedFiles(files: Iterable<File>) {
-    const newEntries: QueuedUpload[] = [];
-    for (const file of files) {
-      if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
-        continue;
-      }
-
-      const duplicate = queuedUploads.some(
-        (item) => item.file.name === file.name && item.file.size === file.size && item.file.lastModified === file.lastModified,
-      );
-      if (duplicate) {
-        continue;
-      }
-
-      newEntries.push({
-        id: crypto.randomUUID(),
-        file,
-        previewUrl: URL.createObjectURL(file),
-      });
-    }
-
-    if (newEntries.length > 0) {
-      setQueuedUploads((current) => [...current, ...newEntries]);
-      setUploadError(null);
-    }
-  }
-
-  function removeQueuedFile(uploadId: string) {
-    setQueuedUploads((current) => {
-      const removed = current.find((item) => item.id === uploadId);
-      if (removed) {
-        URL.revokeObjectURL(removed.previewUrl);
-      }
-      return current.filter((item) => item.id !== uploadId);
-    });
-  }
-
-  async function handleUploadConfirm() {
-    if (queuedUploads.length === 0) {
-      setUploadError("Select one or more files to upload.");
-      return;
-    }
-
-    setIsUploading(true);
-    setUploadError(null);
+  function handleUploadCompleted(result: MediaUploadResult) {
     setUploadSummary(null);
+    setLibraryError(null);
+    setLocalAssets((current) => dedupeAssets([...result.uploadedAssets, ...current]));
 
-    try {
-      let uploadedCount = 0;
-      let skippedDuplicateCount = 0;
-      const uploadedAssets: MediaAssetGallerySummary[] = [];
-
-      for (let index = 0; index < queuedUploads.length; index += 1) {
-        const queuedUpload = queuedUploads[index];
-        setUploadProgressLabel(`Uploading ${index + 1} of ${queuedUploads.length}...`);
-
-        const response = await fetch("/api/admin/uploads", {
-          method: "POST",
-          headers: {
-            "Content-Type": queuedUpload.file.type || "application/octet-stream",
-            "X-Upload-Filename": encodeURIComponent(queuedUpload.file.name),
-            "X-Upload-Mime-Type": queuedUpload.file.type || "application/octet-stream",
-          },
-          body: queuedUpload.file,
-        });
-
-        const payload = (await response
-          .json()
-          .catch(async () => ({ error: await response.text().catch(() => "Upload failed.") }))) as UploadApiPayload | null;
-
-        if (!response.ok || !payload?.mediaAsset) {
-          throw new Error(payload?.error || `Upload failed for ${queuedUpload.file.name}.`);
-        }
-
-        uploadedAssets.push(payload.mediaAsset);
-        if (payload.status === "duplicate") {
-          skippedDuplicateCount += 1;
-        } else {
-          uploadedCount += 1;
-        }
-      }
-
-      setLocalAssets((current) => dedupeAssets([...uploadedAssets, ...current]));
-      setIsUploadModalOpen(false);
-      resetUploadState();
-
-      if (uploadedCount > 0 && skippedDuplicateCount > 0) {
-        setUploadSummary(
-          `Uploaded ${uploadedCount} item${uploadedCount === 1 ? "" : "s"} and reused ${skippedDuplicateCount} duplicate${skippedDuplicateCount === 1 ? "" : "s"} already in the gallery.`,
-        );
-      } else if (uploadedCount > 0) {
-        setUploadSummary(`Uploaded ${uploadedCount} item${uploadedCount === 1 ? "" : "s"}.`);
-      } else if (skippedDuplicateCount > 0) {
-        setUploadSummary(
-          `Skipped ${skippedDuplicateCount} duplicate${skippedDuplicateCount === 1 ? "" : "s"} already in the gallery.`,
-        );
-      }
-
-      router.refresh();
-    } catch (error) {
-      setUploadError(error instanceof Error ? error.message : "Upload failed.");
-      setIsUploading(false);
-      setUploadProgressLabel(null);
+    if (result.uploadedCount > 0 && result.skippedDuplicateCount > 0) {
+      setUploadSummary(
+        `Uploaded ${result.uploadedCount} item${result.uploadedCount === 1 ? "" : "s"} and reused ${result.skippedDuplicateCount} duplicate${result.skippedDuplicateCount === 1 ? "" : "s"} already in the gallery.`,
+      );
+    } else if (result.uploadedCount > 0) {
+      setUploadSummary(`Uploaded ${result.uploadedCount} item${result.uploadedCount === 1 ? "" : "s"}.`);
+    } else if (result.skippedDuplicateCount > 0) {
+      setUploadSummary(
+        `Skipped ${result.skippedDuplicateCount} duplicate${result.skippedDuplicateCount === 1 ? "" : "s"} already in the gallery.`,
+      );
     }
   }
 
@@ -762,7 +638,7 @@ export function MediaLibraryBrowser({
 
   function openBulkCategoryDialog(mode: CategoryActionMode) {
     if (selectedAssetIds.length === 0) {
-      setUploadError("Select one or more media items first.");
+      setLibraryError("Select one or more media items first.");
       return;
     }
 
@@ -774,6 +650,7 @@ export function MediaLibraryBrowser({
     setCategoryDialogSelection([]);
     setCategoryDialogError(null);
     setBulkMenuOpen(false);
+    setLibraryError(null);
   }
 
   async function submitCategoryDialog() {
@@ -840,7 +717,7 @@ export function MediaLibraryBrowser({
 
   async function handleBulkDeleteSelected() {
     if (selectedAssetIds.length === 0) {
-      setUploadError("Select one or more media items first.");
+      setLibraryError("Select one or more media items first.");
       return;
     }
 
@@ -874,11 +751,12 @@ export function MediaLibraryBrowser({
       setUploadSummary(
         `Deleted ${payload?.deletedCount ?? 0} selected item${payload?.deletedCount === 1 ? "" : "s"}${payload?.blockedCount ? `, skipped ${payload.blockedCount} blocked` : ""}${payload?.forbiddenCount ? `, and skipped ${payload.forbiddenCount} restricted` : ""}.`,
       );
+      setLibraryError(null);
       setSelectedAssetIds([]);
       setBulkMenuOpen(false);
       router.refresh();
     } catch (error) {
-      setUploadError(error instanceof Error ? error.message : "Could not delete selected media.");
+      setLibraryError(error instanceof Error ? error.message : "Could not delete selected media.");
     }
   }
 
@@ -1057,7 +935,7 @@ export function MediaLibraryBrowser({
             </div>
 
             {uploadSummary ? <p className="success-text">{uploadSummary}</p> : null}
-            {uploadError ? <p className="error-text">{uploadError}</p> : null}
+            {libraryError ? <p className="error-text">{libraryError}</p> : null}
 
             {visibleAssets.length === 0 ? (
               <section className="panel">
@@ -1206,17 +1084,16 @@ export function MediaLibraryBrowser({
                 <div className="gallery-v2-sidebar-card-head">
                   <strong>Categories</strong>
                   {canManageCategories ? (
-                    <button type="button" className="ghost-link-button" onClick={() => setIsCategoryManagerOpen(true)}>
-                      Manage
-                    </button>
+                    <div className="gallery-v2-sidebar-card-actions">
+                      <button type="button" className="ghost-link-button" onClick={() => setCategoryEditorDraft(buildEmptyCategoryDraft())}>
+                        +
+                      </button>
+                      <button type="button" className="ghost-link-button" onClick={() => setIsCategoryManagerOpen(true)}>
+                        Manage
+                      </button>
+                    </div>
                   ) : null}
                 </div>
-
-                {canManageCategories ? (
-                  <button type="button" className="secondary-button gallery-v2-sidebar-action" onClick={() => setCategoryEditorDraft(buildEmptyCategoryDraft())}>
-                    + Add Category
-                  </button>
-                ) : null}
 
                 <div className="gallery-v2-category-list">
                   {categorySummaries.map((category) => (
@@ -1249,7 +1126,6 @@ export function MediaLibraryBrowser({
                     </strong>
                     <div className="gallery-v2-storage-meta">
                       <span>{galleryStoragePercent.toFixed(1)}% used</span>
-                      <span>{formatBytes(galleryStorageLimitBytes)} total capacity</span>
                     </div>
                   </div>
                 </div>
@@ -1259,82 +1135,11 @@ export function MediaLibraryBrowser({
         </div>
       </section>
 
-      {isUploadModalOpen && hasMounted
-        ? createPortal(
-            <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Upload media">
-              <button type="button" className="modal-dismiss-surface" aria-label="Close upload modal" onClick={() => { if (!isUploading) { setIsUploadModalOpen(false); resetUploadState(); } }} />
-              <div className="modal-card gallery-upload-modal">
-                <div className="preview-header">
-                  <div>
-                    <strong>Upload Media</strong>
-                    <p className="muted">Select one or more images, review them here, then confirm the upload.</p>
-                  </div>
-                  <button type="button" className="ghost-link-button" onClick={() => { if (!isUploading) { setIsUploadModalOpen(false); resetUploadState(); } }} disabled={isUploading}>
-                    Close
-                  </button>
-                </div>
-
-                <input ref={fileInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { appendQueuedFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = ""; }} />
-                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={(event) => { appendQueuedFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = ""; }} />
-
-                <button type="button" className="gallery-upload-dropzone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); appendQueuedFiles(Array.from(event.dataTransfer.files ?? [])); }} onClick={() => fileInputRef.current?.click()}>
-                  <span className="gallery-upload-dropzone-icon"><UploadIcon /></span>
-                  <strong>Drag &amp; drop images here</strong>
-                  <span>or tap to browse your photos</span>
-                  <span className="gallery-upload-dropzone-button">Choose photos</span>
-                  <small className="gallery-upload-dropzone-help">Bulk uploads automatically skip duplicate files already in the gallery.</small>
-                </button>
-
-                <div className="gallery-upload-mobile-actions">
-                  <button type="button" className="secondary-button" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>Choose From Library</button>
-                  <button type="button" className="gallery-upload-button" onClick={() => cameraInputRef.current?.click()} disabled={isUploading}>
-                    <UploadIcon />
-                    <span>Take Photo</span>
-                  </button>
-                </div>
-
-                {queuedUploads.length > 0 ? (
-                  <div className="gallery-upload-queue">
-                    <div className="gallery-upload-queue-header">
-                      <strong>Ready to upload</strong>
-                      <span>{queuedUploads.length} file(s)</span>
-                    </div>
-                    <div className="gallery-upload-queue-grid">
-                      {queuedUploads.map((item) => (
-                        <article key={item.id} className="gallery-upload-queue-card">
-                          <div className="gallery-upload-queue-thumb-wrap">
-                            <img src={item.previewUrl} alt={`${item.file.name} preview`} className="gallery-upload-queue-thumb" />
-                            <button type="button" className="gallery-upload-queue-remove" onClick={(event) => { event.stopPropagation(); removeQueuedFile(item.id); }} disabled={isUploading} aria-label={`Remove ${item.file.name}`}>
-                              <CloseIcon />
-                            </button>
-                          </div>
-                          <div className="gallery-upload-queue-meta">
-                            <strong title={item.file.name}>{item.file.name}</strong>
-                            <span>{formatBytes(item.file.size)}</span>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="muted">No files selected yet.</p>
-                )}
-
-                {uploadError ? <p className="inline-error">{uploadError}</p> : null}
-                {uploadProgressLabel ? <p className="hint">{uploadProgressLabel}</p> : null}
-
-                <div className="gallery-upload-modal-actions">
-                  <button type="button" className="secondary-button" onClick={() => { if (!isUploading) { setIsUploadModalOpen(false); resetUploadState(); } }} disabled={isUploading}>Cancel</button>
-                  <button type="button" className="gallery-upload-button" onClick={() => void handleUploadConfirm()} disabled={isUploading || queuedUploads.length === 0}>
-                    <UploadIcon />
-                    <span>{isUploading ? "Uploading..." : "Upload"}</span>
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      <MediaUploadModal
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        onUploaded={handleUploadCompleted}
+      />
 
       {openAsset && hasMounted
         ? createPortal(
