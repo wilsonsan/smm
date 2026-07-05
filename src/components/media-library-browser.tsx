@@ -38,6 +38,7 @@ type MediaLibraryBrowserProps = {
   timezone: string;
   canManageCategories: boolean;
   trackedStorageBytes: number;
+  galleryStorageLimitGb: number;
 };
 
 type StatusFilterValue = "ALL" | "USED" | "UNUSED";
@@ -282,6 +283,7 @@ export function MediaLibraryBrowser({
   timezone,
   canManageCategories,
   trackedStorageBytes,
+  galleryStorageLimitGb,
 }: MediaLibraryBrowserProps) {
   const router = useRouter();
   const topRef = useRef<HTMLElement | null>(null);
@@ -360,6 +362,17 @@ export function MediaLibraryBrowser({
     () => buildGalleryCategorySummaries({ categories: localCategories, assets: localAssets }),
     [localAssets, localCategories],
   );
+  const galleryStorageLimitBytes = useMemo(
+    () => galleryStorageLimitGb * 1024 * 1024 * 1024,
+    [galleryStorageLimitGb],
+  );
+  const galleryStoragePercent = useMemo(() => {
+    if (galleryStorageLimitBytes <= 0) {
+      return 0;
+    }
+
+    return Math.min((trackedStorageBytes / galleryStorageLimitBytes) * 100, 100);
+  }, [galleryStorageLimitBytes, trackedStorageBytes]);
   const categoryFilterOptions = useMemo<CustomSelectOption[]>(
     () => [
       { value: "ALL", label: "All Categories" },
@@ -1228,9 +1241,17 @@ export function MediaLibraryBrowser({
                 </div>
                 <div className="gallery-v2-storage-card">
                   <div className="gallery-v2-storage-bar">
-                    <span style={{ width: "24%" }} />
+                    <span style={{ width: `${galleryStoragePercent}%` }} />
                   </div>
-                  <strong>{formatBytes(trackedStorageBytes)} tracked</strong>
+                  <div className="gallery-v2-storage-summary">
+                    <strong>
+                      {formatBytes(trackedStorageBytes)} of {galleryStorageLimitGb.toLocaleString()} GB used
+                    </strong>
+                    <div className="gallery-v2-storage-meta">
+                      <span>{galleryStoragePercent.toFixed(1)}% used</span>
+                      <span>{formatBytes(galleryStorageLimitBytes)} total capacity</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </section>

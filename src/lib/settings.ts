@@ -25,6 +25,7 @@ export const APP_SETTING_KEYS = {
   INSERT_CONTENT_TEMPLATES: "INSERT_CONTENT_TEMPLATES",
   HASHTAG_GROUPS: "HASHTAG_GROUPS",
   FACEBOOK_DEFAULT_HASHTAG_LIMIT: "FACEBOOK_DEFAULT_HASHTAG_LIMIT",
+  GALLERY_STORAGE_LIMIT_GB: "GALLERY_STORAGE_LIMIT_GB",
   FACEBOOK_APP_ID: "FACEBOOK_APP_ID",
   FACEBOOK_APP_SECRET: "FACEBOOK_APP_SECRET",
   FACEBOOK_PAGE_LOOKUP_VALUE: "FACEBOOK_PAGE_LOOKUP_VALUE",
@@ -47,6 +48,7 @@ export const APP_SETTING_KEYS = {
 
 export const DEFAULT_SITE_NAME = "Social Media Manager";
 export const DEFAULT_SITE_FAVICON_URL = "/social-media-favicon.svg";
+export const DEFAULT_GALLERY_STORAGE_LIMIT_GB = 50;
 
 export type InsertContentTemplates = {
   signature: string;
@@ -86,6 +88,15 @@ function normalizeUploadDirectoryForCurrentHost(configuredPath: string | undefin
 
 function parseBooleanAppSetting(value: string | undefined | null) {
   return value === "true";
+}
+
+function parseStoredGalleryStorageLimitGb(value: string | undefined | null) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_GALLERY_STORAGE_LIMIT_GB;
+  }
+
+  return parsed;
 }
 
 function normalizeInsertContentValue(value: unknown) {
@@ -136,6 +147,7 @@ export async function getAppSettings() {
     publicAppUrl: byKey.get(APP_SETTING_KEYS.PUBLIC_APP_URL) || env.APP_URL,
     uploadDirectory: normalizeUploadDirectoryForCurrentHost(byKey.get(APP_SETTING_KEYS.UPLOAD_DIRECTORY)),
     appTimezone: byKey.get(APP_SETTING_KEYS.APP_TIMEZONE) || "America/New_York",
+    galleryStorageLimitGb: parseStoredGalleryStorageLimitGb(byKey.get(APP_SETTING_KEYS.GALLERY_STORAGE_LIMIT_GB)),
     templateVariables: parseStoredTemplateVariables(byKey.get(APP_SETTING_KEYS.TEMPLATE_VARIABLES)),
     insertContentTemplates: parseStoredInsertContentTemplates(byKey.get(APP_SETTING_KEYS.INSERT_CONTENT_TEMPLATES)),
     hashtagSettings: {
@@ -164,6 +176,7 @@ export async function saveAppSettings(input: {
   publicAppUrl: string;
   uploadDirectory: string;
   appTimezone: string;
+  galleryStorageLimitGb: number;
 }) {
   await prisma.$transaction([
     prisma.appSetting.upsert({
@@ -190,6 +203,11 @@ export async function saveAppSettings(input: {
       where: { key: APP_SETTING_KEYS.APP_TIMEZONE },
       update: { value: input.appTimezone },
       create: { key: APP_SETTING_KEYS.APP_TIMEZONE, value: input.appTimezone },
+    }),
+    prisma.appSetting.upsert({
+      where: { key: APP_SETTING_KEYS.GALLERY_STORAGE_LIMIT_GB },
+      update: { value: String(input.galleryStorageLimitGb) },
+      create: { key: APP_SETTING_KEYS.GALLERY_STORAGE_LIMIT_GB, value: String(input.galleryStorageLimitGb) },
     }),
   ]);
 }

@@ -196,6 +196,7 @@ export function MediaAssetEditor({ mediaAsset }: MediaAssetEditorProps) {
   const [flipVertical, setFlipVertical] = useState(initialSnapshotRef.current.flipVertical);
   const [aspectKey, setAspectKey] = useState<AspectRatioKey>(initialSnapshotRef.current.aspectKey);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
+  const [showGrid, setShowGrid] = useState(true);
   const [history, setHistory] = useState<EditorSnapshot[]>([initialSnapshotRef.current]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
@@ -204,6 +205,11 @@ export function MediaAssetEditor({ mediaAsset }: MediaAssetEditorProps) {
   const [error, setError] = useState<string | null>(null);
 
   const currentAspectRatio = useMemo(() => resolveAspectRatio(aspectKey, originalAspectRatio), [aspectKey, originalAspectRatio]);
+  const cropperTransform = useMemo(
+    () =>
+      `translate(${crop.x}px, ${crop.y}px) rotate(${rotation}deg) scale(${flipHorizontal ? -zoom : zoom}, ${flipVertical ? -zoom : zoom})`,
+    [crop.x, crop.y, flipHorizontal, flipVertical, rotation, zoom],
+  );
 
   const currentSnapshot = useMemo<EditorSnapshot>(
     () => ({
@@ -282,6 +288,7 @@ export function MediaAssetEditor({ mediaAsset }: MediaAssetEditorProps) {
 
   function handleResetEditor() {
     applySnapshot(initialSnapshotRef.current);
+    setShowGrid(true);
     historyRef.current = [initialSnapshotRef.current];
     historyIndexRef.current = 0;
     setHistory([initialSnapshotRef.current]);
@@ -411,6 +418,13 @@ export function MediaAssetEditor({ mediaAsset }: MediaAssetEditorProps) {
         <main className="media-editor-workspace">
           <div className="media-editor-canvas-card">
             <div className="media-editor-canvas">
+              <button
+                type="button"
+                className={`media-editor-grid-toggle${showGrid ? " is-active" : ""}`.trim()}
+                onClick={() => setShowGrid((current) => !current)}
+              >
+                Grid {showGrid ? "On" : "Off"}
+              </button>
               {originalImageUrl ? (
                 <Cropper
                   image={originalImageUrl}
@@ -419,7 +433,8 @@ export function MediaAssetEditor({ mediaAsset }: MediaAssetEditorProps) {
                   rotation={rotation}
                   aspect={currentAspectRatio}
                   cropShape="rect"
-                  showGrid
+                  showGrid={showGrid}
+                  transform={cropperTransform}
                   restrictPosition={false}
                   onCropChange={setCrop}
                   onCropComplete={(_, pixels) => setCroppedAreaPixels(pixels)}
@@ -430,7 +445,7 @@ export function MediaAssetEditor({ mediaAsset }: MediaAssetEditorProps) {
                   classes={{
                     containerClassName: "media-editor-cropper-container",
                     cropAreaClassName: "media-editor-crop-area",
-                    mediaClassName: `media-editor-crop-image${flipHorizontal ? " is-flipped-horizontal" : ""}${flipVertical ? " is-flipped-vertical" : ""}`.trim(),
+                    mediaClassName: "media-editor-crop-image",
                   }}
                 />
               ) : (

@@ -4,11 +4,12 @@ import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { buildGalleryCategorySummaries, canManageGalleryStructure, getTrackedMediaStorageBytes } from "@/lib/media-gallery";
 import { toMediaAssetGallerySummary } from "@/lib/media-presentation";
 import { prisma } from "@/lib/prisma";
+import { getAppSettings } from "@/lib/settings";
 import { getResolvedAppTimezone } from "@/lib/time";
 
 export default async function MediaPage() {
   const adminUser = await requireAuthenticatedUser();
-  const [mediaAssets, mediaCategories, timezone] = await Promise.all([
+  const [mediaAssets, mediaCategories, timezone, appSettings] = await Promise.all([
     prisma.mediaAsset.findMany({
       orderBy: {
         createdAt: "desc",
@@ -82,6 +83,7 @@ export default async function MediaPage() {
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     }),
     getResolvedAppTimezone(),
+    getAppSettings(),
   ]);
   const assetSummaries = mediaAssets.map((asset) => toMediaAssetGallerySummary(asset));
   const categories = buildGalleryCategorySummaries({
@@ -96,6 +98,7 @@ export default async function MediaPage() {
       timezone={timezone}
       canManageCategories={canManageGalleryStructure(adminUser.role)}
       trackedStorageBytes={getTrackedMediaStorageBytes(assetSummaries)}
+      galleryStorageLimitGb={appSettings.galleryStorageLimitGb}
     />
   );
 }

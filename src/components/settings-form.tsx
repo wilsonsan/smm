@@ -12,6 +12,7 @@ type SettingsFormProps = {
     publicAppUrl: string;
     uploadDirectory: string;
     appTimezone: string;
+    galleryStorageLimitGb: number;
   };
 };
 
@@ -85,6 +86,25 @@ export function SettingsForm({ initialValues }: SettingsFormProps) {
               <input id="appTimezone" name="appTimezone" defaultValue={initialValues.appTimezone} required />
               <span className="hint">Use an IANA timezone such as `America/New_York`.</span>
               {state.fieldErrors?.appTimezone?.map((error) => (
+                <span key={error} className="error-text">
+                  {error}
+                </span>
+              ))}
+            </div>
+
+            <div className="field">
+              <label htmlFor="galleryStorageLimitGb">Gallery storage limit (GB)</label>
+              <input
+                id="galleryStorageLimitGb"
+                name="galleryStorageLimitGb"
+                type="number"
+                min={1}
+                step={1}
+                defaultValue={initialValues.galleryStorageLimitGb}
+                required
+              />
+              <span className="hint">Controls the gallery storage usage card. Default is 50 GB.</span>
+              {state.fieldErrors?.galleryStorageLimitGb?.map((error) => (
                 <span key={error} className="error-text">
                   {error}
                 </span>

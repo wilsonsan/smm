@@ -60,6 +60,7 @@ export async function saveSettingsAction(_: FormState, formData: FormData): Prom
     publicAppUrl: formData.get("publicAppUrl"),
     uploadDirectory: formData.get("uploadDirectory"),
     appTimezone: formData.get("appTimezone"),
+    galleryStorageLimitGb: formData.get("galleryStorageLimitGb"),
   });
 
   if (!parsed.success) {

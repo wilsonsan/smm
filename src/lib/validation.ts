@@ -206,6 +206,11 @@ export const settingsSchema = z.object({
   publicAppUrl: z.string().trim().url("Enter a valid public app URL."),
   uploadDirectory: z.string().trim().min(1, "Upload directory is required."),
   appTimezone: z.string().trim().refine((value) => isValidTimezone(value), "Enter a valid IANA timezone."),
+  galleryStorageLimitGb: z.coerce
+    .number()
+    .int("Gallery storage limit must be a whole number.")
+    .min(1, "Gallery storage limit must be at least 1 GB.")
+    .max(5000, "Gallery storage limit must be 5,000 GB or less."),
 });
 
 export const templateVariableSettingsSchema = z.object({
