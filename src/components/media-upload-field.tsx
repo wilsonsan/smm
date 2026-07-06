@@ -98,6 +98,15 @@ function CloseIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+function QuestionIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M9.2 9a2.8 2.8 0 1 1 5 1.8c-.8.6-1.4 1.1-1.7 1.5-.3.4-.5.8-.5 1.7" />
+      <circle cx="12" cy="17.2" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 function CheckIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
@@ -133,6 +142,10 @@ function getDisplayCategory(asset: MediaAssetGallerySummary) {
   };
 }
 
+function getCurrentMediaAssetUrl(mediaAssetId: string) {
+  return `/api/admin/media-assets/${mediaAssetId}/current`;
+}
+
 export function MediaUploadField({
   availableAssets,
   selectedMediaAssetIds,
@@ -148,6 +161,7 @@ export function MediaUploadField({
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [galleryPreviewAssetId, setGalleryPreviewAssetId] = useState<string | null>(null);
   const [hasMounted, setHasMounted] = useState(false);
   const [galleryPage, setGalleryPage] = useState(1);
   const [pendingGallerySelectionIds, setPendingGallerySelectionIds] = useState<string[]>(selectedMediaAssetIds);
@@ -180,6 +194,7 @@ export function MediaUploadField({
 
     setGalleryCategoryFilter("ALL");
     setIsCategoryDropdownOpen(false);
+    setGalleryPreviewAssetId(null);
   }, [isGalleryOpen]);
 
   const selectedMediaAssets = useMemo(
@@ -311,6 +326,10 @@ export function MediaUploadField({
 
   const galleryTotalPages = getPageCount(filteredGalleryAssets.length, GALLERY_PAGE_SIZE);
   const galleryVisibleAssets = filteredGalleryAssets.slice((galleryPage - 1) * GALLERY_PAGE_SIZE, galleryPage * GALLERY_PAGE_SIZE);
+  const galleryPreviewAsset = useMemo(
+    () => mediaOptions.find((asset) => asset.id === galleryPreviewAssetId) ?? null,
+    [galleryPreviewAssetId, mediaOptions],
+  );
 
   useEffect(() => {
     setGalleryPage((current) => Math.min(current, galleryTotalPages));
@@ -327,13 +346,18 @@ export function MediaUploadField({
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        if (galleryPreviewAssetId) {
+          setGalleryPreviewAssetId(null);
+          return;
+        }
+
         setIsGalleryOpen(false);
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isGalleryOpen]);
+  }, [galleryPreviewAssetId, isGalleryOpen]);
 
   useEffect(() => {
     if (!isCategoryDropdownOpen) {
@@ -873,46 +897,60 @@ export function MediaUploadField({
                   getOriginalVariant(asset.variants);
                 const isSelected = pendingGallerySelectionIds.includes(asset.id);
                 const displayCategory = getDisplayCategory(asset);
+                const previewImageUrl = previewVariant ? getMediaVariantUrl(previewVariant.id) : null;
 
                 return (
-                  <button
+                  <article
                     key={asset.id}
-                    type="button"
                     className={`composer-gallery-picker-card${isSelected ? " is-selected" : ""}`.trim()}
-                    onClick={() => togglePendingGallerySelection(asset.id)}
-                    aria-pressed={isSelected}
                   >
-                    <div className="composer-gallery-picker-thumb-wrap">
-                      <span className={`composer-gallery-picker-selection-circle${isSelected ? " is-selected" : ""}`.trim()}>
-                        {isSelected ? <CheckIcon /> : null}
-                      </span>
-                      {previewVariant ? (
-                        <img
-                          src={getMediaVariantUrl(previewVariant.id)}
-                          alt={`${asset.originalFilename} preview`}
-                          className="composer-gallery-picker-thumb"
-                          loading="lazy"
-                          decoding="async"
+                    <button
+                      type="button"
+                      className="composer-gallery-picker-card-surface"
+                      onClick={() => togglePendingGallerySelection(asset.id)}
+                      aria-pressed={isSelected}
+                    >
+                      <div className="composer-gallery-picker-thumb-wrap">
+                        <span className={`composer-gallery-picker-selection-circle${isSelected ? " is-selected" : ""}`.trim()}>
+                          {isSelected ? <CheckIcon /> : null}
+                        </span>
+                        {previewImageUrl ? (
+                          <img
+                            src={previewImageUrl}
+                            alt={`${asset.originalFilename} preview`}
+                            className="composer-gallery-picker-thumb"
+                            loading="lazy"
+                            decoding="async"
+                          />
+                        ) : (
+                          <div className="composer-gallery-picker-fallback">No preview</div>
+                        )}
+                        <MediaPostedBadges
+                          postedPlatforms={asset.postedPlatforms}
+                          className="gallery-posted-badges composer-gallery-picker-badges"
                         />
-                      ) : (
-                        <div className="composer-gallery-picker-fallback">No preview</div>
-                      )}
-                      <MediaPostedBadges
-                        postedPlatforms={asset.postedPlatforms}
-                        className="gallery-posted-badges composer-gallery-picker-badges"
-                      />
-                    </div>
-                    <div className="composer-gallery-picker-meta">
-                      <strong>{asset.originalFilename}</strong>
-                      <span
-                        className="composer-gallery-picker-category"
-                        style={{ "--category-color": displayCategory.color } as CSSProperties}
-                      >
-                        <MediaCategoryIcon icon={displayCategory.icon} className="composer-gallery-picker-category-icon" />
-                        <span>{displayCategory.name}</span>
-                      </span>
-                    </div>
-                  </button>
+                      </div>
+                      <div className="composer-gallery-picker-meta">
+                        <strong>{asset.originalFilename}</strong>
+                        <span
+                          className="composer-gallery-picker-category"
+                          style={{ "--category-color": displayCategory.color } as CSSProperties}
+                        >
+                          <MediaCategoryIcon icon={displayCategory.icon} className="composer-gallery-picker-category-icon" />
+                          <span>{displayCategory.name}</span>
+                        </span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="composer-gallery-picker-info-button"
+                      onClick={() => setGalleryPreviewAssetId(asset.id)}
+                      aria-label={`Open full view for ${asset.originalFilename}`}
+                    >
+                      <QuestionIcon />
+                    </button>
+                  </article>
                 );
               })}
             </div>
@@ -956,6 +994,93 @@ export function MediaUploadField({
                 </button>
               </div>
             </div>
+
+            {galleryPreviewAsset ? (
+              <div
+                className="composer-gallery-preview-overlay"
+                role="dialog"
+                aria-modal="true"
+                aria-label={`Preview ${galleryPreviewAsset.originalFilename}`}
+              >
+                <button
+                  type="button"
+                  className="composer-gallery-preview-dismiss"
+                  aria-label="Close image preview"
+                  onClick={() => setGalleryPreviewAssetId(null)}
+                />
+                <div className="modal-card media-modal-card composer-gallery-preview-modal">
+                  <div className="preview-header">
+                    <div>
+                      <strong>{galleryPreviewAsset.originalFilename}</strong>
+                      <p className="muted">Full view</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="ghost-link-button"
+                      onClick={() => setGalleryPreviewAssetId(null)}
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  <div className="media-modal-layout">
+                    <div className="media-modal-preview">
+                      <a
+                        href={getCurrentMediaAssetUrl(galleryPreviewAsset.id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="media-modal-image-link"
+                        title="Open image in a new tab"
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="media-modal-image"
+                          style={{
+                            backgroundImage: `url(${
+                              (() => {
+                                const preview = getGalleryPreviewVariant(galleryPreviewAsset.variants);
+                                const original = getOriginalVariant(galleryPreviewAsset.variants);
+                                return preview
+                                  ? getMediaVariantUrl(preview.id)
+                                  : original
+                                    ? getMediaVariantUrl(original.id)
+                                    : getCurrentMediaAssetUrl(galleryPreviewAsset.id);
+                              })()
+                            })`,
+                          }}
+                        />
+                      </a>
+                    </div>
+
+                    <div className="media-modal-details">
+                      <div className="media-variant-info-card">
+                        <strong>Category</strong>
+                        <div className="media-modal-category-list">
+                          {(galleryPreviewAsset.categories.length > 0
+                            ? galleryPreviewAsset.categories
+                            : [getDisplayCategory(galleryPreviewAsset)]).map((category) => (
+                            <span
+                              key={`${galleryPreviewAsset.id}-${category.slug}`}
+                              className="media-modal-category-pill"
+                              style={{ "--category-color": category.color } as CSSProperties}
+                            >
+                              <MediaCategoryIcon icon={category.icon} className="gallery-v2-category-icon" />
+                              <span>{category.name}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="media-variant-info-card">
+                        <strong>Image info</strong>
+                        <p>{formatDimensions(galleryPreviewAsset.width, galleryPreviewAsset.height)}</p>
+                        <p>{formatBytes(galleryPreviewAsset.sizeBytes)}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
           ,

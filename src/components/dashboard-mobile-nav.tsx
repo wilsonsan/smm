@@ -12,7 +12,6 @@ import {
   DashboardIcon,
   GalleryIcon,
   LogoSparkIcon,
-  PostsIcon,
   SettingsIcon,
 } from "@/components/dashboard-icons";
 
@@ -65,14 +64,6 @@ function buildVisibleItems(role: AdminUserRole) {
       label: "Gallery",
       icon: GalleryIcon,
       isActive: (pathname) => pathname.startsWith("/dashboard/media"),
-    },
-    {
-      href: "/dashboard/posts",
-      label: "Moderation",
-      icon: PostsIcon,
-      isActive: (pathname) =>
-        (pathname === "/dashboard/posts" || pathname.startsWith("/dashboard/posts/")) &&
-        pathname !== "/dashboard/posts/new",
     },
     {
       href: "/dashboard/analytics",

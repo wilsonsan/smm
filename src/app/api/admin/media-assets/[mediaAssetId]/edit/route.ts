@@ -53,7 +53,27 @@ export async function PATCH(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "You do not have permission to edit this media asset." }, { status: 403 });
     }
 
-    const parsed = mediaAssetEditSchema.safeParse(await request.json());
+    const rawPayload = await request.json();
+    const normalizedPayload =
+      rawPayload && typeof rawPayload === "object" && rawPayload !== null && (rawPayload as { mode?: unknown }).mode === "save"
+        ? {
+            ...(rawPayload as Record<string, unknown>),
+            crop:
+              rawPayload &&
+              typeof (rawPayload as { crop?: unknown }).crop === "object" &&
+              (rawPayload as { crop?: unknown }).crop !== null
+                ? {
+                    ...(rawPayload as { crop: Record<string, unknown> }).crop,
+                    x: Math.max(0, Number((rawPayload as { crop: { x?: unknown } }).crop.x ?? 0)),
+                    y: Math.max(0, Number((rawPayload as { crop: { y?: unknown } }).crop.y ?? 0)),
+                    width: Math.max(1, Number((rawPayload as { crop: { width?: unknown } }).crop.width ?? 1)),
+                    height: Math.max(1, Number((rawPayload as { crop: { height?: unknown } }).crop.height ?? 1)),
+                  }
+                : rawPayload,
+          }
+        : rawPayload;
+
+    const parsed = mediaAssetEditSchema.safeParse(normalizedPayload);
     if (!parsed.success) {
       return NextResponse.json(
         {

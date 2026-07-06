@@ -250,6 +250,10 @@ function dedupeAssets(assets: MediaAssetGallerySummary[]) {
   });
 }
 
+function getCurrentMediaAssetUrl(mediaAssetId: string) {
+  return `/api/admin/media-assets/${mediaAssetId}/current`;
+}
+
 function normalizeLocalCategory(category: GalleryCategorySummary): GalleryCategorySummary {
   if (category.slug !== FALLBACK_MEDIA_CATEGORY_SLUG) {
     return category;
@@ -455,6 +459,66 @@ export function MediaLibraryBrowser({
       }
       return clampedPage;
     });
+  }
+
+  function renderGalleryPagination(position: "top" | "bottom") {
+    return (
+      <section className={`gallery-pagination panel gallery-pagination--${position}`.trim()}>
+        <div className="panel-body gallery-pagination-body">
+          <div className="gallery-pagination-controls">
+            <button type="button" className="gallery-page-button" onClick={() => changePage((page) => Math.max(1, page - 1))} disabled={clampedCurrentPage === 1}>
+              <ArrowLeftIcon />
+              <span>Previous</span>
+            </button>
+            <div className="gallery-page-numbers">
+              {pageNumbers.map((page, index) =>
+                page === "ELLIPSIS" ? (
+                  <span key={`${position}-ellipsis-${index}`} className="gallery-page-ellipsis">...</span>
+                ) : (
+                  <button
+                    key={`${position}-page-${page}`}
+                    type="button"
+                    className={`gallery-page-number${page === clampedCurrentPage ? " is-active" : ""}`.trim()}
+                    onClick={() => changePage(page)}
+                  >
+                    {page}
+                  </button>
+                ),
+              )}
+            </div>
+            <button type="button" className="gallery-page-button" onClick={() => changePage((page) => Math.min(totalPages, page + 1))} disabled={clampedCurrentPage === totalPages}>
+              <span>Next</span>
+              <ArrowRightIcon />
+            </button>
+          </div>
+
+          <div className="gallery-pagination-side-actions">
+            {selectedCount > 0 ? (
+              <button
+                type="button"
+                className="ghost-link-button gallery-v2-assign-category-button"
+                onClick={() => openBulkCategoryDialog("bulk-assign")}
+              >
+                Assign Category
+              </button>
+            ) : null}
+
+            <label className="gallery-items-per-page">
+              <span>Items per page</span>
+              <CustomSelect
+                value={String(itemsPerPage)}
+                options={itemsPerPageOptions}
+                onChange={(nextValue) => setItemsPerPage(Number(nextValue))}
+                ariaLabel="Set gallery items per page"
+                className="gallery-items-per-page-select"
+                triggerClassName="gallery-items-per-page-trigger"
+                menuClassName="gallery-items-per-page-menu"
+              />
+            </label>
+          </div>
+        </div>
+      </section>
+    );
   }
 
   function closeAssetModal() {
@@ -807,9 +871,8 @@ export function MediaLibraryBrowser({
   }
 
   const openAssetPreviewVariant = openAsset ? getGalleryPreviewVariant(openAsset.variants) ?? getOriginalVariant(openAsset.variants) : null;
-  const openAssetOriginalVariant = openAsset ? getOriginalVariant(openAsset.variants) : null;
   const openAssetPreviewUrl = openAssetPreviewVariant ? getMediaVariantUrl(openAssetPreviewVariant.id) : null;
-  const openAssetOriginalUrl = openAssetOriginalVariant ? getMediaVariantUrl(openAssetOriginalVariant.id) : openAssetPreviewUrl;
+  const openAssetCurrentUrl = openAsset ? getCurrentMediaAssetUrl(openAsset.id) : openAssetPreviewUrl;
 
   return (
     <>
@@ -937,6 +1000,8 @@ export function MediaLibraryBrowser({
             {uploadSummary ? <p className="success-text">{uploadSummary}</p> : null}
             {libraryError ? <p className="error-text">{libraryError}</p> : null}
 
+            {visibleAssets.length > 0 ? renderGalleryPagination("top") : null}
+
             {visibleAssets.length === 0 ? (
               <section className="panel">
                 <div className="panel-body">
@@ -1038,44 +1103,7 @@ export function MediaLibraryBrowser({
               </section>
             )}
 
-            <section className="gallery-pagination panel">
-              <div className="panel-body gallery-pagination-body">
-                <div className="gallery-pagination-controls">
-                  <button type="button" className="gallery-page-button" onClick={() => changePage((page) => Math.max(1, page - 1))} disabled={clampedCurrentPage === 1}>
-                    <ArrowLeftIcon />
-                    <span>Previous</span>
-                  </button>
-                  <div className="gallery-page-numbers">
-                    {pageNumbers.map((page, index) =>
-                      page === "ELLIPSIS" ? (
-                        <span key={`ellipsis-${index}`} className="gallery-page-ellipsis">...</span>
-                      ) : (
-                        <button key={page} type="button" className={`gallery-page-number${page === clampedCurrentPage ? " is-active" : ""}`.trim()} onClick={() => changePage(page)}>
-                          {page}
-                        </button>
-                      ),
-                    )}
-                  </div>
-                  <button type="button" className="gallery-page-button" onClick={() => changePage((page) => Math.min(totalPages, page + 1))} disabled={clampedCurrentPage === totalPages}>
-                    <span>Next</span>
-                    <ArrowRightIcon />
-                  </button>
-                </div>
-
-                <label className="gallery-items-per-page">
-                  <span>Items per page</span>
-                  <CustomSelect
-                    value={String(itemsPerPage)}
-                    options={itemsPerPageOptions}
-                    onChange={(nextValue) => setItemsPerPage(Number(nextValue))}
-                    ariaLabel="Set gallery items per page"
-                    className="gallery-items-per-page-select"
-                    triggerClassName="gallery-items-per-page-trigger"
-                    menuClassName="gallery-items-per-page-menu"
-                  />
-                </label>
-              </div>
-            </section>
+            {visibleAssets.length > 0 ? renderGalleryPagination("bottom") : null}
           </div>
 
           <aside className="gallery-v2-sidebar">
@@ -1156,7 +1184,7 @@ export function MediaLibraryBrowser({
                 <div className="media-modal-layout">
                   <div className="media-modal-preview">
                     {openAssetPreviewUrl ? (
-                      <a href={openAssetOriginalUrl ?? openAssetPreviewUrl} target="_blank" rel="noopener noreferrer" className="media-modal-image-link" title="Open original image in a new tab">
+                      <a href={openAssetCurrentUrl ?? openAssetPreviewUrl} target="_blank" rel="noopener noreferrer" className="media-modal-image-link" title="Open image in a new tab">
                         <span aria-hidden="true" className="media-modal-image" style={{ backgroundImage: `url(${openAssetPreviewUrl})` }} />
                       </a>
                     ) : (

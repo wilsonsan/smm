@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { DateTime } from "luxon";
-import { SocialPostStatus } from "@prisma/client";
+import { SocialPlatform, SocialPostStatus } from "@prisma/client";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { openNotificationAction } from "@/app/dashboard/actions";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { DashboardMobileUploadAction } from "@/components/dashboard-mobile-upload-action";
 import { DashboardNotificationMenu } from "@/components/dashboard-notification-menu";
+import { PlatformChipList } from "@/components/platform-chip-list";
 import {
   ArrowRightIcon,
   CalendarIcon,
@@ -59,6 +60,14 @@ function parsePageNumber(value: string | string[] | undefined) {
   }
 
   return Math.floor(parsed);
+}
+
+function getDashboardPostPlatforms(
+  platforms: Array<{
+    platform: SocialPlatform;
+  }>,
+) {
+  return platforms.length > 0 ? platforms : [{ platform: SocialPlatform.FACEBOOK }];
 }
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
@@ -287,7 +296,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                             <span className={`badge is-${tone}`.trim()}>{post.status}</span>
                           </div>
                           <p>{calendarAt ? formatDateTimeForTimezone(calendarAt, timezone) : "No time"}</p>
-                          <small>{post.platforms.map((platform) => platform.platform).join(", ") || "FACEBOOK"}</small>
+                          <div className="dashboard-mobile-post-platforms">
+                            <PlatformChipList platforms={getDashboardPostPlatforms(post.platforms)} iconsOnly />
+                          </div>
                         </div>
                       </Link>
                     );
@@ -409,7 +420,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                             <span className={`badge is-${tone}`.trim()}>{post.status}</span>
                           </td>
                           <td>{calendarAt ? formatDateTimeForTimezone(calendarAt, timezone) : "No time"}</td>
-                          <td>{post.platforms.map((platform) => platform.platform).join(", ") || "FACEBOOK"}</td>
+                          <td>
+                            <PlatformChipList platforms={getDashboardPostPlatforms(post.platforms)} iconsOnly />
+                          </td>
                         </ClickableTableRow>
                       );
                     })
@@ -444,7 +457,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                           <span className={`badge is-${tone}`.trim()}>{post.status}</span>
                         </div>
                         <p>{calendarAt ? formatDateTimeForTimezone(calendarAt, timezone) : "No time"}</p>
-                        <small>{post.platforms.map((platform) => platform.platform).join(", ") || "FACEBOOK"}</small>
+                        <div className="dashboard-mobile-post-platforms">
+                          <PlatformChipList platforms={getDashboardPostPlatforms(post.platforms)} iconsOnly />
+                        </div>
                       </div>
                     </Link>
                   );

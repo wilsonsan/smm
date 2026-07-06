@@ -32,6 +32,45 @@ type MediaUploadModalProps = {
   onUploaded?: (result: MediaUploadResult) => void;
 };
 
+const UPLOADS_PER_PAGE = 12;
+
+function getPageNumbers(currentPage: number, totalPages: number) {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const pages = new Set<number>([1, totalPages, currentPage, currentPage - 1, currentPage + 1]);
+  const normalized = [...pages].filter((page) => page >= 1 && page <= totalPages).sort((left, right) => left - right);
+  const result: Array<number | "ELLIPSIS"> = [];
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const page = normalized[index];
+    const previous = normalized[index - 1];
+    if (previous && page - previous > 1) {
+      result.push("ELLIPSIS");
+    }
+    result.push(page);
+  }
+
+  return result;
+}
+
+function ArrowLeftIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="m15 18-6-6 6-6" />
+    </svg>
+  );
+}
+
+function ArrowRightIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
+}
+
 function UploadIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
@@ -58,6 +97,7 @@ export function MediaUploadModal({ isOpen, onClose, onUploaded }: MediaUploadMod
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadProgressLabel, setUploadProgressLabel] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -83,12 +123,18 @@ export function MediaUploadModal({ isOpen, onClose, onUploaded }: MediaUploadMod
     };
   }, [queuedUploads]);
 
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(queuedUploads.length / UPLOADS_PER_PAGE));
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [queuedUploads.length]);
+
   function resetUploadState() {
     queuedUploads.forEach((item) => URL.revokeObjectURL(item.previewUrl));
     setQueuedUploads([]);
     setUploadError(null);
     setUploadProgressLabel(null);
     setIsUploading(false);
+    setCurrentPage(1);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -210,6 +256,14 @@ export function MediaUploadModal({ isOpen, onClose, onUploaded }: MediaUploadMod
     return null;
   }
 
+  const totalPages = Math.max(1, Math.ceil(queuedUploads.length / UPLOADS_PER_PAGE));
+  const clampedCurrentPage = Math.min(currentPage, totalPages);
+  const visibleQueuedUploads = queuedUploads.slice(
+    (clampedCurrentPage - 1) * UPLOADS_PER_PAGE,
+    clampedCurrentPage * UPLOADS_PER_PAGE,
+  );
+  const pageNumbers = getPageNumbers(clampedCurrentPage, totalPages);
+
   return createPortal(
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Upload media">
       <button type="button" className="modal-dismiss-surface" aria-label="Close upload modal" onClick={closeModal} />
@@ -280,10 +334,52 @@ export function MediaUploadModal({ isOpen, onClose, onUploaded }: MediaUploadMod
           <div className="gallery-upload-queue">
             <div className="gallery-upload-queue-header">
               <strong>Ready to upload</strong>
-              <span>{queuedUploads.length} file(s)</span>
+              <span>
+                {queuedUploads.length} file(s)
+                {totalPages > 1 ? ` | Page ${clampedCurrentPage} of ${totalPages}` : ""}
+              </span>
             </div>
+            {totalPages > 1 ? (
+              <div className="gallery-upload-queue-pagination">
+                <button
+                  type="button"
+                  className="gallery-page-button"
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={clampedCurrentPage === 1 || isUploading}
+                >
+                  <ArrowLeftIcon />
+                  <span>Previous</span>
+                </button>
+                <div className="gallery-page-numbers">
+                  {pageNumbers.map((page, index) =>
+                    page === "ELLIPSIS" ? (
+                      <span key={`upload-ellipsis-${index}`} className="gallery-page-ellipsis">...</span>
+                    ) : (
+                      <button
+                        key={`upload-page-${page}`}
+                        type="button"
+                        className={`gallery-page-number${page === clampedCurrentPage ? " is-active" : ""}`.trim()}
+                        onClick={() => setCurrentPage(page)}
+                        disabled={isUploading}
+                      >
+                        {page}
+                      </button>
+                    ),
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="gallery-page-button"
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  disabled={clampedCurrentPage === totalPages || isUploading}
+                >
+                  <span>Next</span>
+                  <ArrowRightIcon />
+                </button>
+              </div>
+            ) : null}
             <div className="gallery-upload-queue-grid">
-              {queuedUploads.map((item) => (
+              {visibleQueuedUploads.map((item) => (
                 <article key={item.id} className="gallery-upload-queue-card">
                   <div className="gallery-upload-queue-thumb-wrap">
                     <img src={item.previewUrl} alt={`${item.file.name} preview`} className="gallery-upload-queue-thumb" />

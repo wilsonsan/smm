@@ -153,6 +153,19 @@ function resolveAspectRatio(aspectKey: AspectRatioKey, originalAspectRatio: numb
   return ASPECT_RATIO_VALUES[aspectKey];
 }
 
+function normalizeCropArea(area: Area | null) {
+  if (!area) {
+    return null;
+  }
+
+  return {
+    x: Math.max(0, Math.round(area.x)),
+    y: Math.max(0, Math.round(area.y)),
+    width: Math.max(1, Math.round(area.width)),
+    height: Math.max(1, Math.round(area.height)),
+  };
+}
+
 function parseInitialEditorState(mediaAsset: MediaAssetEditorProps["mediaAsset"]): EditorSnapshot {
   const history = typeof mediaAsset.editHistoryJson === "object" && mediaAsset.editHistoryJson ? (mediaAsset.editHistoryJson as Record<string, unknown>) : null;
   const initialAspectKey =
@@ -298,7 +311,8 @@ export function MediaAssetEditor({ mediaAsset }: MediaAssetEditorProps) {
   }
 
   async function handleSaveChanges() {
-    if (!croppedAreaPixels) {
+    const normalizedCropArea = normalizeCropArea(croppedAreaPixels);
+    if (!normalizedCropArea) {
       setError("Move or resize the crop area before saving.");
       setMessage(null);
       return;
@@ -316,7 +330,7 @@ export function MediaAssetEditor({ mediaAsset }: MediaAssetEditorProps) {
         },
         body: JSON.stringify({
           mode: "save",
-          crop: croppedAreaPixels,
+          crop: normalizedCropArea,
           zoom,
           rotation,
           flipHorizontal,
@@ -437,7 +451,7 @@ export function MediaAssetEditor({ mediaAsset }: MediaAssetEditorProps) {
                   cropShape="rect"
                   showGrid={showGrid}
                   transform={cropperTransform}
-                  restrictPosition={false}
+                  restrictPosition
                   onCropChange={setCrop}
                   onCropComplete={(_, pixels) => setCroppedAreaPixels(pixels)}
                   onZoomChange={setZoom}
