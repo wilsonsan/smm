@@ -1,4 +1,4 @@
-import type { SVGProps } from "react";
+import { useId, type SVGProps } from "react";
 
 type IconProps = SVGProps<SVGSVGElement>;
 
@@ -208,10 +208,12 @@ export function FacebookIcon(props: IconProps) {
 }
 
 export function InstagramIcon(props: IconProps) {
+  const gradientId = useId();
+
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
       <defs>
-        <linearGradient id="dashboardInstagramGradient" x1="4" y1="20" x2="20" y2="4" gradientUnits="userSpaceOnUse">
+        <linearGradient id={gradientId} x1="4" y1="20" x2="20" y2="4" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#f58529" />
           <stop offset="38%" stopColor="#feda77" />
           <stop offset="62%" stopColor="#dd2a7b" />
@@ -224,11 +226,11 @@ export function InstagramIcon(props: IconProps) {
         width="15.6"
         height="15.6"
         rx="4.4"
-        stroke="url(#dashboardInstagramGradient)"
+        stroke={`url(#${gradientId})`}
         strokeWidth="2"
       />
-      <circle cx="12" cy="12" r="3.5" stroke="url(#dashboardInstagramGradient)" strokeWidth="2" />
-      <circle cx="17.1" cy="6.9" r="1" fill="url(#dashboardInstagramGradient)" />
+      <circle cx="12" cy="12" r="3.5" stroke={`url(#${gradientId})`} strokeWidth="2" />
+      <circle cx="17.1" cy="6.9" r="1" fill={`url(#${gradientId})`} />
     </svg>
   );
 }

@@ -3347,6 +3347,18 @@ th {
     inset 0 -1px 0 rgba(212, 221, 242, 0.7);
 }
 
+.dashboard-platform-badges.platform-chip-list.is-icons-only .platform-chip.is-facebook {
+  color: #1877f2;
+}
+
+.dashboard-platform-badges.platform-chip-list.is-icons-only .platform-chip.is-instagram {
+  color: #dd2a7b;
+}
+
+.dashboard-platform-badges.platform-chip-list.is-icons-only .platform-chip.is-google {
+  color: #1f9d5b;
+}
+
 .dashboard-platform-badges.platform-chip-list.is-icons-only .platform-chip-icon {
   width: 18px;
   height: 18px;
