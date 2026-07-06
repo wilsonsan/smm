@@ -3328,15 +3328,33 @@ th {
   margin-top: 2px;
 }
 
-.platform-chip-list.is-icons-only {
-  gap: 6px;
+.dashboard-platform-badges.platform-chip-list {
+  gap: 8px;
 }
 
-.platform-chip-list.is-icons-only .platform-chip {
-  padding: 7px;
-  min-width: 32px;
-  min-height: 32px;
+.dashboard-platform-badges.platform-chip-list.is-icons-only .platform-chip {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
   justify-content: center;
+  background: #ffffff;
+  box-shadow:
+    0 10px 22px rgba(5, 12, 24, 0.18),
+    inset 0 -1px 0 rgba(212, 221, 242, 0.7);
+}
+
+.dashboard-platform-badges.platform-chip-list.is-icons-only .platform-chip-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.dashboard-platform-badges.platform-chip-list.is-icons-only .platform-chip-icon svg {
+  width: 100%;
+  height: 100%;
 }
 
 .dashboard-table-wrap {

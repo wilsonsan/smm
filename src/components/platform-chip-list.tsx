@@ -65,19 +65,21 @@ function getPlatformStatusTone(status: SocialPostStatus) {
 export function PlatformChipList({
   platforms,
   iconsOnly = false,
+  className = "",
 }: {
   platforms: Array<{
     platform: SocialPlatform;
     status?: SocialPostStatus;
   }>;
   iconsOnly?: boolean;
+  className?: string;
 }) {
   if (platforms.length === 0) {
     return <span className="muted">None</span>;
   }
 
   return (
-    <div className={`platform-chip-list${iconsOnly ? " is-icons-only" : ""}`.trim()}>
+    <div className={`platform-chip-list${iconsOnly ? " is-icons-only" : ""} ${className}`.trim()}>
       {platforms.map((item) => (
         <span
           key={`${item.platform}-${item.status ?? "none"}`}

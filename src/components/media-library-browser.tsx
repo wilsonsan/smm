@@ -974,9 +974,8 @@ export function MediaLibraryBrowser({
               </div>
             </section>
 
-            <div className="gallery-v2-summary-row">
-              <span>{filteredAssets.length} item{filteredAssets.length === 1 ? "" : "s"}</span>
-              {selectedCount > 0 ? (
+            {selectedCount > 0 ? (
+              <div className="gallery-v2-summary-row">
                 <div className="gallery-v2-selection-summary">
                   <button
                     type="button"
@@ -994,8 +993,8 @@ export function MediaLibraryBrowser({
                   </button>
                   <strong>{selectedCount} selected</strong>
                 </div>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
 
             {uploadSummary ? <p className="success-text">{uploadSummary}</p> : null}
             {libraryError ? <p className="error-text">{libraryError}</p> : null}

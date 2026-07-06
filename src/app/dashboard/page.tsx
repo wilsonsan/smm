@@ -297,7 +297,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                           </div>
                           <p>{calendarAt ? formatDateTimeForTimezone(calendarAt, timezone) : "No time"}</p>
                           <div className="dashboard-mobile-post-platforms">
-                            <PlatformChipList platforms={getDashboardPostPlatforms(post.platforms)} iconsOnly />
+                            <PlatformChipList platforms={getDashboardPostPlatforms(post.platforms)} iconsOnly className="dashboard-platform-badges" />
                           </div>
                         </div>
                       </Link>
@@ -421,7 +421,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                           </td>
                           <td>{calendarAt ? formatDateTimeForTimezone(calendarAt, timezone) : "No time"}</td>
                           <td>
-                            <PlatformChipList platforms={getDashboardPostPlatforms(post.platforms)} iconsOnly />
+                            <PlatformChipList platforms={getDashboardPostPlatforms(post.platforms)} iconsOnly className="dashboard-platform-badges" />
                           </td>
                         </ClickableTableRow>
                       );
@@ -458,7 +458,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                         </div>
                         <p>{calendarAt ? formatDateTimeForTimezone(calendarAt, timezone) : "No time"}</p>
                         <div className="dashboard-mobile-post-platforms">
-                          <PlatformChipList platforms={getDashboardPostPlatforms(post.platforms)} iconsOnly />
+                          <PlatformChipList platforms={getDashboardPostPlatforms(post.platforms)} iconsOnly className="dashboard-platform-badges" />
                         </div>
                       </div>
                     </Link>
