@@ -45,6 +45,7 @@ const INSTAGRAM_CONTAINER_MAX_POLLS = 20;
 const INSTAGRAM_CONTAINER_POLL_INTERVAL_MS = 1500;
 const INSTAGRAM_FIRST_COMMENT_MAX_ATTEMPTS = 6;
 const INSTAGRAM_FIRST_COMMENT_RETRY_DELAY_MS = 2500;
+const INSTAGRAM_PUBLIC_MEDIA_URL_EXPIRY_MINUTES = 24 * 60;
 
 export type InstagramFoundationState = {
   status: "READY" | "NOT_LINKED" | "LOOKUP_ERROR" | "FACEBOOK_DISCONNECTED";
@@ -840,6 +841,7 @@ export async function publishInstagramPost(input: {
       const publicImageUrl = await createSignedPublicPlatformMediaUrl({
         platform: "INSTAGRAM",
         storagePath: temporaryImage.storagePath,
+        expiresInMinutes: INSTAGRAM_PUBLIC_MEDIA_URL_EXPIRY_MINUTES,
       });
       publicImageUrls.push(publicImageUrl);
     }
@@ -952,6 +954,8 @@ export async function publishInstagramPost(input: {
     const normalizedError = handleFacebookApiError(error);
     throw new Error(normalizedError.message);
   } finally {
+    // Meta has already ingested Instagram media once the container reaches FINISHED/PUBLISHED,
+    // so cleanup here cannot invalidate a later fetch the way Google local posts can.
     for (const temporaryImage of temporaryImages) {
       const cleanup = await cleanupTemporaryPlatformImage(temporaryImage.absolutePath);
       cleanupResults.push(cleanup);

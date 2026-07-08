@@ -162,6 +162,14 @@ export default async function GoogleAdvancedSettingsPage({ searchParams }: Googl
                 <label>Last platform post ID</label>
                 <input value={diagnostics.lastPublish.postId || "No Google post ID yet"} readOnly />
               </div>
+              <div className="field">
+                <label>Last post state</label>
+                <input value={diagnostics.lastPublish.state || "Unknown"} readOnly />
+              </div>
+              <div className="field">
+                <label>Last search URL</label>
+                <input value={diagnostics.lastPublish.searchUrl || "No Google search URL yet"} readOnly />
+              </div>
             </div>
             {diagnostics.lastPublish.lastError ? (
               <p className="error-text">{diagnostics.lastPublish.lastError}</p>

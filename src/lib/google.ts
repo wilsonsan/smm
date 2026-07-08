@@ -34,7 +34,6 @@ import {
   upsertAppSetting,
 } from "@/lib/settings";
 import {
-  cleanupTemporaryPlatformImage,
   generateTemporaryPlatformImage,
   type TemporaryMediaCleanupResult,
   type TemporaryPlatformImage,
@@ -45,6 +44,9 @@ const GOOGLE_OAUTH_STATE_COOKIE_NAME = "smm_google_oauth_state";
 const GOOGLE_OAUTH_MODE_COOKIE_NAME = "smm_google_oauth_mode";
 const GOOGLE_PENDING_SELECTION_COOKIE_NAME = "smm_google_pending_selection";
 const GOOGLE_STATE_MAX_AGE_SECONDS = 10 * 60;
+const GOOGLE_PUBLIC_MEDIA_URL_EXPIRY_MINUTES = 24 * 60;
+const GOOGLE_LOCAL_POST_STATE_POLL_INTERVAL_MS = 5_000;
+const GOOGLE_LOCAL_POST_STATE_POLL_ATTEMPTS = 12;
 
 const GOOGLE_REQUIRED_OAUTH_SCOPES = [
   "https://www.googleapis.com/auth/business.manage",
@@ -114,6 +116,8 @@ type GoogleConnectionMetadata = {
   lastTokenRefreshAt: string | null;
   lastPublishAt: string | null;
   lastPublishPostId: string | null;
+  lastPublishState: string | null;
+  lastPublishSearchUrl: string | null;
   lastPublishError: string | null;
   lastPublishAttemptId: string | null;
 };
@@ -188,6 +192,8 @@ export type GoogleDiagnosticsResult = {
   lastPublish: {
     at: string | null;
     postId: string | null;
+    state: string | null;
+    searchUrl: string | null;
     lastError: string | null;
   };
 };
@@ -223,6 +229,33 @@ type GoogleApiErrorPayload = {
     details?: unknown[];
   };
 };
+
+type GoogleLocalPostState =
+  | "LOCAL_POST_STATE_UNSPECIFIED"
+  | "REJECTED"
+  | "LIVE"
+  | "PROCESSING"
+  | "SCHEDULED"
+  | "RECURRING";
+
+type GoogleLocalPostResponse = {
+  name?: string;
+  searchUrl?: string;
+  summary?: string;
+  topicType?: string;
+  state?: GoogleLocalPostState;
+  media?: unknown[];
+};
+
+class GooglePublishError extends Error {
+  responseSummary: Prisma.InputJsonValue | null;
+
+  constructor(message: string, options?: { responseSummary?: Prisma.InputJsonValue | null }) {
+    super(message);
+    this.name = "GooglePublishError";
+    this.responseSummary = options?.responseSummary ?? null;
+  }
+}
 
 async function buildTokenEncryptionKey() {
   const tokenEncryptionKey = await getTokenEncryptionKeyState();
@@ -280,6 +313,8 @@ function buildGoogleConnectionMetadata(input: {
   lastTokenRefreshAt?: string | null;
   lastPublishAt?: string | null;
   lastPublishPostId?: string | null;
+  lastPublishState?: string | null;
+  lastPublishSearchUrl?: string | null;
   lastPublishError?: string | null;
   lastPublishAttemptId?: string | null;
   existingMetadata?: ConnectedAccount["metadata"];
@@ -297,6 +332,8 @@ function buildGoogleConnectionMetadata(input: {
     lastTokenRefreshAt: input.lastTokenRefreshAt ?? existing.lastTokenRefreshAt,
     lastPublishAt: input.lastPublishAt ?? existing.lastPublishAt,
     lastPublishPostId: input.lastPublishPostId ?? existing.lastPublishPostId,
+    lastPublishState: input.lastPublishState ?? existing.lastPublishState,
+    lastPublishSearchUrl: input.lastPublishSearchUrl ?? existing.lastPublishSearchUrl,
     lastPublishError: input.lastPublishError ?? existing.lastPublishError,
     lastPublishAttemptId: input.lastPublishAttemptId ?? existing.lastPublishAttemptId,
   };
@@ -318,6 +355,8 @@ function normalizeGoogleConnectionMetadata(metadata: ConnectedAccount["metadata"
       lastTokenRefreshAt: null,
       lastPublishAt: null,
       lastPublishPostId: null,
+      lastPublishState: null,
+      lastPublishSearchUrl: null,
       lastPublishError: null,
       lastPublishAttemptId: null,
     };
@@ -336,8 +375,84 @@ function normalizeGoogleConnectionMetadata(metadata: ConnectedAccount["metadata"
     lastTokenRefreshAt: typeof raw.lastTokenRefreshAt === "string" ? raw.lastTokenRefreshAt : null,
     lastPublishAt: typeof raw.lastPublishAt === "string" ? raw.lastPublishAt : null,
     lastPublishPostId: typeof raw.lastPublishPostId === "string" ? raw.lastPublishPostId : null,
+    lastPublishState: typeof raw.lastPublishState === "string" ? raw.lastPublishState : null,
+    lastPublishSearchUrl: typeof raw.lastPublishSearchUrl === "string" ? raw.lastPublishSearchUrl : null,
     lastPublishError: typeof raw.lastPublishError === "string" ? raw.lastPublishError : null,
     lastPublishAttemptId: typeof raw.lastPublishAttemptId === "string" ? raw.lastPublishAttemptId : null,
+  };
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeGoogleLocalPostState(state: unknown) {
+  switch (state) {
+    case "LOCAL_POST_STATE_UNSPECIFIED":
+    case "REJECTED":
+    case "LIVE":
+    case "PROCESSING":
+    case "SCHEDULED":
+    case "RECURRING":
+      return state satisfies GoogleLocalPostState;
+    default:
+      return null;
+  }
+}
+
+function isGoogleLocalPostPublishedState(state: GoogleLocalPostState | null) {
+  return state === "LIVE" || state === "RECURRING";
+}
+
+async function getGoogleLocalPost(input: {
+  accessToken: string;
+  localPostName: string;
+}) {
+  return googleApiJson<GoogleLocalPostResponse>({
+    url: `https://mybusiness.googleapis.com/v4/${input.localPostName}`,
+    accessToken: input.accessToken,
+  });
+}
+
+async function waitForGoogleLocalPostState(input: {
+  accessToken: string;
+  initialPost: GoogleLocalPostResponse;
+}) {
+  let latestPost = input.initialPost;
+  let latestState = normalizeGoogleLocalPostState(input.initialPost.state);
+  let pollError: string | null = null;
+
+  if (!input.initialPost.name || latestState === "REJECTED" || isGoogleLocalPostPublishedState(latestState)) {
+    return {
+      post: latestPost,
+      state: latestState,
+      pollError,
+    };
+  }
+
+  for (let attempt = 0; attempt < GOOGLE_LOCAL_POST_STATE_POLL_ATTEMPTS; attempt += 1) {
+    await sleep(GOOGLE_LOCAL_POST_STATE_POLL_INTERVAL_MS);
+
+    try {
+      latestPost = await getGoogleLocalPost({
+        accessToken: input.accessToken,
+        localPostName: input.initialPost.name,
+      });
+      latestState = normalizeGoogleLocalPostState(latestPost.state);
+      pollError = null;
+
+      if (latestState === "REJECTED" || isGoogleLocalPostPublishedState(latestState)) {
+        break;
+      }
+    } catch (error) {
+      pollError = error instanceof Error ? error.message : "Google post state could not be refreshed.";
+    }
+  }
+
+  return {
+    post: latestPost,
+    state: latestState,
+    pollError,
   };
 }
 
@@ -779,6 +894,8 @@ export async function saveGoogleConnectedLocation(input: {
     lastTokenRefreshAt: new Date().toISOString(),
     lastPublishAt: null,
     lastPublishPostId: null,
+    lastPublishState: null,
+    lastPublishSearchUrl: null,
     lastPublishError: null,
     lastPublishAttemptId: null,
   });
@@ -1210,6 +1327,8 @@ export async function getGoogleDiagnostics(input?: { refreshHealth?: boolean }) 
     lastPublish: {
       at: metadata.lastPublishAt,
       postId: metadata.lastPublishPostId,
+      state: metadata.lastPublishState,
+      searchUrl: metadata.lastPublishSearchUrl,
       lastError: metadata.lastPublishError,
     },
   } satisfies GoogleDiagnosticsResult;
@@ -1462,6 +1581,9 @@ export async function publishGoogleBusinessPost(input: {
 
   let temporaryImage: TemporaryPlatformImage | null = null;
   let cleanupResult: TemporaryMediaCleanupResult | null = null;
+  let lastPublishedPostId: string | null = null;
+  let lastPublishedSearchUrl: string | null = null;
+  let lastPublishedState: GoogleLocalPostState | null = null;
 
   try {
     let publicImageUrl: string | null = null;
@@ -1474,6 +1596,7 @@ export async function publishGoogleBusinessPost(input: {
       publicImageUrl = await createSignedPublicPlatformMediaUrl({
         platform: "GOOGLE_BUSINESS",
         storagePath: temporaryImage.storagePath,
+        expiresInMinutes: GOOGLE_PUBLIC_MEDIA_URL_EXPIRY_MINUTES,
       });
     }
 
@@ -1482,25 +1605,49 @@ export async function publishGoogleBusinessPost(input: {
       publicImageUrl,
     });
 
-    const response = await googleApiJson<{
-      name?: string;
-      searchUrl?: string;
-      summary?: string;
-      topicType?: string;
-      state?: string;
-      media?: unknown[];
-    }>({
+    const response = await googleApiJson<GoogleLocalPostResponse>({
       url: `https://mybusiness.googleapis.com/v4/${metadata.localPostParent}/localPosts`,
       accessToken: connection.accessToken,
       method: "POST",
       body: requestBody,
     });
+    const confirmedPost = await waitForGoogleLocalPostState({
+      accessToken: connection.accessToken,
+      initialPost: response,
+    });
+    lastPublishedPostId = confirmedPost.post.name ?? response.name ?? null;
+    lastPublishedSearchUrl =
+      (typeof confirmedPost.post.searchUrl === "string" ? confirmedPost.post.searchUrl : null) ||
+      (typeof response.searchUrl === "string" ? response.searchUrl : null);
+    lastPublishedState = confirmedPost.state ?? normalizeGoogleLocalPostState(response.state);
+    const responseSummary = appendGoogleTempDiagnostics({
+      responseSummary: {
+        endpoint: "localPosts.create",
+        locationId: connection.locationId,
+        locationName: connection.locationName,
+        localPostName: lastPublishedPostId,
+        localPostUrl: lastPublishedSearchUrl,
+        localPostState: lastPublishedState,
+        localPostStatePollError: confirmedPost.pollError,
+        requestSummary: requestBody,
+      } satisfies Prisma.InputJsonObject,
+      temporaryImage,
+      cleanupResult,
+    });
+
+    if (lastPublishedState === "REJECTED") {
+      throw new GooglePublishError("Google Business rejected the post due to a content policy violation.", {
+        responseSummary,
+      });
+    }
 
     const finishedAt = new Date().toISOString();
     const nextMetadata = buildGoogleConnectionMetadata({
       existingMetadata: connection.metadata,
       lastPublishAt: finishedAt,
-      lastPublishPostId: response.name ?? null,
+      lastPublishPostId: lastPublishedPostId,
+      lastPublishState: lastPublishedState,
+      lastPublishSearchUrl: lastPublishedSearchUrl,
       lastPublishError: null,
     });
     await updateGoogleConnectionStatus({
@@ -1510,25 +1657,17 @@ export async function publishGoogleBusinessPost(input: {
     });
 
     return {
-      platformPostId: response.name || `${metadata.localPostParent}/localPosts`,
-      platformPostUrl: typeof response.searchUrl === "string" ? response.searchUrl : null,
-      responseSummary: appendGoogleTempDiagnostics({
-        responseSummary: {
-          endpoint: "localPosts.create",
-          locationId: connection.locationId,
-          locationName: connection.locationName,
-          localPostName: response.name ?? null,
-          localPostUrl: typeof response.searchUrl === "string" ? response.searchUrl : null,
-          requestSummary: requestBody,
-        } satisfies Prisma.InputJsonObject,
-        temporaryImage,
-        cleanupResult,
-      }),
+      platformPostId: lastPublishedPostId || `${metadata.localPostParent}/localPosts`,
+      platformPostUrl: lastPublishedSearchUrl,
+      responseSummary,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Google Business publishing failed.";
     const nextMetadata = buildGoogleConnectionMetadata({
       existingMetadata: connection.metadata,
+      lastPublishPostId: lastPublishedPostId,
+      lastPublishState: lastPublishedState,
+      lastPublishSearchUrl: lastPublishedSearchUrl,
       lastPublishError: message,
     });
     await updateGoogleConnectionStatus({
@@ -1537,11 +1676,7 @@ export async function publishGoogleBusinessPost(input: {
       metadata: nextMetadata,
       lastError: message,
     }).catch(() => undefined);
-    throw new Error(message);
-  } finally {
-    if (temporaryImage) {
-      cleanupResult = await cleanupTemporaryPlatformImage(temporaryImage.absolutePath);
-    }
+    throw error instanceof GooglePublishError ? error : new GooglePublishError(message);
   }
 }
 
@@ -1759,12 +1894,14 @@ export async function executeGooglePublish(input: {
   } catch (error) {
     const finishedAt = new Date();
     const message = error instanceof Error ? error.message : "Google Business publishing failed.";
+    const responseSummary = error instanceof GooglePublishError ? error.responseSummary : undefined;
 
     await prisma.$transaction(async (tx) => {
       await tx.publishAttempt.update({
         where: { id: attempt.id },
         data: {
           status: PublishAttemptStatus.FAILED,
+          ...(responseSummary ? { responseSummary } : {}),
           errorCode: "GOOGLE_PUBLISH_FAILED",
           errorMessage: message,
           finishedAt,
@@ -1788,7 +1925,7 @@ export async function executeGooglePublish(input: {
       detail: message,
     }).catch(() => undefined);
 
-    throw new Error(message);
+    throw error instanceof Error ? error : new Error(message);
   }
 }
 
