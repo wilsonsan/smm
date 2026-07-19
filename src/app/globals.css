@@ -3489,6 +3489,7 @@ th {
 
 .dashboard-recent-card {
   position: relative;
+  min-height: 0;
   overflow: hidden;
 }
 
