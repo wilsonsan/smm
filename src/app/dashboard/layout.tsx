@@ -3,6 +3,7 @@ import { logoutAction, openNotificationAction } from "@/app/dashboard/actions";
 import Link from "next/link";
 import { DashboardSidebarNav } from "@/components/dashboard-sidebar-nav";
 import { DashboardMobileNav } from "@/components/dashboard-mobile-nav";
+import { PublicLegalFooter } from "@/components/public-legal-layout";
 import { ArrowRightIcon, LogoSparkIcon, UserIcon } from "@/components/dashboard-icons";
 import { DashboardTopbar } from "@/components/dashboard-topbar";
 import { getBrandingSettings } from "@/lib/settings";
@@ -66,6 +67,7 @@ export default async function DashboardLayout({
               Log Out
             </button>
           </form>
+          <PublicLegalFooter compact />
         </div>
       </aside>
 

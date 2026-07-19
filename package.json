@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "verify:legal": "tsx scripts/verify-public-legal-pages.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "db:seed": "node --env-file-if-exists=.env --env-file-if-exists=.env.production --import tsx prisma/seed.ts",
