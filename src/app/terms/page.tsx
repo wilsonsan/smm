@@ -121,7 +121,7 @@ export default function TermsOfUsePage() {
       <section>
         <h2>5. Social Media Account Authorization</h2>
         <p>
-          The Application may access Facebook Pages, Instagram professional accounts, or other
+          The Application may access Facebook Pages or other
           social media resources only after appropriate authorization.
         </p>
         <p>

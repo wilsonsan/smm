@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AdminUserRole } from "@prisma/client";
 import { isProduction } from "@/lib/env";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
+import { isMetaInstagramEnabled } from "@/lib/meta-instagram-capability";
 
 const SETTINGS_SECTIONS = [
   {
@@ -55,13 +56,17 @@ const SETTINGS_SECTIONS = [
       {
         href: "/dashboard/settings/channels/facebook",
         title: "Facebook",
-        description: "Meta app setup, page connection, and quick health checks.",
+        description: "Facebook Page connection, publishing access, and quick health checks.",
       },
-      {
-        href: "/dashboard/settings/channels/instagram",
-        title: "Instagram",
-        description: "Instagram readiness, reconnect, and quick testing.",
-      },
+      ...(isMetaInstagramEnabled()
+        ? [
+            {
+              href: "/dashboard/settings/channels/instagram",
+              title: "Instagram",
+              description: "Instagram readiness, reconnect, and quick testing.",
+            },
+          ]
+        : []),
       {
         href: "/dashboard/settings/channels/google",
         title: "Google",

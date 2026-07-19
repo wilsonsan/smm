@@ -3,6 +3,7 @@ import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
 import { claimFacebookPostForPublishing, executeFacebookPublish } from "@/lib/facebook";
 import { claimGooglePostForPublishing, executeGooglePublish } from "@/lib/google";
 import { claimInstagramPostForPublishing, executeInstagramPublish } from "@/lib/instagram";
+import { isMetaInstagramEnabled, META_INSTAGRAM_NOT_ENABLED_MESSAGE } from "@/lib/meta-instagram-capability";
 import { createOrUpdateWorkerErrorNotification, dismissWorkerErrorNotifications } from "@/lib/notifications";
 import { syncSocialPostAggregateState } from "@/lib/publish-state";
 import { prisma } from "@/lib/prisma";
@@ -15,6 +16,71 @@ type PublishWorkerResult = {
   skippedCount: number;
   recoveredCount: number;
 };
+
+async function markUnsupportedInstagramPlatformFailed(input: { socialPostId: string }) {
+  const finishedAt = new Date();
+
+  return prisma.$transaction(async (tx) => {
+    const platformRecord = await tx.socialPostPlatform.findUnique({
+      where: {
+        socialPostId_platform: {
+          socialPostId: input.socialPostId,
+          platform: SocialPlatform.INSTAGRAM,
+        },
+      },
+      select: {
+        id: true,
+        socialPostId: true,
+        status: true,
+        platformPostId: true,
+        publishedAt: true,
+      },
+    });
+
+    if (
+      !platformRecord ||
+      platformRecord.status !== SocialPostStatus.SCHEDULED ||
+      platformRecord.platformPostId ||
+      platformRecord.publishedAt
+    ) {
+      return false;
+    }
+
+    await tx.publishAttempt.create({
+      data: {
+        socialPostId: input.socialPostId,
+        socialPostPlatformId: platformRecord.id,
+        platform: SocialPlatform.INSTAGRAM,
+        status: PublishAttemptStatus.FAILED,
+        errorCode: "INSTAGRAM_DISABLED",
+        errorMessage: META_INSTAGRAM_NOT_ENABLED_MESSAGE,
+        requestSummary: {
+          platform: SocialPlatform.INSTAGRAM,
+          reason: "UNSUPPORTED_PLATFORM",
+          capability: "disabled",
+        },
+        startedAt: finishedAt,
+        finishedAt,
+      },
+    });
+
+    await tx.socialPostPlatform.update({
+      where: {
+        id: platformRecord.id,
+      },
+      data: {
+        status: SocialPostStatus.FAILED,
+        lastError: META_INSTAGRAM_NOT_ENABLED_MESSAGE,
+      },
+    });
+
+    await syncSocialPostAggregateState(tx, input.socialPostId, {
+      failureReason: META_INSTAGRAM_NOT_ENABLED_MESSAGE,
+    });
+
+    return true;
+  });
+}
 
 async function recoverStuckPublishingPosts(now: Date) {
   const cutoff = new Date(now.getTime() - WORKER_PUBLISH_TIMEOUT_MINUTES * 60 * 1000);
@@ -194,6 +260,47 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
       await recordWorkerHeartbeat({
         state: "claiming",
       }).catch(() => undefined);
+
+      if (platform.platform === SocialPlatform.INSTAGRAM && !isMetaInstagramEnabled()) {
+        const markedFailed = await markUnsupportedInstagramPlatformFailed({
+          socialPostId: platform.socialPostId,
+        });
+
+        if (markedFailed) {
+          failedCount += 1;
+          await createAuditLog({
+            action: AUDIT_ACTIONS.POST_PUBLISH_FAILED,
+            targetType: "SocialPost",
+            targetId: platform.socialPostId,
+            metadata: {
+              previousStatus: SocialPostStatus.SCHEDULED,
+              nextStatus: SocialPostStatus.FAILED,
+              mode: "worker",
+              platform: platform.platform,
+              message: META_INSTAGRAM_NOT_ENABLED_MESSAGE,
+              reason: "UNSUPPORTED_PLATFORM",
+            },
+          });
+          await createAuditLog({
+            action: AUDIT_ACTIONS.POST_STATUS_CHANGED,
+            targetType: "SocialPost",
+            targetId: platform.socialPostId,
+            metadata: {
+              previousStatus: SocialPostStatus.SCHEDULED,
+              nextStatus: SocialPostStatus.FAILED,
+              mode: "worker",
+            },
+          });
+          console.log(
+            `[publish worker] Marked Instagram platform ${platform.socialPostId} as unsupported because Instagram publishing is disabled.`,
+          );
+        } else {
+          skippedCount += 1;
+        }
+
+        continue;
+      }
+
       const claim =
         platform.platform === SocialPlatform.GOOGLE_BUSINESS
           ? await claimGooglePostForPublishing({

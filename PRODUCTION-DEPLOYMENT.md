@@ -191,19 +191,9 @@ After login:
 
 1. go to `Settings`
 2. configure Facebook
-3. configure Instagram through Meta
+3. keep `META_INSTAGRAM_ENABLED=false` unless Instagram publishing has been intentionally re-enabled
 4. configure Google Business Profile
-5. test each connection
-
-## Instagram First Comment Behavior
-
-Current production-safe behavior is already supported:
-
-- if `instagram_manage_comments` is not approved yet, the app falls back to the current behavior
-- once Meta approves `instagram_manage_comments`, reconnect Meta so the app receives the new scope
-- after reconnect, Instagram first comments will start publishing normally without changing the fallback path
-
-This means you can go live now and let the feature upgrade itself later after Meta approval.
+5. test each active connection
 
 ## 13. Scheduled Posting And Worker Monitoring
 
@@ -302,7 +292,7 @@ If `REDIS_URL` is blank, the app safely falls back to Prisma/database-backed rat
 - password rotated
 - MFA enabled
 - Facebook connected
-- Instagram connected
+- Instagram intentionally disabled unless Meta approval is in place and `META_INSTAGRAM_ENABLED=true`
 - Google connected
 - test post sent successfully
 - scheduled post confirmed through worker

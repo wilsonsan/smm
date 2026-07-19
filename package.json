@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test:meta": "tsx scripts/test-meta-facebook.ts",
     "verify:legal": "tsx scripts/verify-public-legal-pages.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",

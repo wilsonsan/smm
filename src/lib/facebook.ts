@@ -49,17 +49,47 @@ export const FACEBOOK_OAUTH_MODE_COOKIE_NAME = "smm_facebook_oauth_mode";
 export const FACEBOOK_PENDING_SELECTION_COOKIE_NAME = "smm_facebook_pending_selection";
 export const FACEBOOK_OAUTH_DEBUG_COOKIE_NAME = "smm_facebook_oauth_debug";
 export const FACEBOOK_OAUTH_DEBUG_TOKENS_COOKIE_NAME = "smm_facebook_oauth_debug_tokens";
+export const FACEBOOK_CALLBACK_PATH = "/api/facebook/callback";
 const FACEBOOK_STATE_MAX_AGE_SECONDS = 10 * 60;
 const FACEBOOK_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const FACEBOOK_DEBUG_TOKENS_MAX_AGE_SECONDS = 30 * 60;
 const FACEBOOK_OPTIONAL_DIAGNOSTIC_SCOPES = ["business_management"] as const;
-const INSTAGRAM_FOUNDATION_SCOPES = [
-  "instagram_basic",
-  "instagram_content_publish",
-  "instagram_manage_comments",
-] as const;
 
 export type FacebookOauthMode = "connect" | "reconnect" | "debug";
+
+export function buildFacebookRedirectUri(appUrl: string) {
+  return new URL(FACEBOOK_CALLBACK_PATH, appUrl).toString();
+}
+
+export function buildFacebookOauthAuthorizeUrl(input: {
+  appId: string;
+  redirectUri: string;
+  state: string;
+  scopes?: readonly string[];
+}) {
+  const url = new URL(`https://www.facebook.com/${FACEBOOK_GRAPH_VERSION}/dialog/oauth`);
+  url.searchParams.set("client_id", input.appId);
+  url.searchParams.set("redirect_uri", input.redirectUri);
+  url.searchParams.set("state", input.state);
+  url.searchParams.set("scope", (input.scopes ?? FACEBOOK_REQUIRED_SCOPES).join(","));
+  url.searchParams.set("response_type", "code");
+  return url.toString();
+}
+
+export function compareFacebookOauthState(storedState: string, returnedState: string | null) {
+  if (!returnedState || !storedState) {
+    return false;
+  }
+
+  const returnedBuffer = Buffer.from(returnedState);
+  const storedBuffer = Buffer.from(storedState);
+
+  if (returnedBuffer.length !== storedBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(returnedBuffer, storedBuffer);
+}
 
 export type FacebookRuntimeCheck = {
   key: string;
@@ -664,7 +694,7 @@ export async function getFacebookConfiguration(): Promise<FacebookConfiguration>
         ? "environment"
         : "missing";
   const publicAppUrl = settings.publicAppUrl || env.APP_URL;
-  const redirectUri = new URL("/api/facebook/callback", publicAppUrl).toString();
+  const redirectUri = buildFacebookRedirectUri(publicAppUrl);
   const missingConfig: string[] = [];
   const checks: FacebookRuntimeCheck[] = [
     {
@@ -769,15 +799,12 @@ export async function assertFacebookRuntimeReady() {
 export async function buildFacebookConnectUrl(input?: { mode?: FacebookOauthMode }) {
   const config = await getFacebookConfiguration();
   const state = await createFacebookOauthState(input?.mode ?? "connect");
-  const url = new URL(`https://www.facebook.com/${FACEBOOK_GRAPH_VERSION}/dialog/oauth`);
-  const requestedScopes = Array.from(new Set([...config.requiredScopes, ...INSTAGRAM_FOUNDATION_SCOPES]));
-  url.searchParams.set("client_id", config.appId);
-  url.searchParams.set("redirect_uri", config.redirectUri);
-  url.searchParams.set("state", state);
-  url.searchParams.set("scope", requestedScopes.join(","));
-  url.searchParams.set("response_type", "code");
-
-  return url.toString();
+  return buildFacebookOauthAuthorizeUrl({
+    appId: config.appId,
+    redirectUri: config.redirectUri,
+    state,
+    scopes: config.requiredScopes,
+  });
 }
 
 export async function createFacebookOauthState(mode: FacebookOauthMode = "connect") {
@@ -805,19 +832,7 @@ export async function validateFacebookOauthState(returnedState: string | null) {
   const cookieStore = await cookies();
   const storedState = cookieStore.get(FACEBOOK_OAUTH_STATE_COOKIE_NAME)?.value ?? "";
   cookieStore.delete(FACEBOOK_OAUTH_STATE_COOKIE_NAME);
-
-  if (!returnedState || !storedState) {
-    return false;
-  }
-
-  const returnedBuffer = Buffer.from(returnedState);
-  const storedBuffer = Buffer.from(storedState);
-
-  if (returnedBuffer.length !== storedBuffer.length) {
-    return false;
-  }
-
-  return timingSafeEqual(returnedBuffer, storedBuffer);
+  return compareFacebookOauthState(storedState, returnedState);
 }
 
 export async function consumeFacebookOauthMode(): Promise<FacebookOauthMode> {

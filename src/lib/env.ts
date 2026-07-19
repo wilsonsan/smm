@@ -4,6 +4,27 @@ const isServerBuildPhase =
   typeof window === "undefined" &&
   (process.env.NEXT_PHASE === "phase-production-build" || process.env.npm_lifecycle_event === "build");
 
+const booleanEnv = (defaultValue: boolean) =>
+  z
+    .union([z.boolean(), z.string(), z.undefined()])
+    .transform((value) => {
+      if (typeof value === "boolean") {
+        return value;
+      }
+
+      if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (["1", "true", "yes", "on"].includes(normalized)) {
+          return true;
+        }
+        if (["0", "false", "no", "off", ""].includes(normalized)) {
+          return false;
+        }
+      }
+
+      return defaultValue;
+    });
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required."),
@@ -18,12 +39,13 @@ const envSchema = z.object({
   FACEBOOK_APP_ID: z.string().optional().or(z.literal("")),
   FACEBOOK_APP_SECRET: z.string().optional().or(z.literal("")),
   FACEBOOK_PAGE_LOOKUP_VALUE: z.string().optional().or(z.literal("")),
+  META_INSTAGRAM_ENABLED: booleanEnv(false),
   GOOGLE_CLIENT_ID: z.string().optional().or(z.literal("")),
   GOOGLE_CLIENT_SECRET: z.string().optional().or(z.literal("")),
   TOKEN_ENCRYPTION_KEY: z.string().optional().or(z.literal("")),
   REDIS_URL: z.string().url().optional().or(z.literal("")),
   RATE_LIMIT_REDIS_PREFIX: z.string().optional().or(z.literal("")).default("smm:rate-limit"),
-  TRUST_PROXY_HEADERS: z.coerce.boolean().default(false),
+  TRUST_PROXY_HEADERS: booleanEnv(false),
 });
 
 const serverEnvInput = {
@@ -43,6 +65,7 @@ const serverEnvInput = {
   FACEBOOK_APP_ID: process.env.FACEBOOK_APP_ID,
   FACEBOOK_APP_SECRET: process.env.FACEBOOK_APP_SECRET,
   FACEBOOK_PAGE_LOOKUP_VALUE: process.env.FACEBOOK_PAGE_LOOKUP_VALUE,
+  META_INSTAGRAM_ENABLED: process.env.META_INSTAGRAM_ENABLED,
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
   TOKEN_ENCRYPTION_KEY: process.env.TOKEN_ENCRYPTION_KEY,
@@ -65,6 +88,7 @@ const clientEnvFallback = {
   FACEBOOK_APP_ID: "",
   FACEBOOK_APP_SECRET: "",
   FACEBOOK_PAGE_LOOKUP_VALUE: "",
+  META_INSTAGRAM_ENABLED: false,
   GOOGLE_CLIENT_ID: "",
   GOOGLE_CLIENT_SECRET: "",
   TOKEN_ENCRYPTION_KEY: "",

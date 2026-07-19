@@ -15,8 +15,6 @@ import { buildRateLimitHeaders, enforceRateLimit, isRateLimitExceededError } fro
 const FACEBOOK_CONNECT_RETURN_PATHS = new Set([
   "/dashboard/settings/channels/facebook",
   "/dashboard/settings/channels/facebook/advanced",
-  "/dashboard/settings/channels/instagram",
-  "/dashboard/settings/channels/instagram/advanced",
 ]);
 
 function normalizeConnectMode(value: FormDataEntryValue | string | null | undefined): FacebookOauthMode {

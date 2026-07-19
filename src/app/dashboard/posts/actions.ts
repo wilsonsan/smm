@@ -23,6 +23,10 @@ import {
   validateInstagramPublishPrerequisites,
 } from "@/lib/instagram";
 import {
+  isMetaInstagramEnabled,
+  META_INSTAGRAM_REMOVE_AND_RETRY_MESSAGE,
+} from "@/lib/meta-instagram-capability";
+import {
   areSelectedPlatformsPublishableNow,
   doSelectedPlatformsRequireMedia,
   getCaptionRuleForPlatform,
@@ -960,6 +964,17 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
     }
 
     if (parsed.data.platforms.includes(SocialPlatform.INSTAGRAM)) {
+      if (!isMetaInstagramEnabled()) {
+        return {
+          ...initialFormState,
+          message: META_INSTAGRAM_REMOVE_AND_RETRY_MESSAGE,
+          fieldErrors: {
+            platforms: [META_INSTAGRAM_REMOVE_AND_RETRY_MESSAGE],
+          },
+          submittedValues,
+        };
+      }
+
       const instagramFoundation = await getInstagramFoundationState({ refreshHealth: true });
       if (instagramFoundation.status !== "READY") {
         return {
@@ -1769,7 +1784,7 @@ export async function publishPostNowAction(formData: FormData) {
     redirect(
       buildPostDetailHref(postId, {
         status: "error",
-        message: "Post Now currently supports Facebook or Instagram only. Remove other platforms before publishing.",
+        message: "Choose at least one connected platform before publishing.",
       }),
     );
   }

@@ -23,6 +23,11 @@ import { syncSocialPostAggregateState } from "@/lib/publish-state";
 import { prisma } from "@/lib/prisma";
 import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
 import { getBusinessVariableSettings, getDeveloperSettings, getHashtagSettings } from "@/lib/settings";
+import {
+  isMetaInstagramEnabled,
+  META_INSTAGRAM_NOT_ENABLED_MESSAGE,
+  META_INSTAGRAM_UNAVAILABLE_MESSAGE,
+} from "@/lib/meta-instagram-capability";
 
 export const INSTAGRAM_REQUIRED_SCOPES = [
   "instagram_basic",
@@ -48,7 +53,7 @@ const INSTAGRAM_FIRST_COMMENT_RETRY_DELAY_MS = 2500;
 const INSTAGRAM_PUBLIC_MEDIA_URL_EXPIRY_MINUTES = 24 * 60;
 
 export type InstagramFoundationState = {
-  status: "READY" | "NOT_LINKED" | "LOOKUP_ERROR" | "FACEBOOK_DISCONNECTED";
+  status: "READY" | "NOT_LINKED" | "LOOKUP_ERROR" | "FACEBOOK_DISCONNECTED" | "DISABLED";
   accountId: string | null;
   username: string | null;
   profilePictureUrl: string | null;
@@ -207,6 +212,23 @@ function parseInstagramMetadata(metadata: FacebookConnectionRecord["metadata"]):
 export function getInstagramFoundationStateFromConnection(
   connection: FacebookConnectionRecord | null,
 ): InstagramFoundationState {
+  if (!isMetaInstagramEnabled()) {
+    return {
+      status: "DISABLED",
+      accountId: null,
+      username: null,
+      profilePictureUrl: null,
+      source: null,
+      pageId: connection?.pageId ?? null,
+      pageName: connection?.pageName ?? null,
+      facebookStatus: connection?.status ?? null,
+      lastCheckedAt: null,
+      errorMessage: null,
+      isSelectableInComposer: false,
+      message: META_INSTAGRAM_UNAVAILABLE_MESSAGE,
+    };
+  }
+
   if (!connection || connection.platform !== SocialPlatform.FACEBOOK || connection.status !== ConnectedAccountStatus.CONNECTED) {
     return {
       status: "FACEBOOK_DISCONNECTED",
@@ -293,6 +315,18 @@ export function getInstagramFoundationStateFromConnection(
 }
 
 export async function getInstagramFoundationState(input?: { refreshHealth?: boolean }) {
+  if (!isMetaInstagramEnabled()) {
+    if (input?.refreshHealth) {
+      await refreshFacebookConnectionHealth({
+        createNotification: false,
+        source: "instagram_foundation_state",
+      }).catch(() => null);
+    }
+
+    const connection = await getFacebookConnectionRecord();
+    return getInstagramFoundationStateFromConnection(connection);
+  }
+
   const developerSettings = await getDeveloperSettings();
   if (developerSettings.instagram) {
     return {
@@ -381,6 +415,10 @@ async function instagramGraphRequestJson<T>(input: URL, init: RequestInit) {
 }
 
 async function getInstagramConnectionForPublishing() {
+  if (!isMetaInstagramEnabled()) {
+    throw new Error(META_INSTAGRAM_NOT_ENABLED_MESSAGE);
+  }
+
   const foundation = await getInstagramFoundationState({ refreshHealth: true });
   const connection = await getFacebookConnection();
   const missingScopes = connection
@@ -412,6 +450,24 @@ export async function getInstagramDiagnostics(input?: { refreshHealth?: boolean 
   const foundation = await getInstagramFoundationState({ refreshHealth: input?.refreshHealth !== false });
   const connection = await getFacebookConnectionRecord();
   const missingScopes = getMissingInstagramScopes(connection?.scopes ?? [], { includeFirstCommentScope: true });
+
+  if (!isMetaInstagramEnabled()) {
+    return {
+      foundation,
+      requiredScopes: [...INSTAGRAM_REQUIRED_SCOPES],
+      missingScopes,
+      connectedPage: {
+        pageId: connection?.pageId ?? null,
+        pageName: connection?.pageName ?? null,
+      },
+      lastTestResult: {
+        success: false,
+        testedAt: foundation.lastCheckedAt,
+        message: foundation.message,
+        accountDetails: null,
+      },
+    } satisfies InstagramDiagnosticsResult;
+  }
 
   if (!connection || foundation.status !== "READY" || !foundation.accountId) {
     return {
@@ -495,6 +551,10 @@ export async function validateInstagramPlanningPrerequisites(input: {
     storagePath: string;
   }>;
 }) {
+  if (!isMetaInstagramEnabled()) {
+    throw new Error(META_INSTAGRAM_NOT_ENABLED_MESSAGE);
+  }
+
   const foundation = await getInstagramFoundationState({ refreshHealth: true });
   if (foundation.status !== "READY") {
     throw new Error("Instagram is not ready yet. Link an Instagram Business or Creator account to the connected Facebook Page first.");
@@ -522,6 +582,10 @@ export async function validateInstagramPublishPrerequisites(input: {
     storagePath: string;
   }>;
 }) {
+  if (!isMetaInstagramEnabled()) {
+    throw new Error(META_INSTAGRAM_NOT_ENABLED_MESSAGE);
+  }
+
   const connection = await getInstagramConnectionForPublishing();
 
   if (input.mediaAssets.length === 0) {
@@ -967,6 +1031,14 @@ export async function claimInstagramPostForPublishing(input: {
   socialPostId: string;
   allowedStatuses: SocialPostStatus[];
 }) {
+  if (!isMetaInstagramEnabled()) {
+    return {
+      ok: false as const,
+      reason: "UNSUPPORTED_PLATFORM" as const,
+      message: META_INSTAGRAM_NOT_ENABLED_MESSAGE,
+    };
+  }
+
   return prisma.$transaction(async (tx) => {
     const platformRecord = await tx.socialPostPlatform.findUnique({
       where: {
@@ -1075,6 +1147,10 @@ export async function executeInstagramPublish(input: {
   socialPostId: string;
   socialPostPlatformId: string;
 }) {
+  if (!isMetaInstagramEnabled()) {
+    throw new Error(META_INSTAGRAM_NOT_ENABLED_MESSAGE);
+  }
+
   const platformRecord = await prisma.socialPostPlatform.findUnique({
     where: {
       id: input.socialPostPlatformId,

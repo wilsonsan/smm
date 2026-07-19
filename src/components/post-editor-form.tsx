@@ -599,6 +599,8 @@ export function PostEditorForm({
     timezone,
   ]);
 
+  const isInstagramUnavailable = instagramFoundation?.status === "DISABLED";
+
   useEffect(() => {
     const previousSelectedPlatforms = previousSelectedPlatformsRef.current;
     const addedPlatforms = selectedPlatforms.filter((platform) => !previousSelectedPlatforms.includes(platform));
@@ -622,6 +624,19 @@ export function PostEditorForm({
 
     previousSelectedPlatformsRef.current = selectedPlatforms;
   }, [selectedPlatforms]);
+
+  useEffect(() => {
+    if (!isInstagramUnavailable || previewPlatform !== "INSTAGRAM" || selectedPlatforms.includes(INSTAGRAM_PLATFORM)) {
+      return;
+    }
+
+    if (selectedPlatforms.includes(GOOGLE_PLATFORM)) {
+      setPreviewPlatform("GOOGLE");
+      return;
+    }
+
+    setPreviewPlatform("FACEBOOK");
+  }, [isInstagramUnavailable, previewPlatform, selectedPlatforms]);
 
   useEffect(() => {
     const hasFieldErrors = Boolean(state.fieldErrors && Object.keys(state.fieldErrors).length > 0);
@@ -1094,7 +1109,7 @@ export function PostEditorForm({
                 label="Instagram"
                 tone="instagram"
                 selected={selectedPlatforms.includes(INSTAGRAM_PLATFORM)}
-                disabled={instagramFoundation?.status !== "READY"}
+                disabled={isInstagramUnavailable || instagramFoundation?.status !== "READY"}
                 onClick={() =>
                   setSelectedPlatforms((current) =>
                     current.includes(INSTAGRAM_PLATFORM)
@@ -1123,6 +1138,9 @@ export function PostEditorForm({
                 {error}
               </span>
             ))}
+            {isInstagramUnavailable ? (
+              <span className="hint">Instagram publishing is currently unavailable.</span>
+            ) : null}
           </section>
 
           <section className="composer-section-card">
@@ -1695,14 +1713,16 @@ export function PostEditorForm({
                   <FacebookIcon />
                   <span>Facebook</span>
                 </button>
-                <button
-                  type="button"
-                  className={`composer-preview-tab${previewPlatform === "INSTAGRAM" ? " is-active" : ""}`.trim()}
-                  onClick={() => setPreviewPlatform("INSTAGRAM")}
-                >
-                  <InstagramIcon />
-                  <span>Instagram</span>
-                </button>
+                {!isInstagramUnavailable || selectedPlatforms.includes(INSTAGRAM_PLATFORM) ? (
+                  <button
+                    type="button"
+                    className={`composer-preview-tab${previewPlatform === "INSTAGRAM" ? " is-active" : ""}`.trim()}
+                    onClick={() => setPreviewPlatform("INSTAGRAM")}
+                  >
+                    <InstagramIcon />
+                    <span>Instagram</span>
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className={`composer-preview-tab${previewPlatform === "GOOGLE" ? " is-active" : ""}`.trim()}

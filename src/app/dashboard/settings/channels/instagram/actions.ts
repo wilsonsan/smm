@@ -2,8 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { requireAdminUser } from "@/lib/auth/session";
-import { getInstagramDiagnostics } from "@/lib/instagram";
 import { getRequestMetadata } from "@/lib/http";
+import { META_INSTAGRAM_UNAVAILABLE_MESSAGE } from "@/lib/meta-instagram-capability";
 import { RATE_LIMITS } from "@/lib/rate-limit/config";
 import { enforceRateLimit, isRateLimitExceededError } from "@/lib/rate-limit";
 
@@ -49,21 +49,10 @@ export async function testInstagramConnectionAction() {
     throw error;
   }
 
-  const diagnostics = await getInstagramDiagnostics({ refreshHealth: true });
-
-  if (diagnostics.foundation.status === "READY" && diagnostics.lastTestResult.success) {
-    redirect(
-      buildInstagramSettingsHref({
-        status: "success",
-        message: `Instagram account test succeeded for ${diagnostics.foundation.username ? `@${diagnostics.foundation.username}` : "the linked account"}.`,
-      }),
-    );
-  }
-
   redirect(
     buildInstagramSettingsHref({
       status: "error",
-      message: diagnostics.lastTestResult.message || diagnostics.foundation.message,
+      message: META_INSTAGRAM_UNAVAILABLE_MESSAGE,
     }),
   );
 }

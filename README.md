@@ -119,6 +119,7 @@ Required or recommended values:
 - `FACEBOOK_APP_ID`: optional env fallback if you do not store it in Settings
 - `FACEBOOK_APP_SECRET`: required env secret for the Meta app
 - `TOKEN_ENCRYPTION_KEY`: required env secret used to encrypt stored Facebook Page access tokens
+- `META_INSTAGRAM_ENABLED`: optional capability flag, default `false`; leave disabled in production unless Meta has approved the required Instagram permissions and you intentionally want to re-enable Instagram publishing
 
 Recommended production checklist:
 
@@ -126,6 +127,7 @@ Recommended production checklist:
 - use a long random `TOKEN_ENCRYPTION_KEY`
 - point `UPLOAD_DIR` to a persistent volume or mounted host path
 - set `APP_URL` to the real public origin that Meta will call back to
+- leave `META_INSTAGRAM_ENABLED=false` in production unless Instagram support has been intentionally approved and re-enabled
 - use [docker-compose.production.yml](/C:/Users/Corsair/Desktop/smm-dev/docker-compose.production.yml) and [PRODUCTION-DEPLOYMENT.md](/C:/Users/Corsair/Desktop/smm-dev/PRODUCTION-DEPLOYMENT.md) for the production server rollout
 
 ## Security Notes
@@ -281,6 +283,10 @@ Facebook connection persistence and token health:
   - retry publish
   - scheduled worker publishing
 - reconnect is only required when the token expires, becomes invalid, or required scopes drift
+- the shared Meta OAuth flow requests only:
+  - `pages_show_list`
+  - `pages_read_engagement`
+  - `pages_manage_posts`
 - server-side token health checks now run:
   - when `Settings > Facebook` loads
   - before manual Facebook publishing
@@ -310,6 +316,13 @@ Dashboard notifications:
   - `FACEBOOK`
   - `INSTAGRAM`
   - `GOOGLE_BUSINESS`
+
+Instagram availability:
+
+- historical Instagram posts, publish attempts, and audit history remain readable
+- new Instagram publishing is blocked server-side while `META_INSTAGRAM_ENABLED=false`
+- the worker will mark due Instagram jobs as unsupported instead of retrying indefinitely
+- the production settings UI presents Instagram as unavailable until the capability is intentionally re-enabled
 
 Manual Facebook publishing behavior:
 
