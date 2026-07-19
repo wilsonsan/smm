@@ -7,6 +7,7 @@ const FALLBACK_BRANDING = {
   siteName: "Social Media Manager",
   siteFaviconUrl: "/social-media-favicon.svg",
   publicAppUrl: env.APP_URL,
+  facebookAppId: env.FACEBOOK_APP_ID || "",
 };
 
 const APP_DESCRIPTION = "Self-hosted social media scheduler foundation";
@@ -21,6 +22,8 @@ export async function generateMetadata(): Promise<Metadata> {
     ? FALLBACK_BRANDING
     : await getAppSettings().catch(() => FALLBACK_BRANDING);
   const metadataBase = new URL(branding.publicAppUrl || env.APP_URL);
+  const facebookAppId = branding.facebookAppId || env.FACEBOOK_APP_ID || "";
+  const loginUrl = new URL("/login", metadataBase);
 
   return {
     metadataBase,
@@ -33,6 +36,7 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     openGraph: {
       type: "website",
+      url: loginUrl,
       siteName: branding.siteName,
       title: branding.siteName,
       description: APP_DESCRIPTION,
@@ -45,6 +49,7 @@ export async function generateMetadata(): Promise<Metadata> {
         },
       ],
     },
+    facebook: facebookAppId ? { appId: facebookAppId } : undefined,
     twitter: {
       card: "summary_large_image",
       title: branding.siteName,
