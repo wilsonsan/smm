@@ -3487,9 +3487,16 @@ th {
   gap: 8px;
 }
 
+.dashboard-recent-card {
+  position: relative;
+  overflow: hidden;
+}
+
 .dashboard-recent-card .panel-body {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 18px;
+  min-height: 0;
 }
 
 .dashboard-mobile-post-list {
@@ -3498,6 +3505,7 @@ th {
 
 .dashboard-recent-pagination {
   display: flex;
+  flex: 0 0 auto;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
