@@ -29,6 +29,9 @@ export async function generateMetadata(): Promise<Metadata> {
     metadataBase,
     title: branding.siteName,
     description: APP_DESCRIPTION,
+    alternates: {
+      canonical: loginUrl,
+    },
     icons: {
       icon: branding.siteFaviconUrl,
       shortcut: branding.siteFaviconUrl,
@@ -65,7 +68,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" prefix="og: https://ogp.me/ns# fb: https://ogp.me/ns/fb#">
       <body>{children}</body>
     </html>
   );

@@ -28,6 +28,9 @@ const baseSecurityHeaders = [
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: __dirname,
+  // Social crawlers can stop parsing before streamed metadata arrives. Resolve
+  // metadata before sending HTML so every crawler receives a complete <head>.
+  htmlLimitedBots: /.*/,
   experimental: {
     serverActions: {
       bodySizeLimit: "20mb",
