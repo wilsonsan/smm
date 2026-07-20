@@ -191,9 +191,13 @@ After login:
 
 1. go to `Settings`
 2. configure Facebook
-3. keep `META_INSTAGRAM_ENABLED=false` unless Instagram publishing has been intentionally re-enabled
+3. configure Instagram through the linked Facebook Page and keep `META_INSTAGRAM_PUBLISHING_ENABLED=true`
 4. configure Google Business Profile
 5. test each active connection
+
+Instagram content publishing uses `instagram_basic` and `instagram_content_publish`. Keep
+`META_INSTAGRAM_COMMENTS_ENABLED=false`; the app does not request `instagram_manage_comments`
+and does not publish Instagram first comments. Hashtags are included in the primary caption.
 
 ## 13. Scheduled Posting And Worker Monitoring
 
@@ -292,7 +296,8 @@ If `REDIS_URL` is blank, the app safely falls back to Prisma/database-backed rat
 - password rotated
 - MFA enabled
 - Facebook connected
-- Instagram intentionally disabled unless Meta approval is in place and `META_INSTAGRAM_ENABLED=true`
+- Instagram professional account detected and publishing tested with `META_INSTAGRAM_PUBLISHING_ENABLED=true`
+- Instagram comments disabled with `META_INSTAGRAM_COMMENTS_ENABLED=false`
 - Google connected
 - test post sent successfully
 - scheduled post confirmed through worker

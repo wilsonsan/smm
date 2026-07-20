@@ -23,7 +23,7 @@ import {
   validateInstagramPublishPrerequisites,
 } from "@/lib/instagram";
 import {
-  isMetaInstagramEnabled,
+  isMetaInstagramPublishingEnabled,
   META_INSTAGRAM_REMOVE_AND_RETRY_MESSAGE,
 } from "@/lib/meta-instagram-capability";
 import {
@@ -49,7 +49,6 @@ import {
   getFallbackPostDescriptionPreview,
   getNormalizedPostHashtags,
   isReadOnlyPostStatus,
-  resolveRenderedInstagramFirstComment,
   resolveRenderedPostDescription,
   resolveRenderedPlatformContent,
   type PostDescriptionValues,
@@ -272,7 +271,6 @@ function collectUnresolvedTemplateFieldErrors(input: {
   descriptions: PostDescriptionValues;
   businessVariables: TemplateVariableValueMap;
   platforms: SocialPlatform[];
-  instagramSelected: boolean;
 }) {
   const fieldErrors: Record<string, string[]> = {};
   const missingTokens = new Set<string>();
@@ -289,18 +287,6 @@ function collectUnresolvedTemplateFieldErrors(input: {
     ];
     for (const token of formatTemplateVariableTokens(rendered.unresolvedVariableNames)) {
       missingTokens.add(token);
-    }
-  }
-
-  if (input.instagramSelected && input.descriptions.instagramFirstComment?.trim()) {
-    const firstComment = resolveRenderedInstagramFirstComment(input.descriptions, input.businessVariables);
-    if (firstComment.unresolvedVariableNames.length > 0) {
-      fieldErrors.instagramFirstComment = [
-        `These variables are missing values: ${formatTemplateVariableTokens(firstComment.unresolvedVariableNames).join(", ")}`,
-      ];
-      for (const token of formatTemplateVariableTokens(firstComment.unresolvedVariableNames)) {
-        missingTokens.add(token);
-      }
     }
   }
 
@@ -338,11 +324,6 @@ function collectFormattedPlatformFieldErrors(input: {
       ];
     }
 
-    if (platform === SocialPlatform.INSTAGRAM && formatted.firstCommentText.length > 2200) {
-      fieldErrors.instagramFirstComment = [
-        `Instagram First Comment is ${formatted.firstCommentText.length.toLocaleString()} characters after hashtags are added. Keep it under 2,200 characters.`,
-      ];
-    }
   }
 
   return fieldErrors;
@@ -733,12 +714,6 @@ async function runImmediatePlatformPublishes(input: {
         platform,
         outcome: "succeeded",
         message: `${getPlatformDisplayName(platform)} published successfully.`,
-        warning:
-          platform === SocialPlatform.INSTAGRAM &&
-          "firstComment" in result.result &&
-          result.result.firstComment.status === "failed"
-            ? "Instagram published, but the first comment failed."
-            : undefined,
         platformPostId: result.result.platformPostId,
         platformPostUrl: result.result.platformPostUrl,
         finishedAt: result.finishedAt,
@@ -964,7 +939,7 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
     }
 
     if (parsed.data.platforms.includes(SocialPlatform.INSTAGRAM)) {
-      if (!isMetaInstagramEnabled()) {
+      if (!isMetaInstagramPublishingEnabled()) {
         return {
           ...initialFormState,
           message: META_INSTAGRAM_REMOVE_AND_RETRY_MESSAGE,
@@ -1017,7 +992,6 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
         descriptions: nextDescriptions,
         businessVariables,
         platforms: parsed.data.platforms,
-        instagramSelected: parsed.data.platforms.includes(SocialPlatform.INSTAGRAM),
       });
 
       if (unresolved.missingTokens.length > 0) {
@@ -1087,7 +1061,6 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
         descriptionMain: parsed.data.descriptionMain,
         descriptionFacebook: parsed.data.descriptionFacebook || null,
         descriptionInstagram: parsed.data.descriptionInstagram || null,
-        instagramFirstComment: parsed.data.instagramFirstComment || null,
         descriptionGoogleBusiness: parsed.data.descriptionGoogleBusiness || null,
         hashtags: parsed.data.hashtags,
         includeHashtagsInGoogle: parsed.data.includeHashtagsInGoogle,
@@ -1312,8 +1285,6 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
       });
     }
 
-    const previousInstagramFirstComment = post.previousInstagramFirstComment ?? null;
-    const nextInstagramFirstComment = parsed.data.instagramFirstComment || null;
     const previousHashtags = getNormalizedPostHashtags(post.previousDescriptions);
     const nextHashtags = parsed.data.hashtags;
 
@@ -1349,27 +1320,6 @@ export async function savePostAction(_: FormState, formData: FormData): Promise<
         metadata: {
           previousLength: (post.previousDescriptions.descriptionInstagram || "").length,
           nextLength: (nextDescriptions.descriptionInstagram || "").length,
-        },
-      });
-    }
-
-    if (!previousInstagramFirstComment && nextInstagramFirstComment) {
-      await createPostAuditLog({
-        actorAdminUserId: adminUser.id,
-        action: AUDIT_ACTIONS.INSTAGRAM_FIRST_COMMENT_ADDED,
-        targetId: post.post.id,
-        metadata: {
-          nextLength: nextInstagramFirstComment.length,
-        },
-      });
-    } else if ((previousInstagramFirstComment || "") !== (nextInstagramFirstComment || "")) {
-      await createPostAuditLog({
-        actorAdminUserId: adminUser.id,
-        action: AUDIT_ACTIONS.INSTAGRAM_FIRST_COMMENT_CHANGED,
-        targetId: post.post.id,
-        metadata: {
-          previousLength: (previousInstagramFirstComment || "").length,
-          nextLength: (nextInstagramFirstComment || "").length,
         },
       });
     }
@@ -1836,7 +1786,6 @@ export async function publishPostNowAction(formData: FormData) {
     descriptions: postDescriptionValues,
     businessVariables,
     platforms,
-    instagramSelected: platforms.includes(SocialPlatform.INSTAGRAM),
   });
   if (unresolved.missingTokens.length > 0) {
     await createPostAuditLog({

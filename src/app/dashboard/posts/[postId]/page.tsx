@@ -5,7 +5,7 @@ import { PostEditorForm } from "@/components/post-editor-form";
 import { requireAuthenticatedUser } from "@/lib/auth/session";
 import { getFacebookConnectionRecord, getFacebookPreviewIdentity } from "@/lib/facebook";
 import { getGoogleFoundationState } from "@/lib/google";
-import { getInstagramFirstCommentSummary, getInstagramFoundationState } from "@/lib/instagram";
+import { getInstagramFoundationState } from "@/lib/instagram";
 import {
   canCancelScheduled,
   canDeleteDraft,
@@ -177,21 +177,6 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
   const updatedByLabel = post.updatedByAdminUser.displayName || post.updatedByAdminUser.username;
   const facebookConnection = await getFacebookConnectionRecord();
   const facebookPreview = getFacebookPreviewIdentity(facebookConnection);
-  const latestInstagramAttempt =
-    post.platforms.find((platform) => platform.platform === SocialPlatform.INSTAGRAM)?.publishAttempts[0] ?? null;
-  const instagramFirstCommentSummary = getInstagramFirstCommentSummary(latestInstagramAttempt?.responseSummary);
-  const instagramFirstCommentStatusLabel = post.instagramFirstComment
-    ? instagramFirstCommentSummary.fallbackToCaption
-      ? "Included in caption"
-      : instagramFirstCommentSummary.attempted
-        ? instagramFirstCommentSummary.status === "succeeded"
-          ? "Published"
-          : instagramFirstCommentSummary.status === "failed"
-            ? "Failed"
-            : "Saved"
-        : "Saved"
-    : undefined;
-
   return (
     <section className="section-stack">
       {resolvedSearchParams?.message ? (
@@ -227,7 +212,6 @@ export default async function PostDetailPage({ params, searchParams }: PostDetai
               status: platform.status,
             }),
           ),
-          instagramFirstCommentStatusLabel,
           createdByLabel,
           createdAtLabel: formatDateTimeForTimezone(post.createdAt, timezone),
           updatedByLabel: hasBeenEdited ? updatedByLabel : undefined,

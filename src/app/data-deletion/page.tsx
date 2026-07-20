@@ -11,7 +11,7 @@ import {
 export const metadata: Metadata = createLegalMetadata({
   title: "User Data Deletion Instructions | Social Media Manager",
   description:
-    "Instructions for requesting deletion of Facebook-connected information from the NC Tile Pros LLC Social Media Manager application.",
+    "Instructions for requesting deletion of Facebook or Instagram information from the NC Tile Pros LLC Social Media Manager application.",
   path: "/data-deletion",
 });
 
@@ -26,7 +26,7 @@ export default function DataDeletionPage() {
             Pros LLC.
           </p>
           <p>
-            You may request deletion of information associated with a Facebook
+            You may request deletion of information associated with a Facebook or Instagram
             account connected to the Application by following the instructions below.
           </p>
         </>
@@ -43,7 +43,7 @@ export default function DataDeletionPage() {
         <p>Include the following information:</p>
         <ul>
           <li>Your name.</li>
-          <li>The Facebook Page name involved.</li>
+          <li>The Facebook Page name or Instagram account name involved.</li>
           <li>The email address associated with your request.</li>
           <li>A brief description of the information you want deleted.</li>
         </ul>
@@ -60,7 +60,7 @@ export default function DataDeletionPage() {
       <section>
         <h2>Option 2: Remove the Application Through Meta</h2>
         <p>
-          You may remove the Application from the applicable Facebook account
+          You may remove the Application from the applicable Facebook or Instagram account
           settings.
         </p>
         <p>
@@ -80,7 +80,7 @@ export default function DataDeletionPage() {
           associated with the connected account, which may include:
         </p>
         <ul>
-          <li>Meta user or Page identifiers.</li>
+          <li>Meta user, Page, or Instagram account identifiers.</li>
           <li>Stored Meta access tokens.</li>
           <li>Granted-permission records.</li>
           <li>Connected-account information.</li>

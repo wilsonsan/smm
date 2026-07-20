@@ -15,7 +15,6 @@ import {
   type TemporaryMediaCleanupResult,
 } from "@/lib/uploads";
 import { createOrUpdatePlatformPublishFailedNotification } from "@/lib/notifications";
-import { appendContentBlock } from "@/lib/hashtags";
 import {
   resolveRenderedPlatformContent,
 } from "@/lib/posts";
@@ -24,7 +23,7 @@ import { prisma } from "@/lib/prisma";
 import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
 import { getBusinessVariableSettings, getDeveloperSettings, getHashtagSettings } from "@/lib/settings";
 import {
-  isMetaInstagramEnabled,
+  isMetaInstagramPublishingEnabled,
   META_INSTAGRAM_NOT_ENABLED_MESSAGE,
   META_INSTAGRAM_UNAVAILABLE_MESSAGE,
 } from "@/lib/meta-instagram-capability";
@@ -34,7 +33,6 @@ export const INSTAGRAM_REQUIRED_SCOPES = [
   "instagram_content_publish",
   "pages_show_list",
   "pages_read_engagement",
-  "instagram_manage_comments",
 ] as const;
 
 const INSTAGRAM_PUBLISH_REQUIRED_SCOPES = [
@@ -43,13 +41,9 @@ const INSTAGRAM_PUBLISH_REQUIRED_SCOPES = [
   "pages_show_list",
   "pages_read_engagement",
 ] as const;
-const INSTAGRAM_FIRST_COMMENT_SCOPE = "instagram_manage_comments" as const;
-
 const INSTAGRAM_GRAPH_VERSION = "v23.0";
 const INSTAGRAM_CONTAINER_MAX_POLLS = 20;
 const INSTAGRAM_CONTAINER_POLL_INTERVAL_MS = 1500;
-const INSTAGRAM_FIRST_COMMENT_MAX_ATTEMPTS = 6;
-const INSTAGRAM_FIRST_COMMENT_RETRY_DELAY_MS = 2500;
 const INSTAGRAM_PUBLIC_MEDIA_URL_EXPIRY_MINUTES = 24 * 60;
 
 export type InstagramFoundationState = {
@@ -212,7 +206,7 @@ function parseInstagramMetadata(metadata: FacebookConnectionRecord["metadata"]):
 export function getInstagramFoundationStateFromConnection(
   connection: FacebookConnectionRecord | null,
 ): InstagramFoundationState {
-  if (!isMetaInstagramEnabled()) {
+  if (!isMetaInstagramPublishingEnabled()) {
     return {
       status: "DISABLED",
       accountId: null,
@@ -315,7 +309,7 @@ export function getInstagramFoundationStateFromConnection(
 }
 
 export async function getInstagramFoundationState(input?: { refreshHealth?: boolean }) {
-  if (!isMetaInstagramEnabled()) {
+  if (!isMetaInstagramPublishingEnabled()) {
     if (input?.refreshHealth) {
       await refreshFacebookConnectionHealth({
         createNotification: false,
@@ -358,12 +352,8 @@ export async function getInstagramFoundationState(input?: { refreshHealth?: bool
 
 function getMissingInstagramScopes(
   scopes: string[],
-  options?: {
-    includeFirstCommentScope?: boolean;
-  },
 ) {
-  const requiredScopes = options?.includeFirstCommentScope ? INSTAGRAM_REQUIRED_SCOPES : INSTAGRAM_PUBLISH_REQUIRED_SCOPES;
-  return requiredScopes.filter((scope) => !scopes.includes(scope));
+  return INSTAGRAM_PUBLISH_REQUIRED_SCOPES.filter((scope) => !scopes.includes(scope));
 }
 
 function buildInstagramGraphUrl(pathname: string, params?: Record<string, string | number | undefined | null>) {
@@ -415,14 +405,14 @@ async function instagramGraphRequestJson<T>(input: URL, init: RequestInit) {
 }
 
 async function getInstagramConnectionForPublishing() {
-  if (!isMetaInstagramEnabled()) {
+  if (!isMetaInstagramPublishingEnabled()) {
     throw new Error(META_INSTAGRAM_NOT_ENABLED_MESSAGE);
   }
 
   const foundation = await getInstagramFoundationState({ refreshHealth: true });
   const connection = await getFacebookConnection();
   const missingScopes = connection
-    ? getMissingInstagramScopes(connection.scopes, { includeFirstCommentScope: false })
+    ? getMissingInstagramScopes(connection.scopes)
     : [...INSTAGRAM_PUBLISH_REQUIRED_SCOPES];
 
   if (!connection || !connection.pageId || !connection.pageName) {
@@ -449,9 +439,9 @@ async function getInstagramConnectionForPublishing() {
 export async function getInstagramDiagnostics(input?: { refreshHealth?: boolean }) {
   const foundation = await getInstagramFoundationState({ refreshHealth: input?.refreshHealth !== false });
   const connection = await getFacebookConnectionRecord();
-  const missingScopes = getMissingInstagramScopes(connection?.scopes ?? [], { includeFirstCommentScope: true });
+  const missingScopes = getMissingInstagramScopes(connection?.scopes ?? []);
 
-  if (!isMetaInstagramEnabled()) {
+  if (!isMetaInstagramPublishingEnabled()) {
     return {
       foundation,
       requiredScopes: [...INSTAGRAM_REQUIRED_SCOPES],
@@ -551,7 +541,7 @@ export async function validateInstagramPlanningPrerequisites(input: {
     storagePath: string;
   }>;
 }) {
-  if (!isMetaInstagramEnabled()) {
+  if (!isMetaInstagramPublishingEnabled()) {
     throw new Error(META_INSTAGRAM_NOT_ENABLED_MESSAGE);
   }
 
@@ -575,14 +565,13 @@ export async function validateInstagramPlanningPrerequisites(input: {
 
 export async function validateInstagramPublishPrerequisites(input: {
   caption: string;
-  firstComment?: string;
   mediaAssets: Array<{
     id: string;
     mimeType: string;
     storagePath: string;
   }>;
 }) {
-  if (!isMetaInstagramEnabled()) {
+  if (!isMetaInstagramPublishingEnabled()) {
     throw new Error(META_INSTAGRAM_NOT_ENABLED_MESSAGE);
   }
 
@@ -593,7 +582,6 @@ export async function validateInstagramPublishPrerequisites(input: {
   }
 
   const trimmedCaption = input.caption.trim();
-  const trimmedFirstComment = (input.firstComment || "").trim();
   const validatedMediaAssets: typeof input.mediaAssets = [];
 
   for (const mediaAsset of input.mediaAssets) {
@@ -606,59 +594,8 @@ export async function validateInstagramPublishPrerequisites(input: {
   return {
     connection,
     caption: trimmedCaption,
-    firstComment: trimmedFirstComment,
     mediaAssets: validatedMediaAssets,
   };
-}
-
-async function createInstagramComment(input: {
-  instagramMediaId: string;
-  accessToken: string;
-  message: string;
-}) {
-  const body = new URLSearchParams();
-  body.set("access_token", input.accessToken);
-  body.set("message", input.message);
-
-  const response = await instagramGraphRequestJson<{
-    id: string;
-  }>(buildInstagramGraphUrl(`/${input.instagramMediaId}/comments`), {
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    body,
-  });
-
-  return response.id;
-}
-
-async function createInstagramCommentWithRetry(input: {
-  instagramMediaId: string;
-  accessToken: string;
-  message: string;
-}) {
-  let lastError: Error | null = null;
-
-  for (let attempt = 1; attempt <= INSTAGRAM_FIRST_COMMENT_MAX_ATTEMPTS; attempt += 1) {
-    try {
-      const commentId = await createInstagramComment(input);
-      return {
-        commentId,
-        attemptCount: attempt,
-      };
-    } catch (error) {
-      lastError = handleFacebookApiError(error);
-
-      if (attempt >= INSTAGRAM_FIRST_COMMENT_MAX_ATTEMPTS) {
-        break;
-      }
-
-      await sleep(INSTAGRAM_FIRST_COMMENT_RETRY_DELAY_MS * attempt);
-    }
-  }
-
-  throw lastError ?? new Error("Instagram first comment failed.");
 }
 
 async function createInstagramImageContainer(input: {
@@ -822,7 +759,6 @@ function appendInstagramTempDiagnostics(input: {
 
 export async function publishInstagramPost(input: {
   caption: string;
-  firstComment?: string;
   mediaAssets: Array<{
     id: string;
     mimeType: string;
@@ -832,67 +768,18 @@ export async function publishInstagramPost(input: {
   const validation = await validateInstagramPublishPrerequisites(input);
   const temporaryImages: TemporaryPlatformImage[] = [];
   const cleanupResults: TemporaryMediaCleanupResult[] = [];
-  const canCreateFirstComment = validation.connection.scopes.includes(INSTAGRAM_FIRST_COMMENT_SCOPE);
-  const shouldFallbackFirstCommentToCaption = Boolean(validation.firstComment) && !canCreateFirstComment;
-  const effectiveCaption = shouldFallbackFirstCommentToCaption
-    ? appendContentBlock(validation.caption, validation.firstComment || "")
-    : validation.caption;
+  const effectiveCaption = validation.caption;
+  const firstComment: InstagramFirstCommentResult = {
+    attempted: false,
+    status: "skipped",
+    errorMessage: null,
+    commentId: null,
+    textLength: 0,
+    attemptCount: 0,
+    fallbackToCaption: false,
+  };
 
   try {
-    const buildFirstCommentResult = async (publishedMediaId: string): Promise<InstagramFirstCommentResult> => {
-      if (!validation.firstComment) {
-        return {
-          attempted: false,
-          status: "skipped",
-          errorMessage: null,
-          commentId: null,
-          textLength: 0,
-          fallbackToCaption: false,
-        };
-      }
-
-      if (shouldFallbackFirstCommentToCaption) {
-        return {
-          attempted: false,
-          status: "skipped",
-          errorMessage: null,
-          commentId: null,
-          textLength: validation.firstComment.length,
-          attemptCount: 0,
-          fallbackToCaption: true,
-        };
-      }
-
-      try {
-        const commentResult = await createInstagramCommentWithRetry({
-          instagramMediaId: publishedMediaId,
-          accessToken: validation.connection.accessToken,
-          message: validation.firstComment,
-        });
-
-        return {
-          attempted: true,
-          status: "succeeded",
-          errorMessage: null,
-          commentId: commentResult.commentId,
-          textLength: validation.firstComment.length,
-          attemptCount: commentResult.attemptCount,
-          fallbackToCaption: false,
-        };
-      } catch (error) {
-        const normalizedError = handleFacebookApiError(error);
-        return {
-          attempted: true,
-          status: "failed",
-          errorMessage: normalizedError.message,
-          commentId: null,
-          textLength: validation.firstComment.length,
-          attemptCount: INSTAGRAM_FIRST_COMMENT_MAX_ATTEMPTS,
-          fallbackToCaption: false,
-        };
-      }
-    };
-
     const publicImageUrls: string[] = [];
 
     for (const mediaAsset of validation.mediaAssets) {
@@ -932,8 +819,6 @@ export async function publishInstagramPost(input: {
         instagramMediaId: publishedMediaId,
         accessToken: validation.connection.accessToken,
       });
-      const firstComment = await buildFirstCommentResult(publishedMediaId);
-
       return {
         platformPostId: publishedMediaId,
         platformPostUrl,
@@ -948,7 +833,6 @@ export async function publishInstagramPost(input: {
             instagramAccountId: validation.connection.instagramAccountId,
             platformPostUrl,
             mediaCount: publicImageUrls.length,
-            captionFallbackUsed: shouldFallbackFirstCommentToCaption,
             firstComment,
           } satisfies Prisma.InputJsonObject,
           temporaryImages,
@@ -990,8 +874,6 @@ export async function publishInstagramPost(input: {
       instagramMediaId: publishedMediaId,
       accessToken: validation.connection.accessToken,
     });
-    const firstComment = await buildFirstCommentResult(publishedMediaId);
-
     return {
       platformPostId: publishedMediaId,
       platformPostUrl,
@@ -1007,7 +889,6 @@ export async function publishInstagramPost(input: {
           instagramAccountId: validation.connection.instagramAccountId,
           platformPostUrl,
           mediaCount: publicImageUrls.length,
-          captionFallbackUsed: shouldFallbackFirstCommentToCaption,
           firstComment,
         } satisfies Prisma.InputJsonObject,
         temporaryImages,
@@ -1031,7 +912,7 @@ export async function claimInstagramPostForPublishing(input: {
   socialPostId: string;
   allowedStatuses: SocialPostStatus[];
 }) {
-  if (!isMetaInstagramEnabled()) {
+  if (!isMetaInstagramPublishingEnabled()) {
     return {
       ok: false as const,
       reason: "UNSUPPORTED_PLATFORM" as const,
@@ -1147,7 +1028,7 @@ export async function executeInstagramPublish(input: {
   socialPostId: string;
   socialPostPlatformId: string;
 }) {
-  if (!isMetaInstagramEnabled()) {
+  if (!isMetaInstagramPublishingEnabled()) {
     throw new Error(META_INSTAGRAM_NOT_ENABLED_MESSAGE);
   }
 
@@ -1211,8 +1092,8 @@ export async function executeInstagramPublish(input: {
           platform: SocialPlatform.INSTAGRAM,
           usedOverride: renderedContent.usedOverride,
           effectiveDescriptionLength: renderedContent.descriptionText.length,
-          firstCommentAttempted: Boolean(renderedContent.firstCommentText),
-          firstCommentLength: renderedContent.firstCommentText.length,
+          firstCommentAttempted: false,
+          firstCommentLength: 0,
           variablesRendered: renderedContent.variablesRendered,
           unresolvedVariablesCount: renderedContent.unresolvedVariableNames.length,
           unresolvedVariableNames: renderedContent.unresolvedVariableNames,
@@ -1233,7 +1114,6 @@ export async function executeInstagramPublish(input: {
       }
       const result = await publishInstagramPost({
         caption: renderedContent.descriptionText,
-        firstComment: renderedContent.firstCommentText,
         mediaAssets,
       });
     const finishedAt = new Date();
@@ -1265,34 +1145,6 @@ export async function executeInstagramPublish(input: {
       });
       await syncSocialPostAggregateState(tx, platformRecord.socialPostId);
     });
-
-    if (result.firstComment.attempted && result.firstComment.status === "succeeded") {
-      await createAuditLog({
-        actorAdminUserId: platformRecord.socialPost.updatedByAdminUserId,
-        action: AUDIT_ACTIONS.INSTAGRAM_FIRST_COMMENT_PUBLISHED,
-        targetType: "SocialPost",
-        targetId: platformRecord.socialPostId,
-        metadata: {
-          platform: SocialPlatform.INSTAGRAM,
-          commentId: result.firstComment.commentId,
-          textLength: result.firstComment.textLength,
-        },
-      }).catch(() => undefined);
-    }
-
-    if (result.firstComment.attempted && result.firstComment.status === "failed") {
-      await createAuditLog({
-        actorAdminUserId: platformRecord.socialPost.updatedByAdminUserId,
-        action: AUDIT_ACTIONS.INSTAGRAM_FIRST_COMMENT_FAILED,
-        targetType: "SocialPost",
-        targetId: platformRecord.socialPostId,
-        metadata: {
-          platform: SocialPlatform.INSTAGRAM,
-          textLength: result.firstComment.textLength,
-          errorMessage: result.firstComment.errorMessage,
-        },
-      }).catch(() => undefined);
-    }
 
     return {
       attemptId: attempt.id,

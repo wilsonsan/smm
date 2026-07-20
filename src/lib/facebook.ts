@@ -42,6 +42,8 @@ export const FACEBOOK_REQUIRED_SCOPES = [
   "pages_show_list",
   "pages_read_engagement",
   "pages_manage_posts",
+  "instagram_basic",
+  "instagram_content_publish",
 ] as const;
 
 export const FACEBOOK_OAUTH_STATE_COOKIE_NAME = "smm_facebook_oauth_state";

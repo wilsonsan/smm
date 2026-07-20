@@ -122,7 +122,6 @@ type PostEditorFormProps = {
     createdAtLabel?: string;
     updatedByLabel?: string;
     updatedAtLabel?: string;
-    instagramFirstCommentStatusLabel?: string;
   };
   recentMediaAssets: MediaAssetGallerySummary[];
   timezone: string;
@@ -469,7 +468,6 @@ export function PostEditorForm({
   const facebookOverrideTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const instagramOverrideTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const googleOverrideTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const instagramFirstCommentTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const hashtagInputRef = useRef<HTMLInputElement | null>(null);
   const [previewPlatform, setPreviewPlatform] = useState<PreviewPlatform>("FACEBOOK");
   const previewPlatformRef = useRef<PreviewPlatform>("FACEBOOK");
@@ -486,7 +484,7 @@ export function PostEditorForm({
       descriptionFacebook: post?.descriptionFacebook ?? "",
       descriptionInstagram: post?.descriptionInstagram ?? "",
       descriptionGoogleBusiness: post?.descriptionGoogleBusiness ?? "",
-      instagramFirstComment: post?.instagramFirstComment ?? "",
+      instagramFirstComment: "",
       hashtags: post?.hashtags ?? [],
       includeHashtagsInGoogle: post?.includeHashtagsInGoogle ?? false,
       appliedHashtagGroups: [] as string[],
@@ -507,7 +505,6 @@ export function PostEditorForm({
   const [descriptionFacebook, setDescriptionFacebook] = useState(formValues.descriptionFacebook);
   const [descriptionInstagram, setDescriptionInstagram] = useState(formValues.descriptionInstagram);
   const [descriptionGoogleBusiness, setDescriptionGoogleBusiness] = useState(formValues.descriptionGoogleBusiness);
-  const [instagramFirstComment, setInstagramFirstComment] = useState(formValues.instagramFirstComment);
   const [scheduledDate, setScheduledDate] = useState(formValues.scheduledDate);
   const [scheduledHour, setScheduledHour] = useState(formValues.scheduledHour);
   const [scheduledMinute, setScheduledMinute] = useState(formValues.scheduledMinute);
@@ -529,9 +526,6 @@ export function PostEditorForm({
         formValues.descriptionGoogleBusiness,
     ),
   );
-  const [showInstagramFirstComment, setShowInstagramFirstComment] = useState(
-    Boolean(formValues.instagramFirstComment),
-  );
   const [activeCaptionTarget, setActiveCaptionTarget] = useState<CaptionTarget>("main");
   const [activeOverridePlatform, setActiveOverridePlatform] = useState<OverridePlatformTab>("FACEBOOK");
   const [visibleScheduleMonth, setVisibleScheduleMonth] = useState(() => {
@@ -550,7 +544,6 @@ export function PostEditorForm({
     setDescriptionFacebook(formValues.descriptionFacebook);
     setDescriptionInstagram(formValues.descriptionInstagram);
     setDescriptionGoogleBusiness(formValues.descriptionGoogleBusiness);
-    setInstagramFirstComment(formValues.instagramFirstComment);
     setScheduledDate(formValues.scheduledDate);
     setScheduledHour(formValues.scheduledHour);
     setScheduledMinute(formValues.scheduledMinute);
@@ -577,7 +570,6 @@ export function PostEditorForm({
           formValues.descriptionGoogleBusiness,
       ),
     );
-    setShowInstagramFirstComment(Boolean(formValues.instagramFirstComment));
     setActiveCaptionTarget("main");
     previousSelectedPlatformsRef.current = formValues.platforms;
   }, [
@@ -585,7 +577,6 @@ export function PostEditorForm({
     formValues.descriptionFacebook,
     formValues.descriptionInstagram,
     formValues.descriptionGoogleBusiness,
-    formValues.instagramFirstComment,
     formValues.hashtags,
     formValues.includeHashtagsInGoogle,
     formValues.mediaAssetIds,
@@ -795,7 +786,7 @@ export function PostEditorForm({
     descriptionFacebook,
     descriptionInstagram,
     descriptionGoogleBusiness,
-    instagramFirstComment,
+    instagramFirstComment: "",
     hashtags: normalizedHashtags,
     includeHashtagsInGoogle,
   };
@@ -825,7 +816,6 @@ export function PostEditorForm({
     "Clean tile lines, sharp details, and a finish that feels built to last.";
   const googleCaptionPreview =
     googlePreviewContent.descriptionText.trim() || "Fresh tile install with clean lines and warm tones...";
-  const instagramFirstCommentPreview = instagramPreviewContent.firstCommentText.trim();
   const insertContentButtons = [
     { key: "signature", label: "Signature", value: insertContentTemplates.signature, icon: <ComposeIcon /> },
     { key: "phoneNumber", label: "Phone Number", value: insertContentTemplates.phoneNumber, icon: <PhoneIcon /> },
@@ -1027,7 +1017,7 @@ export function PostEditorForm({
       <input type="hidden" name="descriptionFacebook" value={descriptionFacebook} />
       <input type="hidden" name="descriptionInstagram" value={descriptionInstagram} />
       <input type="hidden" name="descriptionGoogleBusiness" value={descriptionGoogleBusiness} />
-      <input type="hidden" name="instagramFirstComment" value={instagramFirstComment} />
+      <input type="hidden" name="instagramFirstComment" value="" />
       {normalizedHashtags.map((hashtag) => (
         <input key={hashtag} type="hidden" name="hashtags" value={hashtag} />
       ))}
@@ -1421,47 +1411,6 @@ export function PostEditorForm({
             </div>
           </section>
 
-          {selectedPlatforms.includes(INSTAGRAM_PLATFORM) ? (
-            <section className="composer-section-card composer-section-card--compact composer-instagram-comment-card">
-              <div className="composer-description-header">
-                <div>
-                  <strong>Instagram First Comment</strong>
-                </div>
-                <button
-                  type="button"
-                  className={`composer-override-toggle${showInstagramFirstComment ? " is-active" : ""}`.trim()}
-                  onClick={() => setShowInstagramFirstComment((current) => !current)}
-                >
-                  {showInstagramFirstComment ? "Hide first comment" : "Show first comment"}
-                </button>
-              </div>
-
-              {showInstagramFirstComment ? (
-                <div className="composer-override-card composer-instagram-comment-card">
-                  <textarea
-                    ref={instagramFirstCommentTextareaRef}
-                    className="composer-override-textarea"
-                    value={instagramFirstComment}
-                    onChange={(event) => setInstagramFirstComment(event.target.value)}
-                    placeholder="Optional first comment for Instagram..."
-                    disabled={isReadOnly}
-                    maxLength={2200}
-                  />
-                  <div className="composer-caption-footer">
-                    <span className="composer-character-count">
-                      {formatCharacterCount(instagramFirstComment.length)} / 2,200
-                    </span>
-                  </div>
-                  {state.fieldErrors?.instagramFirstComment?.map((error) => (
-                    <span key={error} className="error-text">
-                      {error}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </section>
-          ) : null}
-
           <section className="composer-section-card">
             <div className="composer-section-heading">
               <span className="composer-step-badge is-cyan">5</span>
@@ -1842,12 +1791,6 @@ export function PostEditorForm({
                       <p>
                         <span>{instagramPreviewUsername}</span> {instagramCaptionPreview}
                       </p>
-                      {instagramFirstCommentPreview ? (
-                        <div className="composer-instagram-first-comment-preview">
-                          <span>First comment</span>
-                          <p>{instagramFirstCommentPreview}</p>
-                        </div>
-                      ) : null}
                     </div>
                   </div>
                 </div>

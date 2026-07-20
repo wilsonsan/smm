@@ -54,6 +54,14 @@ export const postFormSchema = z
     const maxMediaCount = getMaxMediaCountForPlatforms(value.platforms);
     const mainDescription = getMainPostDescription(value);
 
+    if (value.instagramFirstComment) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Instagram first-comment publishing is unavailable.",
+        path: ["instagramFirstComment"],
+      });
+    }
+
     if ((value.intent === "schedule" || value.intent === "publish") && !mainDescription) {
       const everySelectedPlatformHasOverride = value.platforms.every((platform) =>
         Boolean(getPlatformDescriptionOverride(value, platform)),

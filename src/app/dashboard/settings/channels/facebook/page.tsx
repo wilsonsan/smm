@@ -13,6 +13,7 @@ import {
   getPendingFacebookPageSelection,
   refreshFacebookConnectionHealth,
 } from "@/lib/facebook";
+import { getInstagramFoundationStateFromConnection } from "@/lib/instagram";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
 
 type FacebookSettingsPageProps = {
@@ -86,6 +87,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
     getResolvedAppTimezone(),
   ]);
 
+  const instagramFoundation = getInstagramFoundationStateFromConnection(connection);
   const hasBlockingSetupIssue = config.missingConfig.length > 0;
   const currentAppId = config.appId || "";
   const currentPageLookupValue = config.preferredPageLookupValue || "nctilepro";
@@ -100,8 +102,8 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
     <section className="section-stack">
       <header className="page-header">
         <div>
-          <h2>Facebook</h2>
-          <p>Connect the Facebook business account authorized to manage the NC Tile Pros Facebook Page.</p>
+          <h2>Connect Meta Accounts</h2>
+          <p>Connect the business account authorized to manage the NC Tile Pros Facebook Page and its linked Instagram professional account.</p>
         </div>
         <div className="button-row">
           <Link href="/dashboard/settings/channels/facebook/advanced" className="secondary-button">
@@ -127,7 +129,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
         <div className="settings-section-head">
           <div>
             <span className="settings-eyebrow">Channel Settings</span>
-            <h3>Facebook Connection</h3>
+            <h3>Meta Connection</h3>
             <p>Only the essentials are shown here.</p>
           </div>
           <span className={`badge is-${getStatusTone(connection?.status ?? null)}`.trim()}>
@@ -139,7 +141,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
           <div className="settings-subcard-head">
             <div>
               <strong>Basic Setup</strong>
-              <p>Save the Meta app details first, then connect the Facebook Page.</p>
+              <p>Save your Meta app details first, then connect the page.</p>
             </div>
             <span className="settings-chip">Required</span>
           </div>
@@ -158,7 +160,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                     placeholder="123456789012345"
                     inputMode="numeric"
                   />
-                  <span className="hint">Meta app ID used for the Facebook Page connection. Numbers only.</span>
+                  <span className="hint">Shared Meta app ID used for Facebook and Instagram. Numbers only.</span>
                 </div>
 
                 <div className="field">
@@ -227,7 +229,7 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
             </p>
             <p className="hint">Connect uses the currently saved App ID and App Secret. If you changed either field, click Save before connecting.</p>
             <p className="hint">
-              Users sign into the Social Media Manager separately. An administrator connects the business Facebook account once, and internal creators publish through the connected Page.
+              Users sign into this app separately. An administrator connects Meta once, and internal creators publish through the connected business destinations without connecting personal accounts.
             </p>
           </div>
         </section>
@@ -264,10 +266,25 @@ export default async function FacebookChannelSettingsPage({ searchParams }: Face
                   readOnly
                 />
               </div>
+
+              <div className="field">
+                <label>Linked Instagram</label>
+                <input
+                  value={
+                    instagramFoundation.username
+                      ? `@${instagramFoundation.username}${instagramFoundation.accountId ? ` (${instagramFoundation.accountId})` : ""}`
+                      : instagramFoundation.status
+                  }
+                  readOnly
+                />
+              </div>
             </div>
 
             {connection?.lastError ? <p className="error-text">{connection.lastError}</p> : null}
-            <p className="hint">This connection lets the app publish authorized content to the connected Facebook Page.</p>
+            <p className={instagramFoundation.status === "READY" ? "success-text" : "hint"}>
+              {instagramFoundation.message}
+            </p>
+            <p className="hint">Instagram content publishing is supported. Instagram comment management and first-comment publishing are not enabled.</p>
           </div>
         </section>
 

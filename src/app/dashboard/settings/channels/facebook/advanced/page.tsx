@@ -19,6 +19,7 @@ import {
   getFacebookOauthDebugResult,
   getPendingFacebookPageSelection,
 } from "@/lib/facebook";
+import { getInstagramFoundationStateFromConnection } from "@/lib/instagram";
 import { formatDateTimeForTimezone, getResolvedAppTimezone } from "@/lib/time";
 import { FacebookDiagnosticsPanel } from "@/components/facebook-diagnostics-panel";
 
@@ -165,12 +166,14 @@ export default async function FacebookAdvancedChannelSettingsPage({
     connection?.status === ConnectedAccountStatus.MISSING_SCOPES ||
     connection?.status === ConnectedAccountStatus.ERROR;
   const hasConnectedPage = Boolean(connection?.pageId);
+  const instagramFoundation = getInstagramFoundationStateFromConnection(connection);
+
   return (
     <section className="section-stack">
       <header className="page-header">
         <div>
           <h2>Facebook Advanced</h2>
-          <p>Deep Facebook Page diagnostics, redirect/runtime checks, and manual page lookup.</p>
+          <p>Full Facebook diagnostics, redirect/runtime checks, manual page lookup, and deep connection troubleshooting.</p>
         </div>
         <div className="button-row">
           <Link href="/dashboard/settings/channels/facebook" className="secondary-button">
@@ -197,7 +200,7 @@ export default async function FacebookAdvancedChannelSettingsPage({
           <div>
             <span className="settings-eyebrow">Channel Settings</span>
             <h3>Advanced Facebook Settings</h3>
-            <p>Meta app configuration stays self-hosted, and Facebook Page access tokens are encrypted before they touch storage.</p>
+            <p>Meta app configuration stays self-hosted, and Page access tokens are encrypted before they touch storage.</p>
           </div>
           <span className="settings-count">{connection?.pageName ? "Connected" : "Ready to connect"}</span>
         </div>
@@ -476,6 +479,23 @@ export default async function FacebookAdvancedChannelSettingsPage({
                   readOnly
                 />
               </div>
+
+              <div className="field">
+                <label>Linked Instagram status</label>
+                <input value={instagramFoundation.status} readOnly />
+              </div>
+
+              <div className="field">
+                <label>Linked Instagram account</label>
+                <input
+                  value={
+                    instagramFoundation.username
+                      ? `@${instagramFoundation.username}${instagramFoundation.accountId ? ` (${instagramFoundation.accountId})` : ""}`
+                      : "No linked Instagram account detected"
+                  }
+                  readOnly
+                />
+              </div>
             </div>
 
             {pageUrl ? (
@@ -487,8 +507,8 @@ export default async function FacebookAdvancedChannelSettingsPage({
               </p>
             ) : null}
 
-            <p className="hint">
-              This connection is used only for Facebook Page publishing in the current production configuration.
+            <p className={instagramFoundation.status === "READY" ? "success-text" : "hint"}>
+              {instagramFoundation.message}
             </p>
 
             {connection?.lastError ? <p className="error-text">{connection.lastError}</p> : null}

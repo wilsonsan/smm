@@ -121,8 +121,12 @@ export default function TermsOfUsePage() {
       <section>
         <h2>5. Social Media Account Authorization</h2>
         <p>
-          The Application may access Facebook Pages or other
+          The Application may access Facebook Pages, Instagram professional accounts, or other
           social media resources only after appropriate authorization.
+        </p>
+        <p>
+          Instagram access is limited to account discovery and authorized content publishing.
+          Instagram comment management and first-comment publishing are not enabled.
         </p>
         <p>
           You represent that you have all rights and permissions necessary to connect and manage

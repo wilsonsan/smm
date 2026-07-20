@@ -111,7 +111,7 @@ export function buildEffectiveHashtagPayload(input: {
   if (input.platform === SocialPlatform.INSTAGRAM) {
     return {
       hashtagsUsed: input.hashtags,
-      placement: "firstComment" as const,
+      placement: "description" as const,
     };
   }
 
@@ -150,17 +150,6 @@ export function applyHashtagsToPlatformContent(input: {
       hashtagsUsed: [] as string[],
       placement: payload.placement,
       hashtagDisplayText: "",
-    };
-  }
-
-  if (payload.placement === "firstComment") {
-    const hashtagBlock = formatStackedHashtags(payload.hashtagsUsed);
-    return {
-      descriptionText: input.descriptionText.trim(),
-      firstCommentText: appendContentBlock(input.firstCommentText || "", hashtagBlock),
-      hashtagsUsed: payload.hashtagsUsed,
-      placement: payload.placement,
-      hashtagDisplayText: hashtagBlock,
     };
   }
 

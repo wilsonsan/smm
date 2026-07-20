@@ -37,13 +37,14 @@ export default function PrivacyPolicyPage() {
       <section>
         <h2>1. Information We Process</h2>
         <p>
-          When the Application is connected to Meta products, including Facebook,
+          When the Application is connected to Meta products, including Facebook and Instagram,
           we may receive and process information made available through Meta&apos;s APIs. Depending
           on the permissions granted, this information may include:
         </p>
         <ul>
-          <li>Facebook account identifiers.</li>
+          <li>Facebook or Instagram account identifiers.</li>
           <li>Facebook Page identifiers and Page names.</li>
+          <li>Instagram professional account identifiers and account names.</li>
           <li>Basic profile or business account information.</li>
           <li>Meta access tokens and token expiration information.</li>
           <li>Permissions granted to the Application.</li>
@@ -53,7 +54,7 @@ export default function PrivacyPolicyPage() {
           </li>
           <li>
             Information needed to create, schedule, publish, or verify content on connected
-            Facebook Pages.
+            Facebook Pages and Instagram professional accounts.
           </li>
         </ul>
         <p>
@@ -79,12 +80,17 @@ export default function PrivacyPolicyPage() {
       <section>
         <h2>2. How We Use Information</h2>
         <p>
+          The Application can publish authorized content to the NC Tile Pros Facebook Page and
+          connected Instagram professional account. Instagram comment management and
+          first-comment publishing are not enabled.
+        </p>
+        <p>
           We use the information processed by the Application only for legitimate application
           and business purposes, including to:
         </p>
         <ul>
           <li>Authenticate and maintain authorized connections to Meta accounts.</li>
-          <li>Display connected Facebook Pages.</li>
+          <li>Display connected Facebook Pages and Instagram professional accounts.</li>
           <li>Create, schedule, publish, and manage social media content.</li>
           <li>Confirm whether scheduled content was published successfully.</li>
           <li>Diagnose failed publishing attempts and technical problems.</li>
@@ -100,7 +106,8 @@ export default function PrivacyPolicyPage() {
         <h2>3. Legal Basis and Authorization</h2>
         <p>
           The Application processes information based on the authorization provided when the
-          authorized NC Tile Pros LLC administrator connects the company&apos;s Facebook Page.
+          authorized NC Tile Pros LLC administrator connects the company&apos;s Facebook Page or
+          Instagram professional account.
         </p>
         <p>
           The Application is intended to process only information associated with accounts that
@@ -176,7 +183,7 @@ export default function PrivacyPolicyPage() {
           <li>The account is disconnected.</li>
           <li>Authorization is revoked.</li>
           <li>A token expires.</li>
-          <li>The Application&apos;s access is removed through Facebook settings.</li>
+          <li>The Application&apos;s access is removed through Facebook or Instagram settings.</li>
           <li>A valid deletion request is received.</li>
           <li>The Application is discontinued.</li>
         </ul>
@@ -205,7 +212,7 @@ export default function PrivacyPolicyPage() {
         </p>
         <p>
           The request should include enough information to identify the relevant connected
-          account, such as the Facebook Page name or email address
+          account, such as the Facebook Page name, Instagram account name, or email address
           associated with the request.
         </p>
         <p>
@@ -214,7 +221,7 @@ export default function PrivacyPolicyPage() {
           permitted under applicable Meta Platform requirements.
         </p>
         <p>
-          Users may also remove the Application through their Facebook account
+          Users may also remove the Application through their Facebook or Instagram account
           settings. Removing the Application may revoke future access, but a separate deletion
           request may still be needed to request deletion of information previously stored by the
           Application.

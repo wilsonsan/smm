@@ -179,14 +179,11 @@ export function resolveRenderedPlatformContent(
   hashtagSettings: Pick<HashtagSettings, "facebookDefaultLimit">,
 ): RenderedPlatformContentResult {
   const renderedDescription = resolveRenderedPostDescription(input, platform, templateVariableValues);
-  const renderedFirstComment =
-    platform === SocialPlatform.INSTAGRAM
-      ? resolveRenderedInstagramFirstComment(input, templateVariableValues)
-      : {
-          text: "",
-          variablesRendered: false,
-          unresolvedVariableNames: [] as string[],
-        };
+  const renderedFirstComment = {
+    text: "",
+    variablesRendered: false,
+    unresolvedVariableNames: [] as string[],
+  };
 
   const hashtagContent = applyHashtagsToPlatformContent({
     platform,

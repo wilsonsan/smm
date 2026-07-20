@@ -3,7 +3,10 @@ import { AUDIT_ACTIONS, createAuditLog } from "@/lib/audit";
 import { claimFacebookPostForPublishing, executeFacebookPublish } from "@/lib/facebook";
 import { claimGooglePostForPublishing, executeGooglePublish } from "@/lib/google";
 import { claimInstagramPostForPublishing, executeInstagramPublish } from "@/lib/instagram";
-import { isMetaInstagramEnabled, META_INSTAGRAM_NOT_ENABLED_MESSAGE } from "@/lib/meta-instagram-capability";
+import {
+  isMetaInstagramPublishingEnabled,
+  META_INSTAGRAM_NOT_ENABLED_MESSAGE,
+} from "@/lib/meta-instagram-capability";
 import { createOrUpdateWorkerErrorNotification, dismissWorkerErrorNotifications } from "@/lib/notifications";
 import { syncSocialPostAggregateState } from "@/lib/publish-state";
 import { prisma } from "@/lib/prisma";
@@ -261,7 +264,7 @@ export async function publishScheduledPosts(): Promise<PublishWorkerResult> {
         state: "claiming",
       }).catch(() => undefined);
 
-      if (platform.platform === SocialPlatform.INSTAGRAM && !isMetaInstagramEnabled()) {
+      if (platform.platform === SocialPlatform.INSTAGRAM && !isMetaInstagramPublishingEnabled()) {
         const markedFailed = await markUnsupportedInstagramPlatformFailed({
           socialPostId: platform.socialPostId,
         });
